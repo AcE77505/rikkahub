@@ -16,9 +16,6 @@ local.properties
 *.jks
 *.keystore
 
-# 构建产物：baseline profile 每次构建都会重新生成
-app/src/release/generated/
-
 # Reasonix 会话附件与任务记录，不入库
 /.reasonix/
 
