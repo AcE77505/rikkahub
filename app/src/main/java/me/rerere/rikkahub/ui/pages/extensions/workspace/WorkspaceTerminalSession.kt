@@ -15,103 +15,72 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
-import me.rerere.rikkahub.data.files.FileFolders
-import me.rerere.workspace.RootfsPatchOptions
-import me.rerere.workspace.RootfsPatcher
-import me.rerere.workspace.WorkspaceManager
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import org.koin.core.context.GlobalContext
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 internal fun createWorkspaceTerminalSession(
     context: Context,
     root: String,
     client: TerminalSessionClient,
-    shellCompatibilityMode: Boolean,
 ): TerminalSession {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
-    val filesDir = File(workspaceDir, "files")
-    val linuxDir = File(workspaceDir, "linux")
-    val tempDir = File(workspaceDir, "tmp")
-    val skillsDir = File(appContext.filesDir, FileFolders.SKILLS).apply { mkdirs() }
-    val builtinSkillsDir = File(appContext.filesDir, FileFolders.BUILTIN_SKILLS).apply { mkdirs() }
-    val nativeLibraryDir = File(appContext.applicationInfo.nativeLibraryDir)
-    val proot = File(nativeLibraryDir, "libproot_exec.so")
-    val loader = File(nativeLibraryDir, "libproot_loader.so")
-    val shell = WorkspaceManager.rootfsShell(linuxDir)
-
-    val args = mutableListOf(
-        "--root-id",
-        "--link2symlink",
-        "--kill-on-exit",
-        "-r",
-        linuxDir.absolutePath,
-        "-w",
-        WORKSPACE_DIR,
-        "-b",
-        "${filesDir.absolutePath}:$WORKSPACE_DIR",
-        "-b",
-        "${skillsDir.absolutePath}:$SKILLS_DIR",
-        "-b",
-        "${builtinSkillsDir.absolutePath}:$BUILTIN_SKILLS_DIR",
-    )
-    listOf("/dev", "/proc", "/sys").forEach { path ->
-        if (File(path).exists()) {
-            args += "-b"
-            args += path
-        }
+    val repository: WorkspaceRepository = GlobalContext.get().get()
+    // 这里只有目录名（root），主键要另外查；直接用 root 当 id 会查不到
+    val workspace = runBlocking { repository.getByRoot(root) }
+    // 工作区目录可能是用户指定的绝对路径，取不到时回落到默认 files 目录
+    val workingDir = workspace?.let { it.directory?.takeIf { dir -> dir.startsWith("/") } }
+        ?.let { File(it) }
+        ?: File(workspaceDir, "files")
+    workingDir.mkdirs()
+    val homeDir = File(workspaceDir, "home").apply { mkdirs() }
+    val tempDir = File(workspaceDir, "tmp").apply { mkdirs() }
+    val toolchain = workspace?.let { ws ->
+        runBlocking { runCatching { repository.toolchainEnvironment(ws.id) }.getOrNull() }
     }
-    args += listOf(
-        "/usr/bin/env",
-        "-i",
-        "HOME=/root",
-        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "TERM=xterm-256color",
-        "LANG=C.UTF-8",
-        "LC_ALL=C.UTF-8",
-        "USER=root",
-        "SHELL=$shell",
-        shell,
-    )
 
-    val env = mutableListOf(
-        "PROOT_LOADER=${loader.absolutePath}",
-        "PROOT_TMP_DIR=${tempDir.absolutePath}",
-        "TMPDIR=${tempDir.absolutePath}",
-    )
+    val shell = toolchain?.shellPath ?: DEFAULT_SHELL
+    val systemPath = "/system/bin:/system/xbin:/vendor/bin:/sbin:/bin"
+    val path = (toolchain?.pathPrepend.orEmpty() + listOf(systemPath, "/usr/bin", "/usr/local/bin"))
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(":")
 
-    if (shellCompatibilityMode) {
-        env += "PROOT_NO_SECCOMP=1"
+    val env = buildList {
+        add("PATH=$path")
+        add("HOME=${homeDir.absolutePath}")
+        add("TMPDIR=${tempDir.absolutePath}")
+        add("SHELL=$shell")
+        add("TERM=xterm-256color")
+        add("LANG=C.UTF-8")
+        add("LC_ALL=C.UTF-8")
+        toolchain?.extraEnv?.forEach { (key, value) -> add("$key=$value") }
     }
 
     return TerminalSession(
-        proot.absolutePath,
-        filesDir.absolutePath,
-        args.toTypedArray(),
+        shell,
+        workingDir.absolutePath,
+        emptyArray(),
         env.toTypedArray(),
         2_000,
         client,
     ).apply {
-        mSessionName = root
+        mSessionName = workspace?.name ?: root
     }
 }
 
+/** 终端启动前只保证目录存在；命令环境本身总是可用的（Android 原生 shell） */
 internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
-    val linuxDir = File(workspaceDir, "linux")
     File(workspaceDir, "files").mkdirs()
+    File(workspaceDir, "home").mkdirs()
     File(workspaceDir, "tmp").mkdirs()
-    File(appContext.filesDir, FileFolders.SKILLS).mkdirs()
-    RootfsPatcher().patch(
-        linuxDir,
-        RootfsPatchOptions(nameservers = appContext.activeDnsServers())
-    )
 }
 
-internal fun workspaceRootfsReady(context: Context, root: String): Boolean {
-    val linuxDir = File(File(File(context.applicationContext.filesDir, "workspaces"), root), "linux")
-    return WorkspaceManager.isUsableRootfs(linuxDir)
-}
+private const val DEFAULT_SHELL = "/system/bin/sh"
 
 internal class WorkspaceTerminalSessionClient(
     private val context: Context,

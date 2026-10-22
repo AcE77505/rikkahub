@@ -9,22 +9,20 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.RootfsInstallProgress
-import me.rerere.workspace.RootfsInstallStage
-import me.rerere.workspace.WorkspaceFileEntry
+import me.rerere.workspace.TermexStatus
 import me.rerere.workspace.WorkspaceCommandResult
-import me.rerere.workspace.WorkspaceStorageArea
+import me.rerere.workspace.WorkspaceFileEntry
 
 class WorkspaceDetailVM(
     private val id: String,
@@ -34,12 +32,28 @@ class WorkspaceDetailVM(
     private val _state = MutableStateFlow(WorkspaceDetailState())
     val state = _state.asStateFlow()
 
-    private var pendingExport: Pair<WorkspaceStorageArea, List<WorkspaceFileEntry>>? = null
+    private var pendingExport: List<WorkspaceFileEntry>? = null
+
+    private val _terminalState = MutableStateFlow(WorkspaceTerminalState())
+    val terminalState = _terminalState.asStateFlow()
+
+    private val _settingsError = MutableStateFlow<String?>(null)
+    val settingsError = _settingsError.asStateFlow()
+
+    fun dismissSettingsError() {
+        _settingsError.value = null
+    }
+
+    init {
+        loadWorkspace()
+        refresh()
+        refreshTermexStatus()
+    }
 
     fun prepareBatchExport(entries: List<WorkspaceFileEntry>): Boolean {
         val files = entries.filterNot { it.isDirectory }
         if (pendingExport != null || state.value.exporting || files.isEmpty()) return false
-        pendingExport = state.value.area to files
+        pendingExport = files
         return true
     }
 
@@ -48,7 +62,7 @@ class WorkspaceDetailVM(
     }
 
     fun exportFilesToDirectory(treeUri: Uri?, resolver: ContentResolver) {
-        val (area, entries) = pendingExport.also { pendingExport = null } ?: return
+        val entries = pendingExport.also { pendingExport = null } ?: return
         if (treeUri == null) return
         _state.update { it.copy(exporting = true, exportCompleted = 0, exportTotal = entries.size, exportResult = null) }
         viewModelScope.launch {
@@ -70,7 +84,7 @@ class WorkspaceDetailVM(
                                 ?: error("无法创建目标文件")
                             destination = document
                             val output = resolver.openOutputStream(document) ?: error("无法打开目标文件")
-                            output.use { repository.exportFile(id, area, entry.path, it) }
+                            output.use { repository.exportFile(id, entry.path, it) }
                             succeeded++
                             destination = null
                         } catch (error: CancellationException) {
@@ -100,39 +114,6 @@ class WorkspaceDetailVM(
         }
     }
 
-    private val _terminalState = MutableStateFlow(WorkspaceTerminalState())
-    val terminalState = _terminalState.asStateFlow()
-
-    private val _installProgress = MutableStateFlow<RootfsInstallProgress?>(null)
-    val installProgress = _installProgress.asStateFlow()
-
-    private val _installError = MutableStateFlow<String?>(null)
-    val installError = _installError.asStateFlow()
-
-    private val _settingsError = MutableStateFlow<String?>(null)
-    val settingsError = _settingsError.asStateFlow()
-
-    fun dismissSettingsError() {
-        _settingsError.value = null
-    }
-
-    init {
-        loadWorkspace()
-        refresh()
-    }
-
-    fun selectArea(area: WorkspaceStorageArea) {
-        _state.update {
-            it.copy(
-                area = area,
-                path = "",
-                entries = emptyList(),
-                error = null,
-            )
-        }
-        refresh()
-    }
-
     fun open(entry: WorkspaceFileEntry) {
         if (!entry.isDirectory) return
         _state.update { it.copy(path = entry.path, entries = emptyList(), error = null) }
@@ -156,11 +137,7 @@ class WorkspaceDetailVM(
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             runCatching {
-                repository.listFiles(
-                    id = id,
-                    area = state.value.area,
-                    path = state.value.path,
-                )
+                repository.listFiles(id = id, path = state.value.path)
             }.onSuccess { entries ->
                 _state.update { it.copy(entries = entries, loading = false) }
             }.onFailure { error ->
@@ -180,7 +157,6 @@ class WorkspaceDetailVM(
             runCatching {
                 repository.deleteFile(
                     id = id,
-                    area = state.value.area,
                     path = entry.path,
                     recursive = entry.isDirectory,
                 )
@@ -197,7 +173,6 @@ class WorkspaceDetailVM(
             runCatching {
                 repository.importFile(
                     id = id,
-                    area = state.value.area,
                     destinationPath = state.value.path,
                     fileName = fileName,
                     inputStream = inputStream,
@@ -213,25 +188,18 @@ class WorkspaceDetailVM(
     fun exportFile(entry: WorkspaceFileEntry, outputStream: OutputStream) {
         viewModelScope.launch {
             runCatching {
-                repository.exportFile(
-                    id = id,
-                    area = state.value.area,
-                    path = entry.path,
-                    outputStream = outputStream,
-                )
+                repository.exportFile(id, entry.path, outputStream)
             }.onFailure { error ->
                 _state.update { it.copy(error = error.message ?: "导出文件失败") }
             }
         }
     }
 
-    suspend fun resolveImageFile(
-        entry: WorkspaceFileEntry,
-        area: WorkspaceStorageArea,
-    ): File = repository.resolveFile(id, area, entry.path)
+    suspend fun resolveImageFile(entry: WorkspaceFileEntry): File =
+        repository.resolveFile(id, entry.path)
 
     /**
-     * 把当前区域下的文件导出到 cacheDir 的临时文件, 完成后回调 [onReady].
+     * 把文件导出到 cacheDir 的临时文件, 完成后回调 [onReady].
      * 供分享 / 图片预览 / 交给系统应用打开等复用 (它们都需要一个 FileProvider 可访问的真实 File).
      */
     fun exportToCacheFile(entry: WorkspaceFileEntry, cacheDir: File, onReady: (File) -> Unit) {
@@ -240,12 +208,7 @@ class WorkspaceDetailVM(
                 val dir = File(cacheDir, "workspace_share").apply { mkdirs() }
                 val file = File(dir, entry.name)
                 file.outputStream().use { output ->
-                    repository.exportFile(
-                        id = id,
-                        area = state.value.area,
-                        path = entry.path,
-                        outputStream = output,
-                    )
+                    repository.exportFile(id, entry.path, output)
                 }
                 file
             }.onSuccess(onReady).onFailure { error ->
@@ -254,12 +217,13 @@ class WorkspaceDetailVM(
         }
     }
 
-    fun setShellCompatibilityMode(enabled: Boolean) {
+    /** 工作区目录（绝对路径，留空表示用默认目录） */
+    fun setDirectory(directory: String) {
         viewModelScope.launch {
             try {
-                repository.setShellCompatibilityMode(id, enabled)
-                val workspace = repository.getById(id)
-                _state.update { it.copy(workspace = workspace) }
+                repository.setDirectory(id, directory.ifBlank { null })
+                loadWorkspace()
+                refresh()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -268,38 +232,26 @@ class WorkspaceDetailVM(
         }
     }
 
-    fun setToolApproval(toolName: String, needsApproval: Boolean) {
+    /** Linux 工具链开关；未安装 termex 扩展包时打开会失败并提示 */
+    fun setToolchainEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            val workspace = state.value.workspace ?: return@launch
-            repository.setToolApproval(workspace.id, toolName, needsApproval)
-            loadWorkspace()
-        }
-    }
-
-    fun installRootfs(url: String) {
-        viewModelScope.launch {
-            _installError.value = null
-            val workspace = state.value.workspace ?: return@launch
-            _installProgress.value = RootfsInstallProgress(stage = RootfsInstallStage.DOWNLOADING)
             try {
-                terminalSessionManager.closeWorkspace(workspace.root)
-                repository.installRootfs(workspace.id, url) { progress ->
-                    _installProgress.value = progress
-                }
+                terminalSessionManager.closeWorkspace(state.value.workspace?.root ?: return@launch)
+                repository.setToolchainEnabled(id, enabled)
                 loadWorkspace()
-                refresh()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (error: Throwable) {
-                _installError.value = error.message ?: "Rootfs 安装失败"
-            } finally {
-                _installProgress.value = null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _settingsError.value = error.message.orEmpty()
             }
         }
     }
 
-    fun dismissInstallError() {
-        _installError.value = null
+    fun refreshTermexStatus() {
+        viewModelScope.launch {
+            val status = withContext(Dispatchers.IO) { repository.termexStatus() }
+            _state.update { it.copy(termex = status) }
+        }
     }
 
     fun executeTerminalCommand(command: String) {
@@ -350,14 +302,20 @@ class WorkspaceDetailVM(
     private fun loadWorkspace() {
         viewModelScope.launch {
             val workspace = repository.getById(id)
-            _state.update { it.copy(workspace = workspace) }
+            val targetDir = workspace?.let {
+                runCatching { repository.workingDirectory(it.id) }.getOrNull()
+            }
+            _state.update { it.copy(workspace = workspace, workingDir = targetDir) }
         }
     }
 }
 
 data class WorkspaceDetailState(
     val workspace: WorkspaceEntity? = null,
-    val area: WorkspaceStorageArea = WorkspaceStorageArea.FILES,
+    /** 工作区实际目录（可能是自定义目录或默认 files 目录） */
+    val workingDir: File? = null,
+    /** termex 扩展包检测结果，决定「Linux 工具链」开关是否可用 */
+    val termex: TermexStatus? = null,
     val path: String = "",
     val entries: List<WorkspaceFileEntry> = emptyList(),
     val loading: Boolean = false,

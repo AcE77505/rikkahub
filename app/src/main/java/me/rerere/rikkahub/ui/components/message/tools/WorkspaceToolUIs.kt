@@ -13,6 +13,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +26,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.time.Clock
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
@@ -37,6 +44,7 @@ import me.rerere.hugeicons.stroke.FileAdd
 import me.rerere.hugeicons.stroke.FileEdit
 import me.rerere.hugeicons.stroke.FileView
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
 import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.utils.generateUnifiedDiff
@@ -45,6 +53,7 @@ import me.rerere.ui.richtext.DiffAddedColor
 import me.rerere.ui.richtext.DiffRemovedColor
 import me.rerere.ui.richtext.DiffView
 import me.rerere.ui.richtext.parseDiffStats
+import org.koin.compose.koinInject
 
 /**
  * 工作空间编辑文件: 摘要显示增删统计与精简 diff, 详情为完整 diff view
@@ -315,6 +324,7 @@ object ShellToolUI : ToolUIRenderer {
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ShellExitStatus(content, MaterialTheme.typography.labelSmall)
+            ShellOvertimeHint(context)
             if (combined.isNotEmpty()) {
                 Box(
                     modifier = Modifier
@@ -394,6 +404,35 @@ object ShellToolUI : ToolUIRenderer {
             }
         }
     }
+}
+
+/**
+ * 运行中的命令超过阈值时在卡片里提示。
+ *
+ * 默认行为是「只提示、继续跑」，所以这里只显示已运行时长和阈值，是否中断交给下方的停止按钮。
+ * 阈值设为「无限制」时什么都不显示。
+ */
+@Composable
+private fun ShellOvertimeHint(context: ToolUIContext) {
+    if (!context.loading) return
+    val startedAt = context.tool.startedAt ?: return
+    val settingsStore: SettingsStore = koinInject()
+    val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
+    val threshold = settings.shellOvertimeSeconds ?: return
+    var now by remember { mutableStateOf(Clock.System.now()) }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            now = Clock.System.now()
+            delay(1_000)
+        }
+    }
+    val elapsedSeconds = (now - startedAt).inWholeSeconds
+    if (elapsedSeconds < threshold) return
+    Text(
+        text = "已运行 ${elapsedSeconds}s · 超过 ${threshold}s 阈值，可点下方停止按钮中断",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.tertiary,
+    )
 }
 
 /** Shell 退出状态文本: exit code 为 0 显示绿色, 超时或非零显示错误色 */

@@ -9,6 +9,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.asr.ASRProviderSetting
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
+import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Lorebook
 import me.rerere.rikkahub.data.model.PromptInjection
@@ -155,6 +156,11 @@ private val SAMPLE = Settings(
     modeInjections = listOf(PromptInjection.ModeInjection(id = id(14), name = "mode")),
     lorebooks = listOf(Lorebook(id = id(12), name = "lorebook")),
     quickMessages = listOf(QuickMessage(id = id(13), title = "hi")),
+    localTools = listOf(LocalToolOption.TimeInfo),
+    toolApprovals = mapOf("workspace_shell" to false),
+    shellOvertimeSeconds = 60,
+    shellAutoStopOnOvertime = true,
+    workspacePrompt = "custom workspace prompt",
     webServerEnabled = true,
     webServerPort = 9090,
     webServerJwtEnabled = true,
@@ -211,6 +217,11 @@ private val STORED_KEYS = setOf(
     "mode_injections",
     "lorebooks",
     "quick_messages",
+    "local_tools",
+    "tool_approvals",
+    "shell_overtime_seconds",
+    "shell_auto_stop_on_overtime",
+    "workspace_prompt",
     "backup_reminder_config",
     "sponsor_alert_dismissed_at",
 )

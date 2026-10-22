@@ -93,19 +93,41 @@ internal fun Conversation.withToolApproval(toolCallId: String, approvalState: To
  * 生成被停止时，最后一条消息里还没执行的工具补上取消的结果，否则这条消息之后没法继续发给模型。
  * 没有需要补的工具时返回 null。
  */
-internal fun Conversation.cancelInterruptedTools(): Conversation? {
+internal fun Conversation.cancelInterruptedTools(overtimeSeconds: Int? = null): Conversation? {
     val lastNode = messageNodes.lastOrNull() ?: return null
-    val updatedMessage = lastNode.currentMessage.finishPendingTools(::cancelToolByUser)
+    val updatedMessage = lastNode.currentMessage.finishPendingTools { tool ->
+        cancelToolByUser(tool, overtimeSeconds)
+    }
     if (updatedMessage === lastNode.currentMessage) return null
     return upsertMessage(lastNode.id, updatedMessage)
 }
 
-private fun cancelToolByUser(tool: UIMessagePart.Tool): UIMessagePart.Tool = tool.copy(
-    output = listOf(
-        UIMessagePart.Text(
-            """{"status":"cancelled","error":"Generation cancelled by user before tool execution completed."}"""
-        )
-    ),
-    // 执行到一半被停止的工具，耗时算到取消为止
-    finishedAt = tool.finishedAt ?: tool.startedAt?.let { Clock.System.now() },
-)
+/**
+ * 用户中断一个还在执行的工具时补的结果。
+ *
+ * 已运行时长超过阈值时结果里带 `timeout: true`，让模型知道这不是失败，而是一条跑久了被用户停掉的命令；
+ * 阈值是「无限制」或还没到阈值时，保持原来的「用户取消」语义。
+ */
+private fun cancelToolByUser(
+    tool: UIMessagePart.Tool,
+    overtimeSeconds: Int?,
+): UIMessagePart.Tool {
+    val finishedAt = tool.finishedAt ?: tool.startedAt?.let { Clock.System.now() }
+    val elapsedSeconds = tool.startedAt?.let { start ->
+        (finishedAt?.minus(start))?.inWholeSeconds
+    }
+    val exceeded = overtimeSeconds != null &&
+        overtimeSeconds > 0 &&
+        elapsedSeconds != null &&
+        elapsedSeconds >= overtimeSeconds
+    val payload = if (exceeded && elapsedSeconds != null) {
+        """{"status":"cancelled","timeout":true,"error":"Command ran ${elapsedSeconds}s, exceeding the ${overtimeSeconds}s timeout threshold, and was stopped by user."}"""
+    } else {
+        """{"status":"cancelled","error":"Generation cancelled by user before tool execution completed."}"""
+    }
+    return tool.copy(
+        output = listOf(UIMessagePart.Text(payload)),
+        // 执行到一半被停止的工具，耗时算到取消为止
+        finishedAt = finishedAt,
+    )
+}

@@ -2,16 +2,11 @@ package me.rerere.rikkahub.ui.pages.extensions.workspace
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.RootfsInstallProgress
 
 class WorkspaceVM(
     private val repository: WorkspaceRepository,
@@ -19,6 +14,10 @@ class WorkspaceVM(
 ) : ViewModel() {
     val workspaces = repository.listFlow()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    /** 当前被声明给 AI 的工作区（最多一个） */
+    val declared = repository.declaredFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     fun create(name: String) {
         viewModelScope.launch {
@@ -29,6 +28,13 @@ class WorkspaceVM(
     fun rename(workspace: WorkspaceEntity, name: String) {
         viewModelScope.launch {
             runCatching { repository.rename(workspace.id, name) }
+        }
+    }
+
+    /** 声明给 AI；DAO 事务会把其他工作区一起取消声明 */
+    fun setDeclared(workspace: WorkspaceEntity, declared: Boolean) {
+        viewModelScope.launch {
+            runCatching { repository.setDeclared(workspace.id, declared) }
         }
     }
 

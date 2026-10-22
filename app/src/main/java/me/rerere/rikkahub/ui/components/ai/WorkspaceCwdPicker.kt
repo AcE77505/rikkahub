@@ -42,7 +42,6 @@ import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceFileEntry
-import me.rerere.workspace.WorkspaceStorageArea
 import org.koin.compose.koinInject
 
 @Composable
@@ -62,7 +61,7 @@ fun WorkspaceCwdPickerSheet(
         loading = true
         try {
             val result = withContext(Dispatchers.IO) {
-                workspaceRepository.listFiles(workspaceId, WorkspaceStorageArea.FILES, browsePath)
+                workspaceRepository.listFiles(workspaceId, browsePath)
             }
             entries = result.sortedWith(compareByDescending<WorkspaceFileEntry> { it.isDirectory }.thenBy { it.name })
             loading = false

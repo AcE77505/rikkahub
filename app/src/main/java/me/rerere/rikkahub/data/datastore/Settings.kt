@@ -12,6 +12,8 @@ import me.rerere.rikkahub.data.ai.prompts.DEFAULT_OCR_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_SUGGESTION_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TITLE_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TRANSLATION_PROMPT
+import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+import me.rerere.rikkahub.data.ai.transformers.DEFAULT_WORKSPACE_PROMPT
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Lorebook
@@ -25,6 +27,9 @@ import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchServiceOptions
 import me.rerere.tts.provider.TTSProviderSetting
 import kotlin.uuid.Uuid
+
+/** 命令超时提示阈值的默认值（秒） */
+const val DEFAULT_SHELL_OVERTIME_SECONDS = 30
 
 @Serializable
 data class Settings(
@@ -73,6 +78,16 @@ data class Settings(
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
     val lorebooks: List<Lorebook> = emptyList(),
     val quickMessages: List<QuickMessage> = emptyList(),
+    // 全局工具开关（含 4 个工作区工具），所有助手共用；不再按助手绑定工作区
+    val localTools: List<LocalToolOption> = emptyList(),
+    // 工具审批的用户覆盖项（toolName -> needsApproval），未覆盖的工具沿用 WorkspaceToolDefaultApprovals
+    val toolApprovals: Map<String, Boolean> = emptyMap(),
+    // 命令超时提示阈值（秒），null 表示无限制：既不提示也不自动停止
+    val shellOvertimeSeconds: Int? = DEFAULT_SHELL_OVERTIME_SECONDS,
+    // 超过阈值后是否自动停止命令；关闭时只提示、命令继续执行
+    val shellAutoStopOnOvertime: Boolean = false,
+    // 工作区提示词模板；只在有工作区被声明时才会发出去
+    val workspacePrompt: String = DEFAULT_WORKSPACE_PROMPT,
     val webServerEnabled: Boolean = false,
     val webServerPort: Int = 8080,
     val webServerJwtEnabled: Boolean = false,

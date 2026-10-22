@@ -13,9 +13,8 @@ import me.rerere.rikkahub.data.repository.MediaCreationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.TranslationHistoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.ProotShellRunner
-import me.rerere.workspace.RootfsInstaller
-import me.rerere.workspace.WorkspaceBindMount
+import me.rerere.workspace.HostShellRunner
+import me.rerere.workspace.ToolchainManager
 import me.rerere.workspace.WorkspaceManager
 import org.koin.dsl.module
 import java.io.File
@@ -56,38 +55,30 @@ val repositoryModule = module {
     single {
         val context: Context = get()
         WorkspaceManager(
-            baseDir = File(context.filesDir, "workspaces"),
-            shellRunner = ProotShellRunner(
-                nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
-            ),
-            // 同一份挂载表既用于 PRoot 的 -b 参数, 也用于文件工具的路径解析, 避免两处漂移
-            bindMounts = listOf(
-                WorkspaceBindMount(
-                    source = File(context.filesDir, FileFolders.SKILLS).apply { mkdirs() },
-                    target = "/skills",
-                ),
-                WorkspaceBindMount(
-                    source = File(context.filesDir, FileFolders.BUILTIN_SKILLS).apply { mkdirs() },
-                    target = "/builtin_skills",
-                ),
-                WorkspaceBindMount(
-                    source = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() },
-                    target = "/tool_outputs",
-                ),
-                WorkspaceBindMount(
-                    source = File(context.filesDir, FileFolders.UPLOAD).apply { mkdirs() },
-                    target = "/upload",
-                ),
-            ),
+            baseDir = File(context.filesDir, WORKSPACES_DIR),
+            // 命令直接跑在 Android 原生环境（/system/bin/sh + toybox），不再经过 proot
+            shellRunner = HostShellRunner(),
         )
     }
 
     single {
-        RootfsInstaller(get())
+        val context: Context = get()
+        // 工具链全局只有一份，与工作区无关：files/toolchain/termex-<versionName>/
+        ToolchainManager(
+            context = context,
+            toolchainRoot = File(context.filesDir, TOOLCHAIN_DIR).apply { mkdirs() },
+        )
     }
 
     single {
-        WorkspaceRepository(get(), get(), get(), get())
+        val context: Context = get()
+        WorkspaceRepository(
+            dao = get(),
+            manager = get(),
+            toolchainManager = get(),
+            settingsStore = get(),
+            sandboxRoot = File(context.filesDir, SANDBOX_DIR),
+        )
     }
 
     single {
@@ -98,3 +89,10 @@ val repositoryModule = module {
         SkillManager(get(), get())
     }
 }
+
+private const val WORKSPACES_DIR = "workspaces"
+private const val SANDBOX_DIR = "sandbox"
+private const val TOOLCHAIN_DIR = "toolchain"
+
+/** 与 [FileFolders] 保持一致，供需要从 DI 外部拼接路径的地方复用 */
+internal val skillFolders = listOf(FileFolders.SKILLS, FileFolders.BUILTIN_SKILLS, FileFolders.UPLOAD)

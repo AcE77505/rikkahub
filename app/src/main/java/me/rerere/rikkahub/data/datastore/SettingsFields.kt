@@ -58,6 +58,9 @@ private fun uuid(
     set: Settings.(Uuid) -> Settings,
 ) = SettingsField(key, property, set, encode = { it.toString() }, decode = { Uuid.parse(it) })
 
+/** 「命令超时」设为无限制时，落盘用的哨兵值（UI 上显示为「无限制」） */
+private const val UNLIMITED_SHELL_OVERTIME = -1
+
 internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
     listOf(
         // UI设置
@@ -141,6 +144,18 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(MODE_INJECTIONS, Settings::modeInjections) { copy(modeInjections = it) },
         json(LOREBOOKS, Settings::lorebooks) { copy(lorebooks = it) },
         json(QUICK_MESSAGES, Settings::quickMessages) { copy(quickMessages = it) },
+
+        // 工具开关与审批
+        json(LOCAL_TOOLS, Settings::localTools) { copy(localTools = it) },
+        json(TOOL_APPROVALS, Settings::toolApprovals) { copy(toolApprovals = it) },
+        SettingsField(
+            SHELL_OVERTIME_SECONDS, Settings::shellOvertimeSeconds, { copy(shellOvertimeSeconds = it) },
+            // null 表示无限制，用负数当哨兵，避免 key 被删掉后读回默认的 30 秒
+            encode = { it ?: UNLIMITED_SHELL_OVERTIME },
+            decode = { if (it < 0) null else it },
+        ),
+        plain(SHELL_AUTO_STOP_ON_OVERTIME, Settings::shellAutoStopOnOvertime) { copy(shellAutoStopOnOvertime = it) },
+        plain(WORKSPACE_PROMPT, Settings::workspacePrompt) { copy(workspacePrompt = it) },
 
         // 备份提醒
         json(BACKUP_REMINDER_CONFIG, Settings::backupReminderConfig) { copy(backupReminderConfig = it) },

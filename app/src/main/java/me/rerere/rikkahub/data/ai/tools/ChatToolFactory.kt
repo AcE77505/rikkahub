@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai.tools
 
 import android.content.Context
 import android.util.Log
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
@@ -11,19 +12,21 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
-import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
-import me.rerere.workspace.WorkspaceShellStatus
+import me.rerere.rikkahub.data.skills.SkillManager
 import java.io.File
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatToolFactory"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
+
+/** 长输出落盘的子目录名（相对工作区目录）；没有工作区时回落到 app 私有 files/tool_outputs */
+private const val TOOL_OUTPUT_DIR = ".tool_outputs"
 
 // 搜索结果的体积由用户设置的结果数决定，且结果列表 UI 与引用跳转都依赖完整的 JSON 结构，不参与截断
 private val TOOLS_WITHOUT_OUTPUT_TRUNCATION = setOf("search_web")
@@ -51,7 +54,8 @@ class ChatToolFactory(
         model: Model,
         workspaceCwd: String? = null,
     ): List<Tool> {
-        val workspaceTools = createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), workspaceCwd)
+        // 工作区工具不再依赖助手绑定：开关在设置里，目标是被声明的工作区
+        val declaredWorkspace = workspaceRepository.getDeclared()
         val tools = buildList {
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
@@ -59,11 +63,10 @@ class ChatToolFactory(
             if (shouldUseExternalWebSearch(assistant, model)) {
                 addAll(createSearchTools(settings))
             }
-            addAll(localTools.getTools(assistant.localTools))
+            addAll(localTools.getTools(settings.localTools, workspaceCwd))
             if (assistant.enableRecentChatsReference) {
                 addAll(createConversationTools(conversationRepository, assistant.id))
             }
-            addAll(workspaceTools)
             if (assistant.enabledSkills.isNotEmpty()) {
                 addAll(
                     createSkillTools(
@@ -93,34 +96,40 @@ class ChatToolFactory(
                 )
             }
         }
-        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回
-        return if (workspaceTools.isEmpty()) tools else tools.map(::withOutputTruncation)
+        // 过长的输出存成文件让模型按需读取；没有工作区工具时模型读不到文件，只能原样返回
+        val workspaceDir = declaredWorkspace
+            ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
+            ?.takeIf { it.isDirectory }
+        return if (workspaceDir == null) tools else tools.map { withOutputTruncation(it, workspaceDir) }
     }
 
-    private fun withOutputTruncation(tool: Tool): Tool {
+    private fun withOutputTruncation(tool: Tool, workspaceDir: File): Tool {
         if (tool.name in TOOLS_WITHOUT_OUTPUT_TRUNCATION) return tool
         val execute = tool.execute
-        return tool.copy(execute = { truncateOutput(execute(it)) })
+        return tool.copy(execute = { truncateOutput(execute(it), workspaceDir) })
     }
 
-    private fun truncateOutput(output: List<UIMessagePart>): List<UIMessagePart> {
+    private fun truncateOutput(output: List<UIMessagePart>, workspaceDir: File): List<UIMessagePart> {
         val textParts = output.filterIsInstance<UIMessagePart.Text>()
         val totalChars = textParts.sumOf { it.text.length }
         if (totalChars <= MAX_TOOL_OUTPUT_CHARS) return output
+        // shell 工具已经在 runner 层把完整输出落过盘，这里再存一份只会让两处路径提示互相打架
+        if (textParts.any(::hasFullOutputPath)) return output
 
         val fileName = "${Uuid.random()}.txt"
         Log.i(TAG, "truncateOutput: saving $totalChars chars to $fileName")
         val fullText = textParts.joinToString("\n") { it.text }
-        val outputDir = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() }
+        val outputDir = File(workspaceDir, TOOL_OUTPUT_DIR).apply { mkdirs() }
         File(outputDir, fileName).writeText(fullText)
+        val relativePath = "$TOOL_OUTPUT_DIR/$fileName"
 
         return listOf(
             UIMessagePart.Text(
                 buildString {
                     appendLine("[Tool output truncated: $totalChars characters total]")
-                    appendLine("Full output saved to: /tool_outputs/$fileName")
-                    appendLine("Use shell to read: `cat /tool_outputs/$fileName`")
-                    appendLine("Use shell to search: `grep \"pattern\" /tool_outputs/$fileName`")
+                    appendLine("Full output saved as `$relativePath` inside the workspace directory.")
+                    appendLine("Read it with workspace_read_file (path: \"$relativePath\")")
+                    appendLine("or with workspace_shell: `cat \"$relativePath\"` / `grep \"pattern\" \"$relativePath\"`")
                     appendLine()
                     append(fullText.take(TOOL_OUTPUT_PREVIEW_CHARS))
                 }
@@ -128,16 +137,11 @@ class ChatToolFactory(
         ) + output.filter { it !is UIMessagePart.Text }
     }
 
-    private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String?): List<Tool> {
-        if (workspaceId.isNullOrBlank()) return emptyList()
-        val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
-        if (workspace.shellStatus != WorkspaceShellStatus.READY.name) {
-            Log.d(
-                TAG,
-                "createWorkspaceToolsIfReady: skip workspace tools, workspace=$workspaceId, status=${workspace.shellStatus}"
-            )
-            return emptyList()
-        }
-        return createWorkspaceTools(workspaceId, workspaceRepository, cwd)
-    }
+    private fun hasFullOutputPath(part: UIMessagePart.Text): Boolean = runCatching {
+        Json.parseToJsonElement(part.text).jsonObject["fullOutputPath"] != null
+    }.getOrDefault(false)
+
+    /** 保留给没有工作区时使用的落盘位置（app 私有目录） */
+    private fun fallbackOutputDir(): File =
+        File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() }
 }

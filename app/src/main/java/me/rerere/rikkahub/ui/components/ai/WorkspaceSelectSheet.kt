@@ -31,12 +31,15 @@ import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.Tick02
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
-import me.rerere.rikkahub.data.model.Assistant
-import me.rerere.rikkahub.ui.pages.extensions.workspace.toShellStatusLabel
 
 @Composable
+/**
+ * 选择要「声明」给 AI 的工作区。
+ *
+ * 声明是全局互斥的：选一个会把其他的取消声明，选「不声明」则请求里不包含任何工作区说明。
+ */
 internal fun WorkspaceSelectSheet(
-    assistant: Assistant,
+    declaredId: String?,
     workspaces: List<WorkspaceEntity>,
     onSelect: (String?) -> Unit,
     onManage: () -> Unit,
@@ -68,17 +71,17 @@ internal fun WorkspaceSelectSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                // 不绑定
+                // 不声明
                 WorkspaceSelectRow(
-                    title = stringResource(R.string.workspace_no_binding),
-                    selected = assistant.workspaceId == null,
+                    title = stringResource(R.string.workspace_page_not_declared),
+                    selected = declaredId == null,
                     onClick = { onSelect(null) },
                 )
                 workspaces.forEach { workspace ->
                     WorkspaceSelectRow(
                         title = workspace.name,
-                        status = workspace.shellStatus.toShellStatusLabel(),
-                        selected = workspace.id == assistant.workspaceId?.toString(),
+                        status = workspace.directory?.takeIf { it.isNotBlank() },
+                        selected = workspace.id == declaredId,
                         onClick = { onSelect(workspace.id) },
                     )
                 }

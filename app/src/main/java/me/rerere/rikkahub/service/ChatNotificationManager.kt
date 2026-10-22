@@ -25,6 +25,7 @@ import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.utils.cancelNotification
 import me.rerere.rikkahub.utils.sendNotification
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 // Live Update 通知节流间隔：流式输出每个chunk都会触发一次更新，
@@ -115,7 +116,8 @@ class ChatNotificationManager(
         senderName: String
     ) {
         // 确定当前状态
-        val (chipText, statusText, contentText) = determineNotificationContent(lastMessage.parts)
+        val (chipText, statusText, baseContent) = determineNotificationContent(lastMessage.parts)
+        val contentText = baseContent + shellOvertimeSuffix(lastMessage.parts)
 
         context.sendNotification(
             channelId = CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID,
@@ -133,6 +135,20 @@ class ChatNotificationManager(
             requestPromotedOngoing = true
             shortCriticalText = chipText
         }
+    }
+
+    /**
+     * 后台时也能看到命令跑久了：命令不会自动停止，只在通知正文里补一行运行时长。
+     * 阈值设为「无限制」时不追加任何内容。
+     */
+    private fun shellOvertimeSuffix(parts: List<UIMessagePart>): String {
+        val threshold = settingsStore.settingsFlow.value.shellOvertimeSeconds ?: return ""
+        val tool = parts.filterIsInstance<UIMessagePart.Tool>()
+            .lastOrNull { !it.isExecuted && it.toolName.endsWith("workspace_shell") } ?: return ""
+        val startedAt = tool.startedAt ?: return ""
+        val elapsedSeconds = (Clock.System.now() - startedAt).inWholeSeconds
+        if (elapsedSeconds < threshold) return ""
+        return "\n已运行 ${elapsedSeconds}s · 超过 ${threshold}s 阈值"
     }
 
     private fun determineNotificationContent(parts: List<UIMessagePart>): Triple<String, String, String> {

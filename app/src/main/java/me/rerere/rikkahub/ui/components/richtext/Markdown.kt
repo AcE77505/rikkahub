@@ -216,7 +216,8 @@ private fun rememberWorkspaceImageUrl(url: String): String? {
     val path = remember(url) { url.toUri().path } ?: return url
     val workspaceRepository: WorkspaceRepository = koinInject()
     val resolved by produceState<String?>(initialValue = null, workspaceId, path) {
-        value = workspaceRepository.resolveRootfsFile(workspaceId, path)?.absolutePath ?: url
+        value = runCatching { workspaceRepository.resolveFile(workspaceId, path).absolutePath }
+            .getOrDefault(url)
     }
     return resolved
 }

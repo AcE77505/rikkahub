@@ -40,12 +40,12 @@ class WorkspaceTerminalSessionManager internal constructor(
             .map { states -> states[root] ?: WorkspaceTerminalTabsState() }
             .distinctUntilChanged()
 
-    internal fun ensureSession(root: String, shellCompatibilityMode: Boolean) {
-        launchCreateTab(root = root, onlyIfEmpty = true, shellCompatibilityMode = shellCompatibilityMode)
+    internal fun ensureSession(root: String) {
+        launchCreateTab(root = root, onlyIfEmpty = true)
     }
 
-    internal fun createTab(root: String, shellCompatibilityMode: Boolean) {
-        launchCreateTab(root = root, onlyIfEmpty = false, shellCompatibilityMode = shellCompatibilityMode)
+    internal fun createTab(root: String) {
+        launchCreateTab(root = root, onlyIfEmpty = false)
     }
 
     internal fun selectTab(root: String, tabId: Long) {
@@ -98,13 +98,13 @@ class WorkspaceTerminalSessionManager internal constructor(
         }
     }
 
-    private fun launchCreateTab(root: String, onlyIfEmpty: Boolean, shellCompatibilityMode: Boolean) {
+    private fun launchCreateTab(root: String, onlyIfEmpty: Boolean) {
         if (root in creationJobs) return
 
         lateinit var job: Job
         job = appScope.launch(start = CoroutineStart.LAZY) {
             try {
-                createTab(root = root, onlyIfEmpty = onlyIfEmpty, shellCompatibilityMode = shellCompatibilityMode)
+                createTab(root = root, onlyIfEmpty = onlyIfEmpty)
             } finally {
                 creationJobs.remove(root, job)
             }
@@ -113,25 +113,20 @@ class WorkspaceTerminalSessionManager internal constructor(
         job.start()
     }
 
-    private suspend fun createTab(root: String, onlyIfEmpty: Boolean, shellCompatibilityMode: Boolean) = withContext(Dispatchers.Main.immediate) {
+    private suspend fun createTab(root: String, onlyIfEmpty: Boolean) = withContext(Dispatchers.Main.immediate) {
         val initialState = currentState(root)
         if (initialState.isCreating || (onlyIfEmpty && initialState.tabs.isNotEmpty())) {
             return@withContext
         }
         updateState(root) { it.copy(isCreating = true) }
 
+        // 命令环境是 Android 原生 shell，总是可用；这里只准备目录
         val prepared = if (initialState.readiness == WorkspaceTerminalReadiness.Ready) {
             true
         } else {
             try {
-                withContext(Dispatchers.IO) {
-                    if (!workspaceRootfsReady(appContext, root)) {
-                        false
-                    } else {
-                        prepareWorkspaceTerminalSession(appContext, root)
-                        true
-                    }
-                }
+                withContext(Dispatchers.IO) { prepareWorkspaceTerminalSession(appContext, root) }
+                true
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -162,7 +157,6 @@ class WorkspaceTerminalSessionManager internal constructor(
                 context = appContext,
                 root = root,
                 client = client,
-                shellCompatibilityMode = shellCompatibilityMode,
             )
         }.onFailure { error ->
             Log.e(TAG, "Failed to create terminal for workspace $root", error)

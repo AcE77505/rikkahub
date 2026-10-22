@@ -11,3 +11,19 @@ local.properties
 .cursor
 .history
 .kotlin
+
+# 签名文件不入库
+*.jks
+*.keystore
+
+# 构建产物：baseline profile 每次构建都会重新生成
+app/src/release/generated/
+
+# Reasonix 会话附件与任务记录，不入库
+/.reasonix/
+
+# 本次改造的方案稿，只作为临时参考
+/WORKSPACE_REFACTOR_PLAN.md
+
+# Android Studio 生成的 daemon JDK 配置（本机特定）
+/gradle/gradle-daemon-jvm.properties

@@ -39,6 +39,7 @@ import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV2Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV3Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV4Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV5Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV6Migration
 import me.rerere.rikkahub.data.model.Assistant
 import java.io.File
 import kotlin.time.Duration.Companion.milliseconds
@@ -79,6 +80,7 @@ private fun createSettingsDataStore(context: Context): DataStore<Preferences> {
             PreferenceStoreV3Migration(),
             PreferenceStoreV4Migration(),
             PreferenceStoreV5Migration(),
+            PreferenceStoreV6Migration(),
         ),
         produceFile = { file },
     )
@@ -171,6 +173,13 @@ class SettingsStore internal constructor(
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
         val QUICK_MESSAGES = stringPreferencesKey("quick_messages")
+
+        // 工具开关与审批（全局，所有助手共用）
+        val LOCAL_TOOLS = stringPreferencesKey("local_tools")
+        val TOOL_APPROVALS = stringPreferencesKey("tool_approvals")
+        val SHELL_OVERTIME_SECONDS = intPreferencesKey("shell_overtime_seconds")
+        val SHELL_AUTO_STOP_ON_OVERTIME = booleanPreferencesKey("shell_auto_stop_on_overtime")
+        val WORKSPACE_PROMPT = stringPreferencesKey("workspace_prompt")
 
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")

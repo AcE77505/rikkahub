@@ -37,41 +37,39 @@ import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
 import me.rerere.ui.webview.WebView
 import me.rerere.ui.webview.rememberWebViewState
-import me.rerere.workspace.WorkspaceStorageArea
 import org.koin.compose.koinInject
 
 /**
  * 工作区文本文件编辑/预览页.
  *
- * FILES 区文件可编辑并保存; LINUX (rootfs) 区文件仅只读预览 (readOnly), 避免误改系统文件.
+ * 工作区只有一个根目录, 文件都可编辑并保存.
  */
 @Composable
 fun WorkspaceFileEditorPage(
     id: String,
-    area: WorkspaceStorageArea,
     path: String,
 ) {
     val repository = koinInject<WorkspaceRepository>()
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
-    val editable = area == WorkspaceStorageArea.FILES
+    val editable = true
     val fileName = path.substringAfterLast('/').ifBlank { path }
     val extension = fileName.substringAfterLast('.', "").lowercase()
     val supportsPreview = extension in setOf("html", "htm", "svg")
-    var showPreview by rememberSaveable(id, area, path) { mutableStateOf(supportsPreview) }
+    var showPreview by rememberSaveable(id, path) { mutableStateOf(supportsPreview) }
 
     // 不能用 rememberTextFieldState: 它会把全文存进 saved state Bundle, 大文件切后台时触发 TransactionTooLargeException (#1953).
     // 内容本就由下方 LaunchedEffect 从磁盘加载, 无需 saveable.
-    val textState = remember(id, area, path) { TextFieldState() }
+    val textState = remember(id, path) { TextFieldState() }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
-    LaunchedEffect(id, area, path) {
+    LaunchedEffect(id, path) {
         loading = true
         loadError = null
         runCatching {
-            repository.readTextForPreview(id, area, path)
+            repository.readText(id, path)
         }.onSuccess { content ->
             textState.setTextAndPlaceCursorAtEnd(content)
             loading = false

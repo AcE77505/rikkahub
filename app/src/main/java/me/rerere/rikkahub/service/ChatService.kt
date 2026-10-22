@@ -720,7 +720,9 @@ class ChatService(
     }
 
     private suspend fun finishInterruptedPendingTools(session: ConversationSession) {
-        session.tryUpdate { it.cancelInterruptedTools() }
+        // 阈值取自设置：「无限制」时不会出现「超时被用户停掉」这种结果
+        val overtimeSeconds = settingsStore.awaitLoaded().shellOvertimeSeconds
+        session.tryUpdate { it.cancelInterruptedTools(overtimeSeconds) }
         session.flush()
     }
 

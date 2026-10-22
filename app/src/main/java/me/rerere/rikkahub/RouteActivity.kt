@@ -99,9 +99,9 @@ import me.rerere.rikkahub.ui.pages.memory.MemoryFilePage
 import me.rerere.rikkahub.ui.pages.extensions.skills.SkillsPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspacePage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailPage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.TerminalDirectoryPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceFileEditorPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTerminalPage
-import me.rerere.workspace.WorkspaceStorageArea
 import me.rerere.rikkahub.ui.pages.favorite.FavoritePage
 import me.rerere.rikkahub.ui.pages.history.HistoryPage
 import me.rerere.rikkahub.ui.pages.imggen.ImageGenPage
@@ -111,6 +111,8 @@ import me.rerere.rikkahub.ui.pages.mediacreation.MediaCreationSessionsPage
 import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
+import me.rerere.rikkahub.ui.pages.setting.SettingToolsPage
+import me.rerere.rikkahub.ui.pages.setting.SettingWorkspacePromptPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesThemePage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesNotificationPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesGeneralPage
@@ -398,10 +400,6 @@ class RouteActivity : ComponentActivity() {
                                 AssistantMcpPage(key.id)
                             }
 
-                            entry<Screen.AssistantLocalTool> { key ->
-                                AssistantLocalToolPage(key.id)
-                            }
-
                             entry<Screen.AssistantInjections> { key ->
                                 AssistantExtensionsPage(key.id)
                             }
@@ -521,6 +519,22 @@ class RouteActivity : ComponentActivity() {
                                 SettingWebPage()
                             }
 
+                            entry<Screen.SettingTools> {
+                                SettingToolsPage()
+                            }
+
+                            entry<Screen.SettingWorkspacePrompt> {
+                                SettingWorkspacePromptPage()
+                            }
+
+                            entry<Screen.SettingLocalTools> {
+                                AssistantLocalToolPage()
+                            }
+
+                            entry<Screen.SettingTerminalDirectory> { key ->
+                                TerminalDirectoryPage(workspaceId = key.workspaceId)
+                            }
+
                             entry<Screen.Debug> {
                                 DebugPage()
                             }
@@ -560,7 +574,6 @@ class RouteActivity : ComponentActivity() {
                             entry<Screen.WorkspaceFileEditor> { key ->
                                 WorkspaceFileEditorPage(
                                     id = key.id,
-                                    area = WorkspaceStorageArea.valueOf(key.area),
                                     path = key.path,
                                 )
                             }
@@ -674,9 +687,6 @@ sealed interface Screen : NavKey {
     data class AssistantMcp(val id: String) : Screen
 
     @Serializable
-    data class AssistantLocalTool(val id: String) : Screen
-
-    @Serializable
     data class AssistantInjections(val id: String) : Screen
 
     @Serializable
@@ -761,6 +771,18 @@ sealed interface Screen : NavKey {
     data object SettingWeb : Screen
 
     @Serializable
+    data object SettingTools : Screen
+
+    @Serializable
+    data object SettingWorkspacePrompt : Screen
+
+    @Serializable
+    data object SettingLocalTools : Screen
+
+    @Serializable
+    data class SettingTerminalDirectory(val workspaceId: String? = null) : Screen
+
+    @Serializable
     data object Debug : Screen
 
     @Serializable
@@ -788,7 +810,7 @@ sealed interface Screen : NavKey {
     data class WorkspaceTerminal(val id: String) : Screen
 
     @Serializable
-    data class WorkspaceFileEditor(val id: String, val area: String, val path: String) : Screen
+    data class WorkspaceFileEditor(val id: String, val path: String) : Screen
 
     @Serializable
     data class SkillDetail(val skillName: String) : Screen

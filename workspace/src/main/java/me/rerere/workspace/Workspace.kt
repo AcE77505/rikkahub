@@ -4,36 +4,9 @@ data class Workspace(
     val id: String,
     val name: String,
     val root: String,
-    val shellStatus: WorkspaceShellStatus = WorkspaceShellStatus.DISABLED,
     val createdAt: Long,
     val updatedAt: Long,
     val lastAccessAt: Long? = null,
-)
-
-enum class WorkspaceShellStatus {
-    DISABLED,
-    INSTALLING,
-    READY,
-    BROKEN,
-}
-
-enum class WorkspaceStorageArea {
-    FILES,
-    LINUX,
-}
-
-enum class RootfsInstallStage {
-    DOWNLOADING,
-    EXTRACTING,
-    INSTALLED,
-}
-
-data class RootfsInstallProgress(
-    val stage: RootfsInstallStage,
-    val bytesRead: Long = 0,
-    val totalBytes: Long? = null,
-    val entriesExtracted: Int = 0,
-    val currentEntry: String? = null,
 )
 
 data class WorkspaceConfig(
@@ -63,4 +36,6 @@ data class WorkspaceCommandResult(
     val stderr: String,
     val timedOut: Boolean = false,
     val truncated: Boolean = false,
+    /** 输出超过上限时，溢出部分写入的文件（TMPDIR 下），可为空 */
+    val fullOutputPath: String? = null,
 )

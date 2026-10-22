@@ -36,7 +36,6 @@ import me.rerere.hugeicons.stroke.SmartPhone01
 import me.rerere.hugeicons.stroke.VolumeHigh
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
-import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
@@ -46,20 +45,21 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.pages.setting.SettingVM
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.hasUsageStatsPermission
 import me.rerere.rikkahub.utils.openUsageAccessSettings
 import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
 
+/**
+ * 本地工具开关。
+ *
+ * 数据源是全局的 `Settings.localTools`（所有助手共用一套），助手详情页不再有独立入口，
+ * 统一从「设置 → 工具 → 本地工具」进入。
+ */
 @Composable
-fun AssistantLocalToolPage(id: String) {
-    val vm: AssistantDetailVM = koinViewModel(
-        parameters = {
-            parametersOf(id)
-        }
-    )
-    val assistant by vm.assistant.collectAsStateWithLifecycle()
+fun AssistantLocalToolPage(vm: SettingVM = koinViewModel()) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -80,8 +80,8 @@ fun AssistantLocalToolPage(id: String) {
     ) { innerPadding ->
         AssistantLocalToolContent(
             innerPadding = innerPadding,
-            assistant = assistant,
-            onUpdate = { vm.update(it) }
+            enabledTools = settings.localTools,
+            onUpdate = { tools -> vm.updateSettings { it.copy(localTools = tools) } }
         )
     }
 }
@@ -89,8 +89,8 @@ fun AssistantLocalToolPage(id: String) {
 @Composable
 private fun AssistantLocalToolContent(
     innerPadding: PaddingValues,
-    assistant: Assistant,
-    onUpdate: (Assistant) -> Unit
+    enabledTools: List<LocalToolOption>,
+    onUpdate: (List<LocalToolOption>) -> Unit
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -125,11 +125,11 @@ private fun AssistantLocalToolContent(
             return
         }
         val newLocalTools = if (enabled) {
-            assistant.localTools + option
+            enabledTools + option
         } else {
-            assistant.localTools - option
+            enabledTools - option
         }
-        onUpdate(assistant.copy(localTools = newLocalTools))
+        onUpdate(newLocalTools.distinct())
     }
 
     fun CardGroupScope.toolItem(
@@ -138,7 +138,7 @@ private fun AssistantLocalToolContent(
         @StringRes title: Int,
         @StringRes description: Int,
     ) {
-        val checked = assistant.localTools.contains(option)
+        val checked = enabledTools.contains(option)
         switchItem(
             checked = checked,
             onCheckedChange = { toggleLocalTool(option, it) },

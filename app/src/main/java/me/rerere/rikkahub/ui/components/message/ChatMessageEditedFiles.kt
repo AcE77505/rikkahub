@@ -43,7 +43,6 @@ import me.rerere.hugeicons.stroke.Share08
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.WorkspaceStorageArea
 import org.koin.compose.koinInject
 import java.io.File
 
@@ -84,9 +83,9 @@ internal fun EditedFilesList(
         val outputStream = context.contentResolver.openOutputStream(uri) ?: return@rememberLauncherForActivityResult
         scope.launch {
             runCatching {
-                val (area, relativePath) = resolveWorkspacePath(path)
+                val relativePath = resolveWorkspacePath(path)
                 outputStream.use { output ->
-                    workspaceRepository.exportFile(workspaceId, area, relativePath, output)
+                    workspaceRepository.exportFile(workspaceId, relativePath, output)
                 }
             }
         }
@@ -172,11 +171,11 @@ internal fun EditedFilesList(
                         selectedPath = null
                         scope.launch {
                             runCatching {
-                                val (area, relativePath) = resolveWorkspacePath(p)
+                                val relativePath = resolveWorkspacePath(p)
                                 val dir = File(context.cacheDir, "workspace_share").apply { mkdirs() }
                                 val file = File(dir, p.substringAfterLast('/'))
                                 file.outputStream().use { output ->
-                                    workspaceRepository.exportFile(workspaceId, area, relativePath, output)
+                                    workspaceRepository.exportFile(workspaceId, relativePath, output)
                                 }
                                 val uri = FileProvider.getUriForFile(
                                     context,
@@ -217,11 +216,12 @@ internal fun EditedFilesList(
     }
 }
 
-private fun resolveWorkspacePath(path: String): Pair<WorkspaceStorageArea, String> {
+/** 工具给出的路径可能是旧的 `/workspace/...` 形式，统一成工作区相对路径 */
+private fun resolveWorkspacePath(path: String): String {
     val trimmed = path.trimEnd('/')
     return if (trimmed == "/workspace" || trimmed.startsWith("/workspace/")) {
-        WorkspaceStorageArea.FILES to trimmed.removePrefix("/workspace").trimStart('/')
+        trimmed.removePrefix("/workspace").trimStart('/')
     } else {
-        WorkspaceStorageArea.LINUX to trimmed.trimStart('/')
+        trimmed.trimStart('/')
     }
 }

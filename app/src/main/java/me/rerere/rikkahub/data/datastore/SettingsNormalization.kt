@@ -1,8 +1,22 @@
 package me.rerere.rikkahub.data.datastore
 
+import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+
 /** 读盘后和每次修改后都要过一遍，保证内存里的设置始终是规整的。 */
 internal fun Settings.normalized(): Settings =
-    withBuiltInDefaults().withoutInvalidReferences().withValuesInRange()
+    withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies()
+
+/**
+ * 「写入文件」「编辑文件」依赖「读取文件」。
+ *
+ * 开关关闭时它们不可用，这里把持久化的值一并去掉：只靠界面置灰会出现
+ * 「显示是关的、实际仍注入给模型」的不一致。
+ */
+internal fun Settings.withToolDependencies(): Settings {
+    if (LocalToolOption.WorkspaceReadFile in localTools) return this
+    val filtered = localTools - LocalToolOption.WorkspaceWriteFile - LocalToolOption.WorkspaceEditFile
+    return if (filtered.size == localTools.size) this else copy(localTools = filtered)
+}
 
 // 补齐缺失的内置提供商/助手/TTS，内置提供商的描述信息始终以代码里的为准
 internal fun Settings.withBuiltInDefaults(): Settings {

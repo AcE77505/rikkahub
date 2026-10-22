@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
@@ -81,7 +83,6 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.formatNumber
-import me.rerere.workspace.WorkspaceShellStatus
 import org.koin.compose.koinInject
 
 private enum class FilesPickerPage {
@@ -117,11 +118,22 @@ internal fun FilesPicker(
     val navController = LocalNavController.current
     val workspaceRepository: WorkspaceRepository = koinInject()
     val workspaces by workspaceRepository.listFlow().collectAsState(initial = emptyList())
+    // 工作区不再按助手绑定：聊天页显示的是被「声明」给 AI 的那一个
+    val declaredWorkspace by workspaceRepository.declaredFlow().collectAsState(initial = null)
 
-    val boundWorkspace = remember(workspaces, assistant.workspaceId) {
-        workspaces.find { it.id == assistant.workspaceId?.toString() }
+    val boundWorkspace = declaredWorkspace
+    val scope = rememberCoroutineScope()
+    // 声明是全局互斥的：选一个就把其他的取消声明，选「不声明」则清空
+    val declareWorkspace: (String?) -> Unit = { id ->
+        scope.launch {
+            if (id == null) {
+                boundWorkspace?.let { workspaceRepository.setDeclared(it.id, false) }
+            } else {
+                workspaceRepository.setDeclared(id, true)
+            }
+        }
     }
-    val showCwd = boundWorkspace != null && boundWorkspace.shellStatus == WorkspaceShellStatus.READY.name
+    val showCwd = boundWorkspace != null
     var showCwdSheet by remember { mutableStateOf(false) }
 
     var page by remember { mutableStateOf(FilesPickerPage.MAIN) }
@@ -195,9 +207,10 @@ internal fun FilesPicker(
                     if (showWorkspace) {
                         WorkspacePickerListItem(
                             assistant = assistant,
+                            declaredId = boundWorkspace?.id,
                             workspaces = workspaces,
                             shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
-                            onUpdateAssistant = onUpdateAssistant,
+                            onDeclareWorkspace = declareWorkspace,
                             onNavigateToDetail = { id ->
                                 onDismiss()
                                 navController.navigate(Screen.WorkspaceDetail(id))
@@ -346,15 +359,14 @@ private fun WorkspacePickerListItem(
     assistant: Assistant,
     workspaces: List<WorkspaceEntity>,
     shapes: ListItemShapes,
-    onUpdateAssistant: (Assistant) -> Unit,
+    declaredId: String?,
+    onDeclareWorkspace: (String?) -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToTerminal: (String) -> Unit,
     onNavigateToManage: () -> Unit,
 ) {
     var showSheet by remember { mutableStateOf(false) }
-    val boundWorkspace = remember(workspaces, assistant.workspaceId) {
-        workspaces.find { it.id == assistant.workspaceId?.toString() }
-    }
+    val boundWorkspace = remember(workspaces, declaredId) { workspaces.find { it.id == declaredId } }
 
     SegmentedListItem(
         onClick = { showSheet = true },
@@ -383,13 +395,12 @@ private fun WorkspacePickerListItem(
                             contentDescription = stringResource(R.string.workspace_detail),
                         )
                     }
-                    if (boundWorkspace.shellStatus != WorkspaceShellStatus.DISABLED.name) {
-                        IconButton(onClick = { onNavigateToTerminal(boundWorkspace.id) }) {
-                            Icon(
-                                imageVector = HugeIcons.ComputerTerminal01,
-                                contentDescription = stringResource(R.string.workspace_terminal),
-                            )
-                        }
+                    // 命令环境始终可用（Android 原生 shell），终端入口常驻
+                    IconButton(onClick = { onNavigateToTerminal(boundWorkspace.id) }) {
+                        Icon(
+                            imageVector = HugeIcons.ComputerTerminal01,
+                            contentDescription = stringResource(R.string.workspace_terminal),
+                        )
                     }
                 }
             }
@@ -400,14 +411,11 @@ private fun WorkspacePickerListItem(
 
     if (showSheet) {
         WorkspaceSelectSheet(
-            assistant = assistant,
+            declaredId = declaredId,
             workspaces = workspaces,
             onSelect = { workspaceId ->
-                val newId = workspaceId?.let { Uuid.parse(it) }
-                if (newId != assistant.workspaceId) {
-                    // 会话的工作目录随工作区一并重置
-                    onUpdateAssistant(assistant.copy(workspaceId = newId))
-                }
+                // 工作区选择改为全局「声明」：切换后其他工作区自动取消声明
+                if (workspaceId != declaredId) onDeclareWorkspace(workspaceId)
                 showSheet = false
             },
             onManage = {

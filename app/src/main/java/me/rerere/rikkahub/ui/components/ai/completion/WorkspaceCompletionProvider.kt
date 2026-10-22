@@ -7,7 +7,6 @@ import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceFileEntry
-import me.rerere.workspace.WorkspaceStorageArea
 import kotlin.math.max
 
 class WorkspaceCompletionProvider(
@@ -82,7 +81,6 @@ class WorkspaceCompletionProvider(
             val entries = try {
                 repository.listFiles(
                     id = workspaceId ?: return emptyList(),
-                    area = WorkspaceStorageArea.FILES,
                     path = path,
                 )
             } catch (e: CancellationException) {

@@ -5,19 +5,20 @@ import kotlinx.coroutines.CancellationException
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.WorkspaceShellStatus
-import java.io.ByteArrayOutputStream
-import java.nio.file.Paths
+import me.rerere.workspace.ToolchainEnvironment
+import java.io.File
 
 /**
  * Workspace 系统提示注入转换器
  *
- * 当助手绑定了一个 shell 已就绪的 workspace 时, 在系统提示词中追加一段引导,
- * 让模型了解 workspace 环境与 workspace_* 工具的使用方式。
- * 提示中包含 Rootfs 实际使用的 shell 与发行版, 避免模型默认按 bash / apt 来写命令。
- * 同时读取 ~/.agents、/workspace 和会话当前目录中的 AGENTS.md 作为工作区指令。
+ * 只要有一个工作区被「声明」（设置 → 工具 → 工作区列表里的声明开关），就在系统提示词中追加一段引导，
+ * 让模型知道工作区目录在哪、命令跑在什么环境里、有哪些工具可用。
+ *
+ * 不再依赖助手绑定工作区，也不再读取 Rootfs 发行版：命令直接跑在 Android 原生环境
+ * （`/system/bin/sh` + toybox），启用 Linux 工具链时才额外有 bash / openssl / curl / ssh。
  */
 class WorkspaceReminderTransformer(
     private val workspaceRepository: WorkspaceRepository,
@@ -26,43 +27,81 @@ class WorkspaceReminderTransformer(
         ctx: TransformerContext,
         messages: List<UIMessage>,
     ): List<UIMessage> {
-        val workspaceId = ctx.assistant.workspaceId?.toString() ?: return messages
-        val workspace = workspaceRepository.getById(workspaceId) ?: return messages
-        // 与 ChatToolFactory.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
-        if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
-
-        val prompt = buildWorkspacePrompt(
-            workspace = workspace,
-            shell = workspaceRepository.rootfsShell(workspaceId),
-            distro = readDistroName(workspaceId),
-            cwd = ctx.workspaceCwd,
-        ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
-
-        // 追加到第一条 system 消息; 若不存在则插入一条
-        val systemIndex = messages.indexOfFirst { it.role == MessageRole.SYSTEM }
-        return if (systemIndex >= 0) {
-            messages.toMutableList().apply {
-                this[systemIndex] = this[systemIndex]
-                    .appendText("\n\n$prompt")
-                    .copy(isSynthetic = true)
+        // 没有声明工作区时不再整体跳过：文件工具仍然挂着，补一段只讲根目录的轻量提示
+        val workspace = workspaceRepository.getDeclared()
+        if (workspace == null) {
+            val fileToolsPrompt = buildFileToolsPrompt(ctx) ?: return messages
+            return messages.appendSystemPrompt(fileToolsPrompt)
+        }
+        val workspaceDir = runCatching { workspaceRepository.workingDirectory(workspace.id) }
+            .getOrElse { error ->
+                Log.w(TAG, "Skip workspace prompt, cannot resolve workspace dir", error)
+                return messages
             }
-        } else {
-            listOf(UIMessage.system(prompt).copy(isSynthetic = true)) + messages
+        val toolchain = runCatching { workspaceRepository.toolchainEnvironment(workspace.id) }
+            .getOrNull()
+
+        // 模板可能被用户清空，清空时回退到内置默认
+        val template = ctx.settings.workspacePrompt.ifBlank { DEFAULT_WORKSPACE_PROMPT }
+        val prompt = renderWorkspacePrompt(
+            template = template,
+            values = workspacePromptValues(
+                workspaceName = workspace.name,
+                workspaceDir = workspaceDir,
+                toolchain = toolchain,
+                enabledTools = ctx.settings.localTools.toSet(),
+                cwd = ctx.workspaceCwd,
+                skillsDir = File(ctx.context.filesDir, FileFolders.SKILLS),
+                builtinSkillsDir = File(ctx.context.filesDir, FileFolders.BUILTIN_SKILLS),
+                uploadDir = File(ctx.context.filesDir, FileFolders.UPLOAD),
+            ),
+        ) + buildAgentsPrompt(workspaceDir, ctx.workspaceCwd)
+
+        return messages.appendSystemPrompt(prompt)
+    }
+
+    /**
+     * 没有声明工作区时的提示：只说明文件工具的根目录与可用工具。
+     *
+     * 不涉及工作区名称、"已声明"这类概念，避免模型误以为存在工作区。
+     * 「读取文件」没开时返回 null，调用方直接原样返回消息。
+     */
+    private suspend fun buildFileToolsPrompt(ctx: TransformerContext): String? {
+        val enabled = ctx.settings.localTools.toSet()
+        if (LocalToolOption.WorkspaceReadFile !in enabled) return null
+        val rootDir = runCatching { workspaceRepository.sandboxDir() }.getOrNull() ?: return null
+        return buildString {
+            appendLine("<file_tools>")
+            appendLine("You can read and write files with these tools.")
+            appendLine(
+                "- Their root folder is `${rootDir.absolutePath}`. " +
+                    "Relative paths resolve against it; absolute paths are used as-is."
+            )
+            appendLine("- Available tools:")
+            appendLine("  - `workspace_read_file`: read file contents (text or images).")
+            if (LocalToolOption.WorkspaceWriteFile in enabled) {
+                appendLine("  - `workspace_write_file`: create or overwrite files.")
+            }
+            if (LocalToolOption.WorkspaceEditFile in enabled) {
+                appendLine("  - `workspace_edit_file`: make precise edits to existing files.")
+            }
+            append("</file_tools>")
         }
     }
 
-    private suspend fun buildAgentsPrompt(workspaceId: String, cwd: String?): String {
-        // ProotShellRunner 将 HOME 固定为 /root；相对 PWD 按 /workspace 解析。
-        val workingDirectory = Paths.get("/workspace")
-            .resolve(cwd?.takeIf { it.isNotBlank() } ?: ".")
-            .normalize()
+    /**
+     * 在工作区目录与当前 cwd 两层查找 AGENTS.md。
+     *
+     * 工作区目录 = 用户声明的目录本身，cwd 是会话里的相对子目录，两者都是宿主真实路径。
+     */
+    private fun buildAgentsPrompt(workspaceDir: File, cwd: String?): String {
+        val workingDirectory = File(workspaceDir, cwd?.takeIf { it.isNotBlank() } ?: ".")
         val paths = linkedSetOf(
-            "/root/.agents/AGENTS.md",
-            "/workspace/AGENTS.md",
-            workingDirectory.resolve("AGENTS.md").toString(),
+            File(workspaceDir, AGENTS_FILE),
+            File(workingDirectory, AGENTS_FILE),
         )
-        val instructions = paths.mapNotNull { path ->
-            readRootfsText(workspaceId, path, MAX_AGENTS_BYTES)?.let { path to it }
+        val instructions = paths.mapNotNull { file ->
+            readWorkspaceText(file)?.let { file.absolutePath to it }
         }
         if (instructions.isEmpty()) return ""
         return buildString {
@@ -79,81 +118,113 @@ class WorkspaceReminderTransformer(
         }
     }
 
-    private suspend fun readDistroName(workspaceId: String): String? =
-        OS_RELEASE_PATHS.firstNotNullOfOrNull { path ->
-            readRootfsText(workspaceId, path, MAX_OS_RELEASE_BYTES)?.let(::parseOsReleaseName)
-        }
-
     // 文件不存在、过大或不可读时返回 null, 不影响提示词的其余部分
-    private suspend fun readRootfsText(workspaceId: String, path: String, maxBytes: Long): String? =
-        try {
-            val size = workspaceRepository.rootfsFileSize(workspaceId, path)
-            require(size <= maxBytes) { "$path exceeds $maxBytes bytes" }
-            val content = ByteArrayOutputStream().use { output ->
-                workspaceRepository.exportRootfsFile(workspaceId, path, output)
-                output.toString(Charsets.UTF_8.name())
-            }
-            content.takeIf { it.isNotBlank() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.d("WorkspaceReminder", "Skipping workspace file: $path", e)
+    private fun readWorkspaceText(file: File): String? = try {
+        if (!file.isFile) {
             null
+        } else if (file.length() > MAX_AGENTS_BYTES) {
+            null
+        } else {
+            file.readText().takeIf { it.isNotBlank() }
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.d(TAG, "Skipping workspace file: ${file.absolutePath}", e)
+        null
+    }
 
     private companion object {
+        const val TAG = "WorkspaceReminder"
         const val MAX_AGENTS_BYTES = 64L * 1024
-        const val MAX_OS_RELEASE_BYTES = 16L * 1024
-        val OS_RELEASE_PATHS = listOf("/etc/os-release", "/usr/lib/os-release")
+        const val AGENTS_FILE = "AGENTS.md"
     }
 }
 
-private const val MAX_DISTRO_NAME_LENGTH = 80
+/** 占位符实际取值，对应「设置 → 工具 → 工作区提示词」里可用的变量 */
+private fun workspacePromptValues(
+    workspaceName: String,
+    workspaceDir: File,
+    toolchain: ToolchainEnvironment?,
+    enabledTools: Set<LocalToolOption>,
+    cwd: String?,
+    skillsDir: File,
+    builtinSkillsDir: File,
+    uploadDir: File,
+): Map<String, String> = mapOf(
+    WorkspacePromptPlaceholders.WORKSPACE_NAME to workspaceName,
+    WorkspacePromptPlaceholders.WORKSPACE_DIR to workspaceDir.absolutePath,
+    WorkspacePromptPlaceholders.SHELL_ENV to buildShellEnv(toolchain),
+    WorkspacePromptPlaceholders.TOOL_LIST to buildToolList(enabledTools),
+    WorkspacePromptPlaceholders.SKILLS_DIR to skillsDir.absolutePath,
+    WorkspacePromptPlaceholders.BUILTIN_SKILLS_DIR to builtinSkillsDir.absolutePath,
+    WorkspacePromptPlaceholders.UPLOAD_DIR to uploadDir.absolutePath,
+    WorkspacePromptPlaceholders.CWD_LINE to buildCwdLine(cwd),
+)
 
-/** 从 os-release 内容中取发行版名称, 优先 PRETTY_NAME, 其次 NAME + VERSION_ID */
-internal fun parseOsReleaseName(content: String): String? {
-    val values = content.lineSequence()
-        .map { it.trim() }
-        .filter { !it.startsWith("#") && it.indexOf('=') > 0 }
-        .associate { line ->
-            line.substringBefore('=') to line.substringAfter('=').trim().removeSurrounding("\"").removeSurrounding("'")
+/** 命令环境说明：原生 shell 一段，启用工具链时补上 bash 与探针结果 */
+private fun buildShellEnv(toolchain: ToolchainEnvironment?): String = buildString {
+    appendLine(
+        "- Commands run directly in the Android native environment (`/system/bin/sh` + toybox). " +
+            "This is not a Linux distribution: there is no apt, apk or any other package manager, " +
+            "so do not try to install packages."
+    )
+    if (toolchain != null && toolchain.shellPath != null) {
+        val probes = toolchain.probes
+        val shellVersion = probes.firstOrNull { it.name == "bash" }?.version
+        appendLine(
+            "- `workspace_shell` runs commands with `bash`" +
+                (shellVersion?.let { " ($it)" } ?: "") +
+                ", and the toolchain ships extra tools."
+        )
+        if (probes.isNotEmpty()) {
+            appendLine("- Available commands: " + probes.joinToString(", ") { "${it.name} (${it.version})" })
         }
-    val name = values["PRETTY_NAME"]?.takeIf { it.isNotBlank() }
-        ?: listOfNotNull(values["NAME"], values["VERSION_ID"]).joinToString(" ")
-    // 内容来自 Rootfs 内的文件, 拼进系统提示前去掉控制字符并限制长度
-    return name.filterNot { it.isISOControl() }.trim().take(MAX_DISTRO_NAME_LENGTH).ifBlank { null }
-}
-
-private fun buildWorkspacePrompt(
-    workspace: WorkspaceEntity,
-    shell: String,
-    distro: String?,
-    cwd: String? = null,
-): String = buildString {
-    appendLine("<workspace>")
-    appendLine("You have access to a persistent Linux workspace named \"${workspace.name}\", running in a sandboxed proot rootfs environment.")
-    appendLine("- The workspace files area is mounted at `/workspace`. Use it as your working directory; files written there persist across turns of this conversation.")
-    appendLine("- All paths passed to workspace tools must be absolute and inside the Rootfs (for example `/workspace/notes.md`).")
-    if (distro != null) {
-        appendLine("- The Rootfs distribution is $distro. Use its native package manager when you need to install missing tools.")
-    }
-    if (shell == "/bin/bash") {
-        appendLine("- `workspace_shell` runs commands with `/bin/bash`.")
     } else {
-        appendLine("- `workspace_shell` runs commands with `$shell`, a POSIX shell. Bash is not installed, so avoid bash-only syntax such as arrays, here-strings (`<<<`) and brace expansion.")
+        appendLine(
+            "- `workspace_shell` runs commands with `/system/bin/sh`, a POSIX shell. " +
+                "Bash is not available, so avoid bash-only syntax such as arrays, " +
+                "here-strings (`<<<`) and brace expansion."
+        )
     }
+}.trimEnd()
+
+/** 只列当前真正挂载的工具，配置与提示词不会各说各话 */
+private fun buildToolList(enabledTools: Set<LocalToolOption>): String = buildString {
     appendLine("- Available tools:")
-    appendLine("  - `workspace_read_file`: read file contents.")
-    appendLine("  - `workspace_write_file` / `workspace_edit_file`: create files, or make precise edits to existing files.")
-    appendLine("  - `workspace_shell`: run shell commands (the files area is mounted at /workspace).")
-    appendLine("- Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files.")
-    appendLine("- The skills directory is mounted at `/skills`. Each skill is a subdirectory `/skills/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.")
-    appendLine("- Built-in skills shipped with the app are mounted at `/builtin_skills/<skill-name>/` with the same layout. Treat `/builtin_skills` as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in `/skills` with the same name overrides the built-in one.")
-    appendLine("- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
-    if (!cwd.isNullOrBlank()) {
-        appendLine("- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands.")
+    val readEnabled = LocalToolOption.WorkspaceReadFile in enabledTools
+    if (readEnabled) {
+        appendLine("  - `workspace_read_file`: read file contents (text or images).")
+        if (LocalToolOption.WorkspaceWriteFile in enabledTools) {
+            appendLine("  - `workspace_write_file`: create or overwrite files.")
+        }
+        if (LocalToolOption.WorkspaceEditFile in enabledTools) {
+            appendLine("  - `workspace_edit_file`: make precise edits to existing files.")
+        }
     }
-    append("</workspace>")
+    if (LocalToolOption.WorkspaceShell in enabledTools) {
+        appendLine("  - `workspace_shell`: run shell commands in the workspace directory.")
+    }
+}.trimEnd()
+
+private fun buildCwdLine(cwd: String?): String =
+    cwd?.takeIf { it.isNotBlank() }?.let {
+        "- Current working directory: `$it` (relative to the workspace directory). " +
+            "Use this as the default context for file operations and shell commands."
+    }.orEmpty()
+
+/** 追加到第一条 system 消息；不存在则插入一条 */
+private fun List<UIMessage>.appendSystemPrompt(prompt: String): List<UIMessage> {
+    val systemIndex = indexOfFirst { it.role == MessageRole.SYSTEM }
+    return if (systemIndex >= 0) {
+        toMutableList().apply {
+            this[systemIndex] = this[systemIndex]
+                .appendText("\n\n$prompt")
+                .copy(isSynthetic = true)
+        }
+    } else {
+        listOf(UIMessage.system(prompt).copy(isSynthetic = true)) + this
+    }
 }
 
 private fun UIMessage.appendText(extra: String): UIMessage {
