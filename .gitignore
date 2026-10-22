@@ -24,3 +24,6 @@ local.properties
 
 # Android Studio 生成的 daemon JDK 配置（本机特定）
 /gradle/gradle-daemon-jvm.properties
+
+# 上游已改用 tools/i18n，本地残留的旧翻译工具（含 uv 虚拟环境）
+/locale-tui/
