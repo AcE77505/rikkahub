@@ -1,0 +1,3 @@
+-renamesourcefileattribute SourceFile
+-dontobfuscate
+-optimizationpasses 2
