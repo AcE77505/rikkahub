@@ -47,7 +47,9 @@ private inline fun <reified T> json(
     property: KProperty1<Settings, T>,
     noinline set: Settings.(T) -> Settings,
 ) = SettingsField(
-    key, property, set,
+    key,
+    property,
+    set,
     encode = { JsonInstant.encodeToString(it) },
     decode = { JsonInstant.decodeFromString<T>(it) },
 )
@@ -60,6 +62,19 @@ private fun uuid(
 
 /** 「命令超时」设为无限制时，落盘用的哨兵值（UI 上显示为「无限制」） */
 private const val UNLIMITED_SHELL_OVERTIME = -1
+
+/** 存枚举名，认不出的值按 AUTO 处理。 */
+private fun reasoningLevel(
+    key: Preferences.Key<String>,
+    property: KProperty1<Settings, ReasoningLevel>,
+    set: Settings.(ReasoningLevel) -> Settings,
+) = SettingsField(
+    key,
+    property,
+    set,
+    encode = { it.name },
+    decode = { name -> ReasoningLevel.entries.find { it.name == name } ?: ReasoningLevel.AUTO },
+)
 
 internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
     listOf(
@@ -75,12 +90,20 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(FAVORITE_MODELS, Settings::favoriteModels) { copy(favoriteModels = it) },
         uuid(SELECT_MODEL, Settings::chatModelId) { copy(chatModelId = it) },
         uuid(FAST_MODEL, Settings::fastModelId) { copy(fastModelId = it) },
+        reasoningLevel(FAST_MODEL_REASONING_LEVEL, Settings::fastModelReasoningLevel) {
+            copy(fastModelReasoningLevel = it)
+        },
         SettingsField(
-            FAST_MODEL_REASONING_LEVEL, Settings::fastModelReasoningLevel, { copy(fastModelReasoningLevel = it) },
-            encode = { it.name },
-            // 认不出的值按 AUTO 处理
-            decode = { name -> ReasoningLevel.entries.find { it.name == name } ?: ReasoningLevel.AUTO },
+            MEMORY_MODEL,
+            Settings::memoryModelId,
+            { copy(memoryModelId = it) },
+            // 没设置时不存这个 key
+            encode = { it?.toString() },
+            decode = { Uuid.parse(it) },
         ),
+        reasoningLevel(MEMORY_MODEL_REASONING_LEVEL, Settings::memoryModelReasoningLevel) {
+            copy(memoryModelReasoningLevel = it)
+        },
         uuid(TRANSLATE_MODEL, Settings::translateModeId) { copy(translateModeId = it) },
         plain(ENABLE_SUGGESTION, Settings::enableSuggestion) { copy(enableSuggestion = it) },
         uuid(IMAGE_GENERATION_MODEL, Settings::imageGenerationModelId) { copy(imageGenerationModelId = it) },
@@ -127,7 +150,9 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         // ASR
         json(ASR_PROVIDERS, Settings::asrProviders) { copy(asrProviders = it) },
         SettingsField(
-            SELECTED_ASR_PROVIDER, Settings::selectedASRProviderId, { copy(selectedASRProviderId = it) },
+            SELECTED_ASR_PROVIDER,
+            Settings::selectedASRProviderId,
+            { copy(selectedASRProviderId = it) },
             // 没选时不存这个 key
             encode = { it?.toString() },
             decode = { Uuid.parse(it) },
