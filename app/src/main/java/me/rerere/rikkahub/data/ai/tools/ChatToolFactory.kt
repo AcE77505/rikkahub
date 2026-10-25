@@ -128,7 +128,7 @@ class ChatToolFactory(
                 buildString {
                     appendLine("[Tool output truncated: $totalChars characters total]")
                     appendLine("Full output saved as `$relativePath` inside the workspace directory.")
-                    appendLine("Read it with workspace_read_file (path: \"$relativePath\")")
+                    appendLine("Read it with read_file (path: \"$relativePath\")")
                     appendLine("or with workspace_shell: `cat \"$relativePath\"` / `grep \"pattern\" \"$relativePath\"`")
                     appendLine()
                     append(fullText.take(TOOL_OUTPUT_PREVIEW_CHARS))

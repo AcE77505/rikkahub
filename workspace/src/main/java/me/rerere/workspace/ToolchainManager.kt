@@ -19,6 +19,8 @@ data class ToolchainEnvironment(
     val extraEnv: Map<String, String>,
     val pathPrepend: List<String>,
     val probes: List<ToolchainProbe> = emptyList(),
+    /** 从 apk 的 `assets/etc/` 解出的配置目录；为空表示没解出来 */
+    val etcDir: File? = null,
 ) {
     val usable: Boolean get() = binDir.isDirectory && libDir.isDirectory
 }
@@ -130,15 +132,23 @@ class ToolchainManager(
         val prefixDir = File(toolchainRoot, "termex-$versionName")
         val binDir = File(prefixDir, BIN_DIR)
         val libDir = File(prefixDir, LIB_DIR)
+        val etcDir = File(prefixDir, ETC_DIR)
         val marker = File(prefixDir, MARKER_FILE)
 
+        // etc 必须落在 $PREFIX/etc：termex 的 OpenSSL 把 OPENSSLDIR 编在 $PREFIX/etc/ssl，
+        // 证书放别处就得靠 SSL_CERT_FILE 覆盖，放在这里则开箱即用
+        // ssl/openssl.cnf 是 apk 里 etc 的固定条目，只有手放了一份 cert.pem 时它不会存在，
+        // 用它判断 etc 是否完整解出过，避免「目录在但内容是残的」被当成已就绪
+        val etcComplete = File(etcDir, "ssl/openssl.cnf").isFile
         val upToDate = marker.isFile &&
             marker.readText().trim() == cacheMarker(status) &&
-            libDir.isDirectory
+            libDir.isDirectory &&
+            etcComplete
         if (!upToDate) {
             try {
                 extractLib(File(apkPath), abi, libDir)
                 linkBin(binDir, File(nativeLibraryDir))
+                extractAssetsEtc(File(apkPath), etcDir)
                 prefixDir.mkdirs()
                 marker.writeText(cacheMarker(status))
             } catch (e: IOException) {
@@ -231,13 +241,83 @@ class ToolchainManager(
         }
     }
 
+    /**
+     * etc 目录对应的环境变量。
+     *
+     * termex 的二进制编译时默认去 `$PREFIX/etc/...` 找证书与 openssl 配置，而 etc 放在工作区，
+     * 所以这些路径要显式指过去。缺了 `SSL_CERT_FILE` 时 https 直接握手失败（表现为「不能上网」）。
+     *
+     * 实测 v3.8 的 `assets/etc` 只有 6 个文件：
+     * `bash.bashrc`、`wgetrc`、`ssl/cert.pem`、`ssl/openssl.cnf`、`ssh/ssh_config`、`ssh/moduli`。
+     */
+    fun etcEnv(etcDir: File): Map<String, String> {
+        val env = mutableMapOf<String, String>()
+        findCert(etcDir)?.let { cert ->
+            val path = cert.absolutePath
+            env["SSL_CERT_FILE"] = path
+            env["CURL_CA_BUNDLE"] = path
+            env["GIT_SSL_CAINFO"] = path
+            env["REQUESTS_CA_BUNDLE"] = path
+        }
+        File(etcDir, "ssl/openssl.cnf").takeIf { it.isFile }?.let {
+            env["OPENSSL_CONF"] = it.absolutePath
+        }
+        File(etcDir, "wgetrc").takeIf { it.isFile }?.let {
+            env["WGETRC"] = it.absolutePath
+        }
+        return env
+    }
+
+    private fun findCert(etcDir: File): File? {
+        CERT_CANDIDATES.map { File(etcDir, it) }.firstOrNull { it.isFile }?.let { return it }
+        // 布局和预期不同时的兜底：证书包通常是目录里最大的 pem / crt 文件
+        return etcDir.takeIf { it.isDirectory }
+            ?.walkTopDown()
+            ?.filter { it.isFile && (it.extension == "pem" || it.extension == "crt") }
+            ?.maxByOrNull { it.length() }
+    }
+
+    /** `assets/etc/` 下的条目原样落盘，保留子目录；`.rename` / `.link` 规则与 lib 不同，这里只有普通文件 */
+    private fun extractAssetsEtc(apk: File, targetDir: File) {
+        val prefix = ASSETS_ETC_PREFIX
+        targetDir.mkdirs()
+        ZipFile(apk).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val name = entry.name
+                if (!name.startsWith(prefix)) continue
+                val relative = name.removePrefix(prefix)
+                if (relative.isBlank() || relative.contains("..")) continue
+                val target = File(targetDir, relative)
+                if (entry.isDirectory) {
+                    target.mkdirs()
+                    continue
+                }
+                target.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                target.setReadable(true, false)
+                // bin 下可能有需要执行的脚本
+                target.setExecutable(true, false)
+            }
+        }
+    }
+
     private fun buildEnvironment(prefixDir: File, binDir: File, libDir: File): ToolchainEnvironment {
         val bash = File(binDir, "bash")
-        val extraEnv = mapOf(
-            "PREFIX" to prefixDir.absolutePath,
-            "LD_LIBRARY_PATH" to listOf(libDir.absolutePath, File("/system/lib64").absolutePath)
-                .joinToString(":"),
-        )
+        val etcDir = File(prefixDir, ETC_DIR)
+        val extraEnv = buildMap {
+            put("PREFIX", prefixDir.absolutePath)
+            put(
+                "LD_LIBRARY_PATH",
+                listOf(libDir.absolutePath, File("/system/lib64").absolutePath).joinToString(":"),
+            )
+            // OpenSSL 默认已经会去 $PREFIX/etc/ssl 找证书，这里再显式指一遍，
+            // 覆盖 git / python 等不读 OPENSSLDIR 的工具
+            putAll(etcEnv(etcDir))
+        }
         val shellPath = bash.absolutePath.takeIf { bash.isFile }
         return ToolchainEnvironment(
             prefixDir = prefixDir,
@@ -246,6 +326,7 @@ class ToolchainManager(
             shellPath = shellPath,
             extraEnv = extraEnv,
             pathPrepend = listOf(binDir.absolutePath),
+            etcDir = etcDir.takeIf { it.isDirectory },
         )
     }
 
@@ -293,7 +374,19 @@ class ToolchainManager(
 
         private const val BIN_DIR = "bin"
         private const val LIB_DIR = "lib"
+        private const val ETC_DIR = "etc"
         private const val MARKER_FILE = ".prepared"
+        private const val ASSETS_ETC_PREFIX = "assets/etc/"
+
+        /** CA 证书在 assets/etc 里可能出现的相对路径，按常见布局依次探测 */
+        private val CERT_CANDIDATES = listOf(
+            "tls/cert.pem",
+            "ssl/cert.pem",
+            "ssl/certs/ca-certificates.crt",
+            "ssl/certs/cacert.pem",
+            "certs/ca-certificates.crt",
+            "ca-certificates.crt",
+        )
         private const val RENAME_SUFFIX = ".rename"
         private const val LINK_SUFFIX = ".link"
         private const val PROBE_TIMEOUT_MILLIS = 15_000L

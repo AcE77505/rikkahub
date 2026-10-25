@@ -47,6 +47,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
+import me.rerere.rikkahub.data.ai.tools.LEGACY_WORKSPACE_TOOL_ALIASES
 
 private const val TAG = "ChatRequestFactory"
 
@@ -136,6 +137,8 @@ class ChatRequestFactory(
             providerSetting = turn.providerSetting,
             messages = messages,
             tools = turn.tools,
+            // 旧对话里记的是 workspace_*，改名后靠这张表仍能找到对应工具
+            toolAliases = LEGACY_WORKSPACE_TOOL_ALIASES,
             stream = turn.assistant.streamOutput,
             retry = turn.settings.retryPolicy(),
         )

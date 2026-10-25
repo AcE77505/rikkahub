@@ -532,6 +532,7 @@ private fun ChatFilesPickerSheet(
             mcpManager = vm.mcpManager,
             onCompressContext = vm::handleCompressContext,
             onUpdateAssistant = vm::updateAssistant,
+            onToggleMcpServer = vm::toggleMcpServer,
             onUpdateWorkspaceCwd = vm::updateWorkspaceCwd,
             showCompressDialog = showCompressDialog,
             onShowCompressDialogChange = { showCompressDialog = it },

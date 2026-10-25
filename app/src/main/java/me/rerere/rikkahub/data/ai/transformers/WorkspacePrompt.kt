@@ -39,7 +39,7 @@ val DEFAULT_WORKSPACE_PROMPT: String = """
     - Paths passed to workspace tools are relative to that directory unless they are absolute.
     {{shell_env}}
     {{tool_list}}
-    - Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files.
+    - Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `edit_file` for targeted edits over rewriting whole files.
     - Skills are stored at `{{skills_dir}}`. Each skill is a subdirectory `{{skills_dir}}/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.
     - Built-in skills shipped with the app are at `{{builtin_skills_dir}}/<skill-name>/` with the same layout. Treat that directory as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in the skills directory with the same name overrides the built-in one.
     - Files the user uploaded are at `{{upload_dir}}`. Treat it as READ-ONLY: read uploaded files from there, but never modify, overwrite, or delete anything. If you need to change an uploaded file, copy it into the workspace directory first and edit the copy.

@@ -87,7 +87,7 @@ fun AssistantMcpPage(id: String) {
             ),
             assistant = assistant,
             servers = mcpServerConfigs,
-            onUpdateAssistant = { vm.update(it) }
+            onToggleServer = vm::toggleMcpServer
         )
     }
 }

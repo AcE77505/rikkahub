@@ -863,15 +863,24 @@ class ChatService(
     suspend fun updateChatAssistant(conversationId: Uuid, update: (Assistant) -> Assistant) {
         withLoadedSession(conversationId) { session ->
             val settings = settingsStore.awaitLoaded()
-            val conversation = session.state.value
-            val stored = settings.getStoredAssistantOf(conversation)
-            val updated = update(settings.getAssistantOf(conversation))
-            val assistant = updated.withoutConversationFields(conversation, stored)
+            var assistantToStore: Assistant? = null
+            var storedAssistant: Assistant? = null
             session.updateMetadata(
-                transform = { it.withAssistantUpdate(updated, settings) },
+                // 在锁内基于最新会话状态计算：并发调用时后一个能看到前一个的结果，
+                // 不会各自基于同一份旧快照计算再互相覆盖
+                transform = { conversation ->
+                    val stored = settings.getStoredAssistantOf(conversation)
+                    val updated = update(settings.getAssistantOf(conversation))
+                    storedAssistant = stored
+                    assistantToStore = updated.withoutConversationFields(conversation, stored)
+                    conversation.withAssistantUpdate(updated, settings)
+                },
                 persist = conversationRepo::updateConversationConfig,
             )
-            if (assistant != stored) {
+            // 会话级字段随 config 落库了；剩下的（助手自身的设置）才写回 Settings
+            val assistant = assistantToStore
+            val stored = storedAssistant
+            if (assistant != null && stored != null && assistant != stored) {
                 settingsStore.update { latest ->
                     latest.copy(assistants = latest.assistants.map { if (it.id == assistant.id) assistant else it })
                 }

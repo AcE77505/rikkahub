@@ -47,7 +47,11 @@ import org.koin.compose.koinInject
 import java.io.File
 
 private const val DEFAULT_VISIBLE_COUNT = 3
-private val WORKSPACE_FILE_TOOL_NAMES = setOf("workspace_write_file", "workspace_edit_file")
+// 旧对话里记的是改名前的 workspace_*，一并认，历史消息的改动文件列表才不会空
+private val WORKSPACE_FILE_TOOL_NAMES = setOf(
+    "write_file", "edit_file",
+    "workspace_write_file", "workspace_edit_file",
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

@@ -51,6 +51,7 @@ import me.rerere.hugeicons.stroke.Tools
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.tools.WorkspaceToolDefaultApprovals
+import me.rerere.rikkahub.data.ai.tools.resolveWorkspaceToolApproval
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -290,9 +291,8 @@ private fun ToolApprovalDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 APPROVAL_TOOLS.forEach { (toolName, labelRes) ->
-                    val needsApproval = approvals[toolName]
-                        ?: WorkspaceToolDefaultApprovals[toolName]
-                        ?: false
+                    // 走兼容函数：升级前存在旧工具名下的审批设置也要能读出来
+                    val needsApproval = resolveWorkspaceToolApproval(toolName, approvals)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -321,9 +321,9 @@ private fun ToolApprovalDialog(
 }
 
 private val APPROVAL_TOOLS = listOf(
-    "workspace_read_file" to R.string.workspace_tool_read_file,
-    "workspace_write_file" to R.string.workspace_tool_write_file,
-    "workspace_edit_file" to R.string.workspace_tool_edit_file,
+    "read_file" to R.string.workspace_tool_read_file,
+    "write_file" to R.string.workspace_tool_write_file,
+    "edit_file" to R.string.workspace_tool_edit_file,
     "workspace_shell" to R.string.workspace_tool_shell,
 )
 

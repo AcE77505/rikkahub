@@ -19,6 +19,11 @@ data class AgentRequest(
     val providerSetting: ProviderSetting,
     val messages: List<UIMessage>,
     val tools: List<Tool> = emptyList(),
+    /**
+     * 旧工具名 → 当前名字。历史对话里记录的旧调用靠它继续找到可执行的工具，
+     * 声明给模型的仍然是 [tools] 里的当前名字。
+     */
+    val toolAliases: Map<String, String> = emptyMap(),
     val stream: Boolean = true,
     /** 最多请求模型的次数 */
     val maxSteps: Int = 256,

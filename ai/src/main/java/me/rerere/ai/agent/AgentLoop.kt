@@ -7,6 +7,7 @@ import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.Tool
 import me.rerere.ai.core.sum
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.StreamChunkHandler
@@ -204,7 +205,9 @@ internal class AgentLoop(
         errorOutput("[${e.javaClass.name}] ${e.message}\n${e.stackTraceToString()}")
     }
 
-    private fun findTool(name: String) = request.tools.find { it.name == name }
+    private fun findTool(name: String): Tool? =
+        request.tools.find { it.name == name }
+            ?: request.toolAliases[name]?.let { current -> request.tools.find { it.name == current } }
 
     private suspend fun update(updated: UIMessage) {
         message = updated

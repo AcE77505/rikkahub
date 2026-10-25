@@ -78,12 +78,12 @@ class WorkspaceReminderTransformer(
                     "Relative paths resolve against it; absolute paths are used as-is."
             )
             appendLine("- Available tools:")
-            appendLine("  - `workspace_read_file`: read file contents (text or images).")
+            appendLine("  - `read_file`: read file contents (text or images).")
             if (LocalToolOption.WorkspaceWriteFile in enabled) {
-                appendLine("  - `workspace_write_file`: create or overwrite files.")
+                appendLine("  - `write_file`: create or overwrite files.")
             }
             if (LocalToolOption.WorkspaceEditFile in enabled) {
-                appendLine("  - `workspace_edit_file`: make precise edits to existing files.")
+                appendLine("  - `edit_file`: make precise edits to existing files.")
             }
             append("</file_tools>")
         }
@@ -194,12 +194,12 @@ private fun buildToolList(enabledTools: Set<LocalToolOption>): String = buildStr
     appendLine("- Available tools:")
     val readEnabled = LocalToolOption.WorkspaceReadFile in enabledTools
     if (readEnabled) {
-        appendLine("  - `workspace_read_file`: read file contents (text or images).")
+        appendLine("  - `read_file`: read file contents (text or images).")
         if (LocalToolOption.WorkspaceWriteFile in enabledTools) {
-            appendLine("  - `workspace_write_file`: create or overwrite files.")
+            appendLine("  - `write_file`: create or overwrite files.")
         }
         if (LocalToolOption.WorkspaceEditFile in enabledTools) {
-            appendLine("  - `workspace_edit_file`: make precise edits to existing files.")
+            appendLine("  - `edit_file`: make precise edits to existing files.")
         }
     }
     if (LocalToolOption.WorkspaceShell in enabledTools) {

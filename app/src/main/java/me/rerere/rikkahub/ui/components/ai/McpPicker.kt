@@ -56,6 +56,7 @@ import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.components.ui.TagType
 import me.rerere.ui.components.ToggleSurface
 import org.koin.compose.koinInject
+import kotlin.uuid.Uuid
 
 @Composable
 fun McpPickerButton(
@@ -63,7 +64,7 @@ fun McpPickerButton(
     servers: List<McpServerConfig>,
     mcpManager: McpManager,
     modifier: Modifier = Modifier,
-    onUpdateAssistant: (Assistant) -> Unit
+    onToggleServer: (Uuid, Boolean) -> Unit
 ) {
     var showMcpPicker by remember { mutableStateOf(false) }
     val status by mcpManager.syncingStatus.collectAsStateWithLifecycle()
@@ -149,9 +150,7 @@ fun McpPickerButton(
                 McpPicker(
                     assistant = assistant,
                     servers = servers,
-                    onUpdateAssistant = {
-                        onUpdateAssistant(it)
-                    },
+                    onToggleServer = onToggleServer,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -206,7 +205,7 @@ internal fun McpPickerPage(
     assistant: Assistant,
     servers: List<McpServerConfig>,
     mcpManager: McpManager,
-    onUpdateAssistant: (Assistant) -> Unit,
+    onToggleServer: (Uuid, Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     val status by mcpManager.syncingStatus.collectAsStateWithLifecycle()
@@ -245,7 +244,7 @@ internal fun McpPickerPage(
         McpPicker(
             assistant = assistant,
             servers = servers,
-            onUpdateAssistant = onUpdateAssistant,
+            onToggleServer = onToggleServer,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
@@ -261,7 +260,13 @@ fun McpPicker(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     colors: ListItemColors = ListItemDefaults.segmentedColors(),
-    onUpdateAssistant: (Assistant) -> Unit
+    /**
+     * 只回传「哪台服务器被切成开/关」，而不是整份 Assistant。
+     *
+     * 之前传整份快照：连续切换时后一次会把前一次的结果覆盖掉（UI 快照可能是旧的），
+     * 于是出现「改了没保存/重启后回退」。
+     */
+    onToggleServer: (Uuid, Boolean) -> Unit
 ) {
     val mcpManager = koinInject<McpManager>()
     val enabledServers = servers.fastFilter { it.commonOptions.enable }
@@ -275,16 +280,7 @@ fun McpPicker(
             val checked = server.id in assistant.mcpServers
             SegmentedListItem(
                 checked = checked,
-                onCheckedChange = {
-                    val newServers = assistant.mcpServers.toMutableSet()
-                    if (it) newServers.add(server.id) else newServers.remove(server.id)
-                    newServers.removeIf { servers.none { s -> s.id == server.id } } // remove invalid servers
-                    onUpdateAssistant(
-                        assistant.copy(
-                            mcpServers = newServers.toSet()
-                        )
-                    )
-                },
+                onCheckedChange = { enabled -> onToggleServer(server.id, enabled) },
                 shapes = ListItemDefaults.segmentedShapes(index = index, count = enabledServers.size),
                 colors = colors,
                 leadingContent = {

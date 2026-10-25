@@ -101,6 +101,7 @@ internal fun FilesPicker(
     mcpManager: McpManager,
     onCompressContext: (additionalPrompt: String, keepRecentMessages: Int) -> Job,
     onUpdateAssistant: (Assistant) -> Unit,
+    onToggleMcpServer: (Uuid, Boolean) -> Unit,
     onUpdateWorkspaceCwd: (String?) -> Unit,
     showCompressDialog: Boolean,
     onShowCompressDialogChange: (Boolean) -> Unit,
@@ -159,7 +160,7 @@ internal fun FilesPicker(
                 assistant = assistant,
                 servers = settings.mcpServers,
                 mcpManager = mcpManager,
-                onUpdateAssistant = onUpdateAssistant,
+                onToggleServer = onToggleMcpServer,
                 onBack = { page = FilesPickerPage.MAIN },
             )
 

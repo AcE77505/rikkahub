@@ -257,6 +257,8 @@ class WorkspaceRepository(
     suspend fun toolchainEnvironment(id: String): ToolchainEnvironment? = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: return@withContext null
         if (!workspace.toolchainEnabled) return@withContext null
+        // 证书与 ssh 配置在 resolve() 里随 bin/lib 一起解到 $PREFIX/etc，
+        // 那里正是 termex OpenSSL 的 OPENSSLDIR，无需再按工作区准备
         runCatching { toolchainManager.resolve() }
             .onFailure { Log.w(TAG, "toolchain unavailable, falling back to toybox", it) }
             .getOrNull()

@@ -183,6 +183,26 @@ class ChatVM(
         }
     }
 
+    /**
+     * 切换当前会话里某台 MCP 服务器的启用状态。
+     *
+     * 走增量而不是把 UI 快照整份写回：连续切换时，后一次点击携带的 assistant 可能还是
+     * 上一次修改之前的快照，整份覆盖会把前一次的结果吃掉。
+     */
+    fun toggleMcpServer(serverId: Uuid, enabled: Boolean) {
+        viewModelScope.launch {
+            chatService.updateChatAssistant(_conversationId) { latest ->
+                latest.copy(
+                    mcpServers = if (enabled) {
+                        latest.mcpServers + serverId
+                    } else {
+                        latest.mcpServers - serverId
+                    }
+                )
+            }
+        }
+    }
+
     // 新会话开始前归入抽屉里选中的文件夹
     suspend fun updateDraftFolder(folderId: Uuid?) {
         chatService.updateDraftConversationFolder(_conversationId, folderId)

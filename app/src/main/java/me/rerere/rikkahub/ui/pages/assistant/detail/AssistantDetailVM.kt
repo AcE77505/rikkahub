@@ -163,6 +163,29 @@ class AssistantDetailVM(
         }
     }
 
+    /** 切换助手的 MCP 服务器启用状态，同样按增量写回，避免整份快照覆盖并发修改 */
+    fun toggleMcpServer(serverId: Uuid, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsStore.update { settings ->
+                settings.copy(
+                    assistants = settings.assistants.map { assistant ->
+                        if (assistant.id == assistantId) {
+                            assistant.copy(
+                                mcpServers = if (enabled) {
+                                    assistant.mcpServers + serverId
+                                } else {
+                                    assistant.mcpServers - serverId
+                                }
+                            )
+                        } else {
+                            assistant
+                        }
+                    }
+                )
+            }
+        }
+    }
+
     fun update(assistant: Assistant) {
         viewModelScope.launch {
             var replaced: Assistant? = null

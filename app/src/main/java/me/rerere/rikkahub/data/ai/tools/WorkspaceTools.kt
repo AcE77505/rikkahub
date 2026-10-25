@@ -23,14 +23,31 @@ private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 private const val MAX_WRITE_FILE_BYTES = 2 * 1024 * 1024
 
 val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
-    "workspace_read_file" to false,
-    "workspace_write_file" to false,
-    "workspace_edit_file" to false,
+    "read_file" to false,
+    "write_file" to false,
+    "edit_file" to false,
     "workspace_shell" to true,
 )
 
-fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
-    overrides[name] ?: WorkspaceToolDefaultApprovals[name] ?: false
+/**
+ * 旧版本的工具名 → 当前名字。
+ *
+ * 升级后模型看到的工具名变了，但旧对话的历史消息里记的还是 `workspace_*`，
+ * 模型也可能照着历史继续这么叫。执行、UI 渲染和审批读取都要认这套旧名字。
+ * `workspace_shell` 没有改名，不在表里。
+ */
+val LEGACY_WORKSPACE_TOOL_ALIASES: Map<String, String> = mapOf(
+    "workspace_read_file" to "read_file",
+    "workspace_write_file" to "write_file",
+    "workspace_edit_file" to "edit_file",
+)
+
+fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean {
+    val current = LEGACY_WORKSPACE_TOOL_ALIASES[name] ?: name
+    // 新旧 key 都认：升级前存下的审批设置不能因为改名而失效
+    return overrides[current] ?: overrides[name]
+        ?: WorkspaceToolDefaultApprovals[current] ?: false
+}
 
 /** 工作区工具的创建参数：目录、审批与超时策略都在创建时解析一次 */
 data class WorkspaceToolContext(
@@ -83,7 +100,7 @@ private fun createReadFileTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "workspace_read_file",
+    name = "read_file",
     description = """
         Read a file. Relative paths resolve against the workspace directory (${context.workingDir.absolutePath}).
         Absolute paths are allowed, so the skills, uploads and built-in skills folders can be read directly.
@@ -95,7 +112,7 @@ private fun createReadFileTool(
             required = listOf("path"),
         )
     },
-    needsApproval = { context.needsApproval("workspace_read_file") },
+    needsApproval = { context.needsApproval("read_file") },
     execute = {
         val raw = it.jsonObject.string("path") ?: error("path is required")
         val file = resolveToolFile(raw, context.workingDir)
@@ -119,7 +136,7 @@ private fun createWriteFileTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "workspace_write_file",
+    name = "write_file",
     description = """
         Write a UTF-8 text file. Relative paths resolve against the workspace directory (${context.workingDir.absolutePath}).
         Parent directories are created as needed. Files outside the workspace directory require user approval.
@@ -142,7 +159,7 @@ private fun createWriteFileTool(
     },
     needsApproval = {
         val raw = runCatching { it.jsonObject.string("path").orEmpty() }.getOrDefault("")
-        context.needsApproval("workspace_write_file") ||
+        context.needsApproval("write_file") ||
             isOutsideWorkingDir(raw, context.workingDir)
     },
     execute = {
@@ -160,7 +177,7 @@ private fun createEditFileTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "workspace_edit_file",
+    name = "edit_file",
     description = """
         Edit a UTF-8 text file. Relative paths resolve against the workspace directory (${context.workingDir.absolutePath}).
         Provide old_text and new_text. By default old_text must occur exactly once; set replace_all=true to replace every occurrence.
@@ -188,7 +205,7 @@ private fun createEditFileTool(
     },
     needsApproval = {
         val raw = runCatching { it.jsonObject.string("path").orEmpty() }.getOrDefault("")
-        context.needsApproval("workspace_edit_file") ||
+        context.needsApproval("edit_file") ||
             isOutsideWorkingDir(raw, context.workingDir)
     },
     execute = {

@@ -80,9 +80,9 @@ class LocalTools(
         val readEnabled = LocalToolOption.WorkspaceReadFile in options
         val enabledTools = buildSet {
             if (readEnabled) {
-                add("workspace_read_file")
-                if (LocalToolOption.WorkspaceWriteFile in options) add("workspace_write_file")
-                if (LocalToolOption.WorkspaceEditFile in options) add("workspace_edit_file")
+                add("read_file")
+                if (LocalToolOption.WorkspaceWriteFile in options) add("write_file")
+                if (LocalToolOption.WorkspaceEditFile in options) add("edit_file")
             }
             if (LocalToolOption.WorkspaceShell in options) add("workspace_shell")
         }
