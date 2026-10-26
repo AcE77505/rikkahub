@@ -57,6 +57,20 @@ data class MemoryFile(
         return SkillFrontmatterParser.compose(values, body)
     }
 
+    /**
+     * 只替换正文，保留原始 frontmatter 文本。
+     *
+     * 条目编辑只改正文，不应该因为重新序列化 YAML 让文件变大（接近 48KB 上限时尤其明显）。
+     */
+    fun contentWithBody(newBody: String): String {
+        val currentBody = body
+        return if (content.endsWith(currentBody)) {
+            content.removeSuffix(currentBody) + newBody
+        } else {
+            contentWith(title, description, aliases, newBody)
+        }
+    }
+
     companion object {
         const val PROFILE_PATH = "/profile.md"
         const val PREFERENCES_PATH = "/preferences.md"

@@ -17,6 +17,9 @@ interface MemoryDAO {
     @Query("SELECT * FROM memory_file WHERE assistant_id = :assistantId AND path = :path")
     suspend fun getFile(assistantId: String, path: String): MemoryFileEntity?
 
+    @Query("SELECT * FROM memory_file WHERE assistant_id = :assistantId AND path = :path")
+    fun getFileFlow(assistantId: String, path: String): Flow<MemoryFileEntity?>
+
     @Upsert
     suspend fun upsertFile(file: MemoryFileEntity)
 
