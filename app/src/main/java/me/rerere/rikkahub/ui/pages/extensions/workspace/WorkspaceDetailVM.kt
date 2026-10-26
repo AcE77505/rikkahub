@@ -15,14 +15,15 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.InputStream
-import java.io.OutputStream
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.workspace.SshEnvironment
 import me.rerere.workspace.TermexStatus
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 
 class WorkspaceDetailVM(
     private val id: String,
@@ -42,6 +43,14 @@ class WorkspaceDetailVM(
 
     fun dismissSettingsError() {
         _settingsError.value = null
+    }
+
+    /** 一次性的用户提示（Toast），例如切换类型后本地文件不再可见 */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice = _notice.asStateFlow()
+
+    fun dismissNotice() {
+        _notice.value = null
     }
 
     init {
@@ -64,14 +73,22 @@ class WorkspaceDetailVM(
     fun exportFilesToDirectory(treeUri: Uri?, resolver: ContentResolver) {
         val entries = pendingExport.also { pendingExport = null } ?: return
         if (treeUri == null) return
-        _state.update { it.copy(exporting = true, exportCompleted = 0, exportTotal = entries.size, exportResult = null) }
+        _state.update {
+            it.copy(
+                exporting = true,
+                exportCompleted = 0,
+                exportTotal = entries.size,
+                exportResult = null
+            )
+        }
         viewModelScope.launch {
             var succeeded = 0
             val failures = mutableListOf<String>()
             try {
                 withContext(Dispatchers.IO) {
                     val parent = DocumentsContract.buildDocumentUriUsingTree(
-                        treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+                        treeUri,
+                        DocumentsContract.getTreeDocumentId(treeUri)
                     )
                     entries.forEachIndexed { index, entry ->
                         ensureActive()
@@ -299,13 +316,69 @@ class WorkspaceDetailVM(
         _terminalState.update { it.copy(history = emptyList()) }
     }
 
+    // ---- SSH ----
+
+    fun setSshConfig(type: String, host: String?, port: Int, username: String?, remoteRoot: String?) {
+        viewModelScope.launch {
+            val previous = state.value.workspace
+            try {
+                repository.setSshConfig(id, type, host, port, username, remoteRoot)
+                loadWorkspace()
+                refresh()
+                // 从本地切到远程：本地原目录仍然存在，但当前工作区的工具和终端访问不到
+                if (previous != null && !previous.isSsh && type == WorkspaceEntity.TYPE_SSH) {
+                    val path = previous.directory?.takeIf { it.isNotBlank() }
+                        ?: runCatching { repository.workingDirectory(previous.id).absolutePath }.getOrNull()
+                    _notice.value = buildString {
+                        append("已切换到 SSH 工作区。原本地工作区「${previous.name}」")
+                        if (path != null) append("（$path）")
+                        append(" 中的文件仍保留在本地，但当前工作区访问不到。")
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _settingsError.value = error.message.orEmpty()
+            }
+        }
+    }
+
+    fun testSshConnection() {
+        viewModelScope.launch {
+            _state.update { it.copy(sshTesting = true, sshTestResult = null) }
+            val result = repository.testSshConnection(id)
+            // 成功时返回值是「用户名\nhome」两行，失败时是异常消息
+            _state.update {
+                it.copy(
+                    sshTesting = false,
+                    sshTestResult = result.fold(
+                        onSuccess = { info -> "连接成功：${info.replace("\n", " · ")}" },
+                        onFailure = { error -> "连接失败：${error.message ?: error::class.simpleName}" },
+                    ),
+                )
+            }
+        }
+    }
+
+    /** 首次配置命令；由界面负责复制到剪贴板 */
+    /** 首次配置命令；由界面按目标系统选择 Termux / Linux */
+    suspend fun sshSetupCommand(environment: SshEnvironment): Result<String> =
+        repository.sshSetupCommand(id, environment)
+
+    /** 通道断开后的重开命令 */
+    suspend fun sshReconnectCommand(environment: SshEnvironment): Result<String> =
+        repository.sshReconnectCommand(id, environment)
+
     private fun loadWorkspace() {
         viewModelScope.launch {
             val workspace = repository.getById(id)
             val targetDir = workspace?.let {
                 runCatching { repository.workingDirectory(it.id) }.getOrNull()
             }
-            _state.update { it.copy(workspace = workspace, workingDir = targetDir) }
+            val sshAvailable = withContext(Dispatchers.IO) { repository.isSshAvailable() }
+            _state.update {
+                it.copy(workspace = workspace, workingDir = targetDir, sshAvailable = sshAvailable)
+            }
         }
     }
 }
@@ -324,6 +397,10 @@ data class WorkspaceDetailState(
     val exportCompleted: Int = 0,
     val exportTotal: Int = 0,
     val exportResult: String? = null,
+    /** SSH 客户端是否可用（依赖 termex 工具链里的 ssh） */
+    val sshAvailable: Boolean = false,
+    val sshTesting: Boolean = false,
+    val sshTestResult: String? = null,
 )
 
 data class WorkspaceTerminalState(

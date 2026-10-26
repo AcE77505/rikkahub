@@ -51,14 +51,17 @@ import java.io.File
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.FolderCode
 import me.rerere.hugeicons.stroke.PencilEdit01
+import me.rerere.hugeicons.stroke.Settings02
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
 import me.rerere.rikkahub.ui.components.ui.ItemAction
 import me.rerere.rikkahub.ui.components.ui.ItemActionMenu
@@ -127,11 +130,13 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
         if (storageGranted) storageDialogVisible = false
     }
 
+    // 声明按类型互斥：打开 B 时只关闭同类型的 A，本地与 SSH 可以各开一个
     fun onDeclaredChange(workspace: WorkspaceEntity, checked: Boolean) {
-        // 声明是互斥的：打开 B 时 A 自动关闭，这里把这件事告诉用户
-        val previous = declared
+        val previous = declared.firstOrNull {
+            it.type == workspace.type && it.id != workspace.id
+        }
         vm.setDeclared(workspace, checked)
-        if (checked && previous != null && previous.id != workspace.id) {
+        if (checked && previous != null) {
             scope.launch {
                 snackbarHostState.showSnackbar(cancelledMessage.format(previous.name))
             }
@@ -161,6 +166,18 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             contentPadding = innerPadding + PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item {
+                CardGroup {
+                    item(
+                        onClick = { navController.navigate(Screen.SshKey) },
+                        headlineContent = { Text(stringResource(R.string.ssh_key_page_title)) },
+                        supportingContent = { Text(stringResource(R.string.ssh_key_page_desc_short)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Settings02) },
+                        trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
+                    )
+                }
+            }
+
             if (workspaces.isEmpty()) {
                 item {
                     ExtensionEmptyState(
@@ -174,7 +191,7 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             items(workspaces, key = { it.id }) { workspace ->
                 WorkspaceItem(
                     workspace = workspace,
-                    declared = declared?.id == workspace.id,
+                    declared = declared.any { it.id == workspace.id },
                     onDeclaredChange = { onDeclaredChange(workspace, it) },
                     onRename = { editTarget = workspace },
                     onDelete = { deleteTarget = workspace },

@@ -50,13 +50,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -80,6 +83,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Alert01
 import me.rerere.hugeicons.stroke.Alert02
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.ArrowTurnBackward
@@ -106,6 +110,11 @@ import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import me.rerere.workspace.SshEnvironment
+import me.rerere.workspace.SshTarget
 import me.rerere.rikkahub.ui.components.ui.ImagePreviewDialog
 import me.rerere.rikkahub.ui.components.ui.ItemAction
 import me.rerere.rikkahub.ui.components.ui.ItemActionMenu
@@ -140,10 +149,18 @@ fun WorkspaceDetailPage(id: String) {
     val vm: WorkspaceDetailVM = koinViewModel(parameters = { parametersOf(id) })
     val state by vm.state.collectAsStateWithLifecycle()
     val settingsError by vm.settingsError.collectAsStateWithLifecycle()
+    val notice by vm.notice.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState { WorkspaceDetailTab.entries.size }
     var deleteTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var previewImageUri by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+
+    LaunchedEffect(notice) {
+        notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            vm.dismissNotice()
+        }
+    }
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -201,7 +218,7 @@ fun WorkspaceDetailPage(id: String) {
                     IconButton(onClick = { vm.refresh() }) {
                         Icon(HugeIcons.Refresh01, contentDescription = null)
                     }
-                    // 命令环境始终可用（原生 shell），不再有「装了 rootfs 才能进终端」的限制
+                    // 本地和 SSH 工作区都支持终端：SSH 的终端进程直接是 ssh -tt
                     IconButton(onClick = { navController.navigate(Screen.WorkspaceTerminal(id)) }) {
                         Icon(HugeIcons.ComputerTerminal01, contentDescription = null)
                     }
@@ -235,6 +252,10 @@ fun WorkspaceDetailPage(id: String) {
                         state = state,
                         onDirectoryChange = vm::setDirectory,
                         onToolchainChange = vm::setToolchainEnabled,
+                        onSshConfigChange = vm::setSshConfig,
+                        onTestSsh = vm::testSshConnection,
+                        onSetupCommand = vm::sshSetupCommand,
+                        onReconnectCommand = vm::sshReconnectCommand,
                         onOpenTerminalHome = {
                             navController.navigate(Screen.SettingTerminalDirectory(id))
                         },
@@ -373,15 +394,63 @@ private fun WorkspaceBasicPage(
     state: WorkspaceDetailState,
     onDirectoryChange: (String) -> Unit,
     onToolchainChange: (Boolean) -> Unit,
+    onSshConfigChange: (String, String?, Int, String?, String?) -> Unit,
+    onTestSsh: () -> Unit,
+    onSetupCommand: suspend (SshEnvironment) -> Result<String>,
+    onReconnectCommand: suspend (SshEnvironment) -> Result<String>,
     onOpenTerminalHome: () -> Unit,
     onOpenTerminal: () -> Unit,
 ) {
     val workspace = state.workspace
+    val navController = LocalNavController.current
     var directoryDraft by remember(workspace?.id, workspace?.directory) {
         mutableStateOf(workspace?.directory.orEmpty())
     }
     val trimmedDirectory = directoryDraft.trim()
     val directoryChanged = trimmedDirectory != workspace?.directory.orEmpty()
+
+    var sshHostDraft by remember(workspace?.id, workspace?.sshHost) {
+        mutableStateOf(workspace?.sshHost.orEmpty())
+    }
+    var sshPortDraft by remember(workspace?.id, workspace?.sshPort) {
+        mutableStateOf((workspace?.sshPort ?: SshTarget.DEFAULT_PORT).toString())
+    }
+    var sshUsernameDraft by remember(workspace?.id, workspace?.sshUsername) {
+        mutableStateOf(workspace?.sshUsername.orEmpty())
+    }
+    var sshRootDraft by remember(workspace?.id, workspace?.sshRoot) {
+        mutableStateOf(workspace?.sshRoot.orEmpty())
+    }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    fun copyCommand(action: suspend () -> Result<String>) {
+        scope.launch {
+            action()
+                .onSuccess {
+                    context.writeClipboardText(it)
+                    Toast.makeText(
+                        context,
+                        R.string.workspace_detail_ssh_copied,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .onFailure {
+                    Toast.makeText(
+                        context,
+                        it.message ?: context.getString(R.string.workspace_detail_ssh_copy_failed),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+        }
+    }
+    fun saveSsh() = onSshConfigChange(
+        WorkspaceEntity.TYPE_SSH,
+        sshHostDraft.trim().ifBlank { null },
+        sshPortDraft.trim().toIntOrNull() ?: SshTarget.DEFAULT_PORT,
+        sshUsernameDraft.trim().ifBlank { null },
+        sshRootDraft.trim().ifBlank { null },
+    )
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -399,11 +468,13 @@ private fun WorkspaceBasicPage(
                     },
                     leadingContent = { CardGroupIcon(HugeIcons.Tag01) },
                 )
-                formItem(
-                    headlineContent = { Text(stringResource(R.string.workspace_detail_directory)) },
-                    supportingContent = { Text(stringResource(R.string.workspace_detail_directory_desc)) },
-                    leadingContent = { CardGroupIcon(HugeIcons.FolderCode) },
-                ) {
+                // 目录是本地工作区的概念；SSH 的远端目录在连接分组里设置
+                if (workspace?.isSsh != true) {
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_directory)) },
+                        supportingContent = { Text(stringResource(R.string.workspace_detail_directory_desc)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.FolderCode) },
+                    ) {
                     val directoryError = trimmedDirectory.isNotEmpty() && !trimmedDirectory.startsWith("/")
                     OutlinedTextField(
                         value = directoryDraft,
@@ -429,55 +500,238 @@ private fun WorkspaceBasicPage(
                     ) {
                         Text(stringResource(R.string.common_save))
                     }
+                    }
                 }
             }
         }
 
         item {
-            val termexInstalled = state.termex?.installed == true
+            CardGroup(title = { Text(stringResource(R.string.workspace_detail_connection)) }) {
+                item(
+                    headlineContent = { Text(stringResource(R.string.workspace_detail_connection_type)) },
+                    supportingContent = {
+                        Text(
+                            if (workspace?.isSsh == true) {
+                                stringResource(R.string.workspace_detail_connection_ssh)
+                            } else {
+                                stringResource(R.string.workspace_detail_connection_local)
+                            }
+                        )
+                    },
+                    leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
+                    trailingContent = {
+                        Switch(
+                            checked = workspace?.isSsh == true,
+                            enabled = state.sshAvailable || workspace?.isSsh == true,
+                            onCheckedChange = { ssh ->
+                                if (ssh) {
+                                    // 切到 SSH 先给一套能连的默认值，用户再改
+                                    if (sshHostDraft.isBlank()) sshHostDraft = "127.0.0.1"
+                                    saveSsh()
+                                } else {
+                                    onSshConfigChange(
+                                        WorkspaceEntity.TYPE_LOCAL,
+                                        workspace?.sshHost,
+                                        workspace?.sshPort ?: SshTarget.DEFAULT_PORT,
+                                        workspace?.sshUsername,
+                                        workspace?.sshRoot,
+                                    )
+                                }
+                            },
+                        )
+                    },
+                )
+                if (!state.sshAvailable) {
+                    item(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_ssh_unavailable)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Alert01) },
+                    )
+                }
+                if (workspace?.isSsh == true) {
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_ssh_host)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.FolderCode) },
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = sshHostDraft,
+                                onValueChange = { sshHostDraft = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.workspace_detail_ssh_host)) },
+                            )
+                            OutlinedTextField(
+                                value = sshPortDraft,
+                                onValueChange = { sshPortDraft = it.filter(Char::isDigit) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.workspace_detail_ssh_port)) },
+                            )
+                            OutlinedTextField(
+                                value = sshUsernameDraft,
+                                onValueChange = { sshUsernameDraft = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.workspace_detail_ssh_username)) },
+                            )
+                            OutlinedTextField(
+                                value = sshRootDraft,
+                                onValueChange = { sshRootDraft = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.workspace_detail_ssh_root)) },
+                                placeholder = { Text("~") },
+                            )
+                            Button(onClick = { saveSsh() }, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.common_save))
+                            }
+                        }
+                    }
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_ssh_test)) },
+                        supportingContent = { state.sshTestResult?.let { Text(it) } },
+                        leadingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
+                    ) {
+                        Button(onClick = onTestSsh, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.workspace_detail_ssh_test))
+                        }
+                    }
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_ssh_setup)) },
+                        supportingContent = { Text(stringResource(R.string.workspace_detail_ssh_hint)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Tag01) },
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(R.string.workspace_detail_ssh_environment_question),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Button(
+                                    onClick = { copyCommand { onSetupCommand(SshEnvironment.TERMUX) } },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(stringResource(R.string.workspace_detail_ssh_setup_termux))
+                                }
+                                OutlinedButton(
+                                    onClick = { copyCommand { onSetupCommand(SshEnvironment.LINUX) } },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(stringResource(R.string.workspace_detail_ssh_setup_linux))
+                                }
+                            }
+                        }
+                    }
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_ssh_reconnect)) },
+                        supportingContent = { Text(stringResource(R.string.workspace_detail_ssh_reconnect_hint)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Refresh01) },
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = { copyCommand { onReconnectCommand(SshEnvironment.TERMUX) } },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.workspace_detail_ssh_reconnect_termux))
+                            }
+                            OutlinedButton(
+                                onClick = { copyCommand { onReconnectCommand(SshEnvironment.LINUX) } },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.workspace_detail_ssh_reconnect_linux))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
             CardGroup(
                 title = { Text(stringResource(R.string.workspace_detail_command_environment)) },
             ) {
-                switchItem(
-                    checked = workspace?.toolchainEnabled == true,
-                    onCheckedChange = onToolchainChange,
-                    enabled = workspace != null && termexInstalled,
-                    supportingContent = {
-                        Text(
-                            if (termexInstalled) {
-                                stringResource(R.string.workspace_detail_toolchain_desc)
-                            } else {
-                                stringResource(R.string.workspace_detail_toolchain_missing)
-                            }
-                        )
-                    },
-                    leadingContent = { CardGroupIcon(HugeIcons.Bash) },
-                    headlineContent = { Text(stringResource(R.string.workspace_detail_toolchain)) },
-                )
-                item(
-                    headlineContent = { Text(stringResource(R.string.workspace_detail_command_environment)) },
-                    supportingContent = {
-                        Text(
-                            if (workspace?.toolchainEnabled == true) {
-                                stringResource(R.string.workspace_detail_command_environment_toolchain)
-                            } else {
-                                stringResource(R.string.workspace_detail_command_environment_native)
-                            }
-                        )
-                    },
-                    leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
-                )
-                item(
-                    onClick = onOpenTerminal,
-                    headlineContent = { Text(stringResource(R.string.workspace_terminal)) },
-                    leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
-                )
-                item(
-                    onClick = onOpenTerminalHome,
-                    headlineContent = { Text(stringResource(R.string.workspace_detail_terminal_home)) },
-                    leadingContent = { CardGroupIcon(HugeIcons.FolderOpen) },
-                    trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
-                )
+                if (workspace?.isSsh == true) {
+                    // SSH 工作区的命令跑在远端，本地工具链 / HOME / 终端都不适用，
+                    // 这里只留一条只读说明，避免用户点了没有效果。
+                    val target = workspace.sshTarget()
+                    item(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_command_environment)) },
+                        supportingContent = {
+                            Text(
+                                if (target != null) {
+                                    stringResource(
+                                        R.string.workspace_detail_command_environment_ssh,
+                                        target.endpoint,
+                                        target.remoteRoot,
+                                    )
+                                } else {
+                                    stringResource(R.string.workspace_detail_ssh_incomplete)
+                                }
+                            )
+                        },
+                        leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
+                    )
+                    item(
+                        onClick = onOpenTerminal,
+                        headlineContent = { Text(stringResource(R.string.workspace_terminal)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.SshKey) },
+                        headlineContent = { Text(stringResource(R.string.ssh_key_page_title)) },
+                        supportingContent = { Text(stringResource(R.string.ssh_key_page_desc_short)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Settings03) },
+                        trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
+                    )
+                } else {
+                    val termexInstalled = state.termex?.installed == true
+                    switchItem(
+                        checked = workspace?.toolchainEnabled == true,
+                        onCheckedChange = onToolchainChange,
+                        enabled = workspace != null && termexInstalled,
+                        supportingContent = {
+                            Text(
+                                if (termexInstalled) {
+                                    stringResource(R.string.workspace_detail_toolchain_desc)
+                                } else {
+                                    stringResource(R.string.workspace_detail_toolchain_missing)
+                                }
+                            )
+                        },
+                        leadingContent = { CardGroupIcon(HugeIcons.Bash) },
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_toolchain)) },
+                    )
+                    item(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_command_environment)) },
+                        supportingContent = {
+                            Text(
+                                if (workspace?.toolchainEnabled == true) {
+                                    stringResource(R.string.workspace_detail_command_environment_toolchain)
+                                } else {
+                                    stringResource(R.string.workspace_detail_command_environment_native)
+                                }
+                            )
+                        },
+                        leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
+                    )
+                    item(
+                        onClick = onOpenTerminal,
+                        headlineContent = { Text(stringResource(R.string.workspace_terminal)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
+                    )
+                    item(
+                        onClick = onOpenTerminalHome,
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_terminal_home)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.FolderOpen) },
+                        trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
+                    )
+                }
             }
         }
     }

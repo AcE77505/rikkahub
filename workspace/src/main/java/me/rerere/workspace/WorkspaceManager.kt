@@ -203,6 +203,55 @@ class WorkspaceManager(
         }
     }
 
+    /**
+     * 在任意目录里执行命令，不要求它是某个工作区的 root。
+     *
+     * 用于「没有声明任何工作区」时的沙箱 shell：HOME 指向 [dir] 本身，
+     * TMPDIR 用 `dir/.tmp`，因此命令的默认落点和文件工具保持一致。
+     */
+    fun executeCommandIn(
+        dir: File,
+        command: String,
+        cwd: String = "",
+        overtimeMillis: Long = WorkspaceShellContext.DEFAULT_OVERTIME_MILLIS,
+        autoStopOnOvertime: Boolean = false,
+        stdin: ByteArray? = null,
+        toolchain: ToolchainEnvironment? = null,
+        overflowFileName: String? = null,
+        onOvertime: (() -> Unit)? = null,
+    ): WorkspaceCommandResult {
+        require(command.isNotBlank()) { "Command is required" }
+        val base = dir.apply { mkdirs() }
+        val workingDir = fileSystem.resolve(base, cwd)
+        require(workingDir.exists()) { "Working directory does not exist: $cwd" }
+        require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
+
+        val tempDir = File(base, ".tmp").apply { mkdirs() }
+        val wrappedCommand = if (toolchain?.shellPath != null) {
+            "${toolchain.shellPath.shellQuote()} -lc ${command.shellQuote()}"
+        } else {
+            command
+        }
+
+        return shellRunner.execute(
+            WorkspaceShellContext(
+                root = "",
+                command = wrappedCommand,
+                cwd = cwd,
+                workingDir = workingDir,
+                homeDir = base,
+                tempDir = tempDir,
+                overtimeMillis = overtimeMillis,
+                autoStopOnOvertime = autoStopOnOvertime,
+                extraEnv = toolchain?.extraEnv.orEmpty(),
+                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+                stdin = stdin,
+                overflowFile = overflowFileName?.let { File(tempDir, it) },
+                onOvertime = onOvertime,
+            )
+        )
+    }
+
     /** 清理所有工作区下可安全删除的临时内容（不触碰 linux/ 旧 rootfs，也不触碰 home/） */
     fun cleanupAllTempDirs() {
         val roots = baseDir.listFiles()?.filter { it.isDirectory } ?: return

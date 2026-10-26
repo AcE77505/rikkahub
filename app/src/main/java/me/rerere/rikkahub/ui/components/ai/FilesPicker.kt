@@ -130,16 +130,19 @@ internal fun FilesPicker(
     val navController = LocalNavController.current
     val workspaceRepository: WorkspaceRepository = koinInject()
     val workspaces by workspaceRepository.listFlow().collectAsState(initial = emptyList())
-    // 工作区不再按助手绑定：聊天页显示的是被「声明」给 AI 的那一个
-    val declaredWorkspace by workspaceRepository.declaredFlow().collectAsState(initial = null)
+    // 工作区不再按助手绑定：聊天页显示的是被「声明」给 AI 的工作区，本地与 SSH 各最多一个
+    val declaredWorkspaces by workspaceRepository.declaredFlow().collectAsState(initial = emptyList())
 
-    val boundWorkspace = declaredWorkspace
+    val boundWorkspace = declaredWorkspaces.firstOrNull { !it.isSsh }
+        ?: declaredWorkspaces.firstOrNull()
     val scope = rememberCoroutineScope()
-    // 声明是全局互斥的：选一个就把其他的取消声明，选「不声明」则清空
-    val declareWorkspace: (String?) -> Unit = { id ->
+    // 声明按类型互斥：选一个就把同类型的其他工作区取消声明；选「不声明」只清该类型
+    val declareWorkspace: (String?, String?) -> Unit = { id, type ->
         scope.launch {
             if (id == null) {
-                boundWorkspace?.let { workspaceRepository.setDeclared(it.id, false) }
+                declaredWorkspaces.firstOrNull { it.type == type }?.let {
+                    workspaceRepository.setDeclared(it.id, false)
+                }
             } else {
                 workspaceRepository.setDeclared(id, true)
             }
@@ -246,7 +249,7 @@ internal fun FilesPicker(
                     if (showWorkspace) {
                         WorkspacePickerListItem(
                             assistant = assistant,
-                            declaredId = boundWorkspace?.id,
+                            declaredIds = declaredWorkspaces.map { it.id }.toSet(),
                             workspaces = workspaces,
                             shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
                             onDeclareWorkspace = declareWorkspace,
@@ -398,14 +401,18 @@ private fun WorkspacePickerListItem(
     assistant: Assistant,
     workspaces: List<WorkspaceEntity>,
     shapes: ListItemShapes,
-    declaredId: String?,
-    onDeclareWorkspace: (String?) -> Unit,
+    declaredIds: Set<String>,
+    onDeclareWorkspace: (String?, String?) -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToTerminal: (String) -> Unit,
     onNavigateToManage: () -> Unit,
 ) {
     var showSheet by remember { mutableStateOf(false) }
-    val boundWorkspace = remember(workspaces, declaredId) { workspaces.find { it.id == declaredId } }
+    val declared = remember(workspaces, declaredIds) {
+        workspaces.filter { it.id in declaredIds }
+    }
+    // 详情/终端入口跟随本地工作区，其次远程
+    val primary = declared.firstOrNull { !it.isSsh } ?: declared.firstOrNull()
 
     SegmentedListItem(
         onClick = { showSheet = true },
@@ -418,7 +425,11 @@ private fun WorkspacePickerListItem(
         },
         supportingContent = {
             Text(
-                text = boundWorkspace?.name ?: stringResource(R.string.assistant_page_workspace_unbound),
+                text = if (declared.isEmpty()) {
+                    stringResource(R.string.assistant_page_workspace_unbound)
+                } else {
+                    declared.joinToString(" · ") { it.name }
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -427,15 +438,15 @@ private fun WorkspacePickerListItem(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (boundWorkspace != null) {
-                    IconButton(onClick = { onNavigateToDetail(boundWorkspace.id) }) {
+                if (primary != null) {
+                    IconButton(onClick = { onNavigateToDetail(primary.id) }) {
                         Icon(
                             imageVector = HugeIcons.Settings02,
                             contentDescription = stringResource(R.string.workspace_detail),
                         )
                     }
                     // 命令环境始终可用（Android 原生 shell），终端入口常驻
-                    IconButton(onClick = { onNavigateToTerminal(boundWorkspace.id) }) {
+                    IconButton(onClick = { onNavigateToTerminal(primary.id) }) {
                         Icon(
                             imageVector = HugeIcons.ComputerTerminal01,
                             contentDescription = stringResource(R.string.workspace_terminal),
@@ -450,11 +461,15 @@ private fun WorkspacePickerListItem(
 
     if (showSheet) {
         WorkspaceSelectSheet(
-            declaredId = declaredId,
+            declaredIds = declaredIds,
             workspaces = workspaces,
-            onSelect = { workspaceId ->
-                // 工作区选择改为全局「声明」：切换后其他工作区自动取消声明
-                if (workspaceId != declaredId) onDeclareWorkspace(workspaceId)
+            onSelect = { workspaceId, type ->
+                // 声明按类型互斥：只切换同组，另一组保持不动
+                if (workspaceId == null) {
+                    if (declared.any { it.type == type }) onDeclareWorkspace(null, type)
+                } else if (workspaceId !in declaredIds) {
+                    onDeclareWorkspace(workspaceId, type)
+                }
                 showSheet = false
             },
             onManage = {

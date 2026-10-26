@@ -15,9 +15,9 @@ class WorkspaceVM(
     val workspaces = repository.listFlow()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    /** 当前被声明给 AI 的工作区（最多一个） */
+    /** 当前被声明给 AI 的工作区：本地与 SSH 各最多一个 */
     val declared = repository.declaredFlow()
-        .stateIn(viewModelScope, SharingStarted.Lazily, null)
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun create(name: String) {
         viewModelScope.launch {

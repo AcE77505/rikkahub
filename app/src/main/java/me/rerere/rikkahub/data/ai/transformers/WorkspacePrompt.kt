@@ -39,7 +39,7 @@ val DEFAULT_WORKSPACE_PROMPT: String = """
     - Paths passed to workspace tools are relative to that directory unless they are absolute.
     {{shell_env}}
     {{tool_list}}
-    - Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `edit_file` for targeted edits over rewriting whole files.
+    - Prefer the shell tool for tasks that standard Unix tools handle well, and prefer `edit_file` for targeted edits over rewriting whole files.
     - Skills are stored at `{{skills_dir}}`. Each skill is a subdirectory `{{skills_dir}}/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.
     - Built-in skills shipped with the app are at `{{builtin_skills_dir}}/<skill-name>/` with the same layout. Treat that directory as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in the skills directory with the same name overrides the built-in one.
     - Files the user uploaded are at `{{upload_dir}}`. Treat it as READ-ONLY: read uploaded files from there, but never modify, overwrite, or delete anything. If you need to change an uploaded file, copy it into the workspace directory first and edit the copy.
@@ -52,9 +52,17 @@ val DEFAULT_WORKSPACE_PROMPT: String = """
  *
  * [WorkspacePromptPlaceholders.wholeLine] 里的占位符值为空时整行删除，
  * 避免留下「- Current working directory: 」这样的空壳。
+ *
+ * [dropLinesWith] 里的占位符出现在某一行时整行删除：远程工作区读不到手机上的
+ * skills / uploads，渲染远程段时用它把这几行去掉。
  */
-fun renderWorkspacePrompt(template: String, values: Map<String, String>): String =
+fun renderWorkspacePrompt(
+    template: String,
+    values: Map<String, String>,
+    dropLinesWith: Set<String> = emptySet(),
+): String =
     template.lineSequence().mapNotNull { line ->
+        if (dropLinesWith.any { key -> line.contains("{{$key}}") }) return@mapNotNull null
         val trimmed = line.trim()
         val single = trimmed.takeIf { it.startsWith("{{") && it.endsWith("}}") }
         if (single != null) {

@@ -15,7 +15,10 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
+import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.workspace.SshRunner
+import me.rerere.workspace.SshTarget
 import org.koin.core.context.GlobalContext
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -30,6 +33,10 @@ internal fun createWorkspaceTerminalSession(
     val repository: WorkspaceRepository = GlobalContext.get().get()
     // 这里只有目录名（root），主键要另外查；直接用 root 当 id 会查不到
     val workspace = runBlocking { repository.getByRoot(root) }
+    // SSH 工作区：终端直接跑 ssh -tt，PTY 接到远端 shell
+    workspace?.sshTarget()?.let { target ->
+        return createSshTerminalSession(appContext, workspace, target, client)
+    }
     // 工作区目录可能是用户指定的绝对路径，取不到时回落到默认 files 目录
     val workingDir = workspace?.let { it.directory?.takeIf { dir -> dir.startsWith("/") } }
         ?.let { File(it) }
@@ -71,8 +78,48 @@ internal fun createWorkspaceTerminalSession(
     }
 }
 
-/** 终端启动前只保证目录存在；命令环境本身总是可用的（Android 原生 shell） */
-internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
+/**
+ * SSH 工作区终端：把 `ssh -tt` 作为 TerminalSession 的子进程，PTY 输入输出直接走 SSH。
+ */
+private fun createSshTerminalSession(
+    context: Context,
+    workspace: WorkspaceEntity,
+    target: SshTarget,
+    client: TerminalSessionClient,
+): TerminalSession {
+    val sshRunner: SshRunner = GlobalContext.get().get()
+    val command = sshRunner.terminalCommand(target)
+    val environment = sshRunner.environment()
+    val sshDir = File(context.filesDir, "ssh").apply { mkdirs() }
+    val shell = environment.shellPath ?: DEFAULT_SHELL
+    val systemPath = "/system/bin:/system/xbin:/vendor/bin:/sbin:/bin"
+    val path = (environment.pathPrepend + listOf(systemPath, "/usr/bin", "/usr/local/bin"))
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(":")
+    val env = buildList {
+        add("PATH=$path")
+        add("HOME=${sshDir.absolutePath}")
+        add("TMPDIR=${sshDir.absolutePath}")
+        add("SHELL=$shell")
+        add("TERM=xterm-256color")
+        add("LANG=C.UTF-8")
+        add("LC_ALL=C.UTF-8")
+        environment.extraEnv.forEach { (key, value) -> add("$key=$value") }
+    }
+    return TerminalSession(
+        command.binary,
+        sshDir.absolutePath,
+        command.args.toTypedArray(),
+        env.toTypedArray(),
+        2_000,
+        client,
+    ).apply {
+        mSessionName = workspace.name
+    }
+}
+
+/** 终端启动前只保证目录存在；命令环境本身总是可用的（Android 原生 shell） */internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
     File(workspaceDir, "files").mkdirs()

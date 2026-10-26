@@ -35,6 +35,7 @@ import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.ui.components.FormItem
 import me.rerere.rikkahub.data.ai.tools.LEGACY_WORKSPACE_TOOL_ALIASES
+import me.rerere.rikkahub.data.ai.tools.baseWorkspaceToolName
 
 /**
  * 工具调用的渲染上下文, 预解析好工具入参与输出, 避免各渲染器重复解析
@@ -115,6 +116,9 @@ object ToolUIRegistry {
     /** 查找工具对应的渲染器, 未注册时返回默认渲染器 */
     fun resolve(toolName: String): ToolUIRenderer {
         renderers[toolName]?.let { return it }
+        // 远程组（ssh_read_file 等）复用本地同名工具的渲染器
+        val base = baseWorkspaceToolName(toolName)
+        renderers[base]?.let { return it }
         // 改名前的旧名字（workspace_read_file 等）用同一套渲染器，旧对话的卡片才不会退化成默认样式
         LEGACY_WORKSPACE_TOOL_ALIASES[toolName]?.let { current ->
             renderers[current]?.let { return it }

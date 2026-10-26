@@ -16,17 +16,23 @@ import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.utils.generateUnifiedDiff
+import me.rerere.workspace.SshRunner
+import me.rerere.workspace.SshTarget
+import me.rerere.workspace.WorkspaceFileEntry
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.File
 
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 private const val MAX_WRITE_FILE_BYTES = 2 * 1024 * 1024
 
+/** 远程工作区工具的前缀；本地工具不带前缀 */
+const val SSH_TOOL_PREFIX = "ssh_"
+
 val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "read_file" to false,
     "write_file" to false,
     "edit_file" to false,
-    "workspace_shell" to true,
+    "shell" to true,
 )
 
 /**
@@ -34,18 +40,25 @@ val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
  *
  * 升级后模型看到的工具名变了，但旧对话的历史消息里记的还是 `workspace_*`，
  * 模型也可能照着历史继续这么叫。执行、UI 渲染和审批读取都要认这套旧名字。
- * `workspace_shell` 没有改名，不在表里。
  */
 val LEGACY_WORKSPACE_TOOL_ALIASES: Map<String, String> = mapOf(
     "workspace_read_file" to "read_file",
     "workspace_write_file" to "write_file",
     "workspace_edit_file" to "edit_file",
+    "workspace_shell" to "shell",
 )
 
+/** 去掉远程前缀后的基础工具名，用于复用开关与审批设置 */
+fun baseWorkspaceToolName(name: String): String =
+    if (name.startsWith(SSH_TOOL_PREFIX)) name.removePrefix(SSH_TOOL_PREFIX) else name
+
 fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean {
-    val current = LEGACY_WORKSPACE_TOOL_ALIASES[name] ?: name
-    // 新旧 key 都认：升级前存下的审批设置不能因为改名而失效
-    return overrides[current] ?: overrides[name]
+    val base = baseWorkspaceToolName(name)
+    val current = LEGACY_WORKSPACE_TOOL_ALIASES[base] ?: base
+    // 新旧 key 都认：升级前存下的审批设置不能因为改名而失效；ssh_ 工具复用基础工具的配置
+    val legacy = LEGACY_WORKSPACE_TOOL_ALIASES.entries.firstOrNull { it.value == current }?.key
+    return overrides[current] ?: overrides[base] ?: overrides[name]
+        ?: legacy?.let { overrides[it] }
         ?: WorkspaceToolDefaultApprovals[current] ?: false
 }
 
@@ -64,14 +77,38 @@ data class WorkspaceToolContext(
     val autoStopOnOvertime: Boolean = false,
     /** 选中的工具名；为空表示全部创建 */
     val enabledTools: Set<String> = emptySet(),
+    /**
+     * 非空表示这是 SSH 远程工作区：文件读写与命令都走远端。
+     *
+     * 为 null 时一切沿用本地 `File` + 原生 shell 的路径。
+     */
+    val sshRunner: SshRunner? = null,
+    val sshTarget: SshTarget? = null,
+    /** 工具名前缀；远程组用 [SSH_TOOL_PREFIX]，本地组为空 */
+    val toolPrefix: String = "",
 ) {
+    /** 是否走远程；两个字段必须成对出现，缺一个就按本地处理 */
+    val isRemote: Boolean get() = sshRunner != null && sshTarget != null
+
+    /** 带前缀的工具名，例如 `ssh_read_file` */
+    fun toolName(base: String): String = toolPrefix + base
+
+    /** 根目录的展示文本：本地是绝对路径，远程是 `user@host:root` */
+    val rootDescription: String
+        get() = if (isRemote) {
+            sshTarget?.let { "${it.endpoint}:${it.remoteRoot}" }.orEmpty()
+        } else {
+            workingDir.absolutePath
+        }
+
     fun needsApproval(name: String): Boolean = resolveWorkspaceToolApproval(name, approvals)
 
-    fun isEnabled(name: String): Boolean = enabledTools.isEmpty() || name in enabledTools
+    fun isEnabled(name: String): Boolean =
+        enabledTools.isEmpty() || baseWorkspaceToolName(name) in enabledTools
 }
 
 /**
- * 创建 4 个工作区工具。
+ * 创建工作区工具：本地组和远程组各一套，远程组名带 [SSH_TOOL_PREFIX] 前缀。
  *
  * 文件读写是纯 Kotlin 文件 IO，不再经过 shell；命令直接跑在 Android 原生环境
  * （默认 `/system/bin/sh` + toybox，启用 Linux 工具链时为 termex 的 bash）。
@@ -83,10 +120,8 @@ fun createWorkspaceTools(
     add(createReadFileTool(context, workspaceRepository))
     add(createWriteFileTool(context, workspaceRepository))
     add(createEditFileTool(context, workspaceRepository))
-    // shell 依赖工作区（目录、HOME、TMPDIR 都挂在工作区上），没有声明时不挂载
-    if (context.workspaceId != null) {
-        add(createShellTool(context, workspaceRepository))
-    }
+    // 没有声明任何工作区时 shell 仍然可用，目标目录回落到沙箱
+    add(createShellTool(context, workspaceRepository))
 }.filter { context.isEnabled(it.name) }
 
 private val IMAGE_EXTENSIONS = setOf(
@@ -100,9 +135,9 @@ private fun createReadFileTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "read_file",
+    name = context.toolName("read_file"),
     description = """
-        Read a file. Relative paths resolve against the workspace directory (${context.workingDir.absolutePath}).
+        Read a file. Relative paths resolve against ${context.rootDescription}.
         Absolute paths are allowed, so the skills, uploads and built-in skills folders can be read directly.
         Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico).
     """.trimIndent().replace("\n", " "),
@@ -115,19 +150,23 @@ private fun createReadFileTool(
     needsApproval = { context.needsApproval("read_file") },
     execute = {
         val raw = it.jsonObject.string("path") ?: error("path is required")
-        val file = resolveToolFile(raw, context.workingDir)
-        if (file.path.isImagePath()) {
-            readImageFile(file, raw)
+        if (context.isRemote) {
+            readRemoteFile(context, raw)
         } else {
-            val text = readToolText(file, raw)
-            listOf(
-                UIMessagePart.Text(
-                    buildJsonObject {
-                        put("path", raw)
-                        put("text", text)
-                    }.toString()
+            val file = resolveToolFile(raw, context.workingDir)
+            if (file.path.isImagePath()) {
+                readImageFile(file, raw)
+            } else {
+                val text = readToolText(file, raw)
+                listOf(
+                    UIMessagePart.Text(
+                        buildJsonObject {
+                            put("path", raw)
+                            put("text", text)
+                        }.toString()
+                    )
                 )
-            )
+            }
         }
     },
 )
@@ -136,9 +175,9 @@ private fun createWriteFileTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "write_file",
+    name = context.toolName("write_file"),
     description = """
-        Write a UTF-8 text file. Relative paths resolve against the workspace directory (${context.workingDir.absolutePath}).
+        Write a UTF-8 text file. Relative paths resolve against ${context.rootDescription}.
         Parent directories are created as needed. Files outside the workspace directory require user approval.
     """.trimIndent().replace("\n", " "),
     parameters = {
@@ -159,16 +198,19 @@ private fun createWriteFileTool(
     },
     needsApproval = {
         val raw = runCatching { it.jsonObject.string("path").orEmpty() }.getOrDefault("")
-        context.needsApproval("write_file") ||
-            isOutsideWorkingDir(raw, context.workingDir)
+        context.needsApproval("write_file") || isOutsideWorkspace(context, raw)
     },
     execute = {
         val params = it.jsonObject
         val raw = params.string("path") ?: error("path is required")
         val text = params.string("text") ?: error("text is required")
         val overwrite = params["overwrite"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
-        val file = resolveToolFile(raw, context.workingDir)
-        val entry = writeToolText(file, text, overwrite, context.workingDir, raw)
+        val entry = if (context.isRemote) {
+            writeRemoteText(context, raw, text, overwrite)
+        } else {
+            val file = resolveToolFile(raw, context.workingDir)
+            writeToolText(file, text, overwrite, context.workingDir, raw)
+        }
         listOf(UIMessagePart.Text(entry.toString()))
     },
 )
@@ -177,9 +219,9 @@ private fun createEditFileTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "edit_file",
+    name = context.toolName("edit_file"),
     description = """
-        Edit a UTF-8 text file. Relative paths resolve against the workspace directory (${context.workingDir.absolutePath}).
+        Edit a UTF-8 text file. Relative paths resolve against ${context.rootDescription}.
         Provide old_text and new_text. By default old_text must occur exactly once; set replace_all=true to replace every occurrence.
         If no exact match is found, whitespace-tolerant line matching is attempted automatically.
     """.trimIndent().replace("\n", " "),
@@ -205,8 +247,7 @@ private fun createEditFileTool(
     },
     needsApproval = {
         val raw = runCatching { it.jsonObject.string("path").orEmpty() }.getOrDefault("")
-        context.needsApproval("edit_file") ||
-            isOutsideWorkingDir(raw, context.workingDir)
+        context.needsApproval("edit_file") || isOutsideWorkspace(context, raw)
     },
     execute = {
         val params = it.jsonObject
@@ -216,15 +257,23 @@ private fun createEditFileTool(
         val replaceAll = params["replace_all"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
         require(oldText.isNotEmpty()) { "old_text must not be empty" }
 
-        val file = resolveToolFile(raw, context.workingDir)
-        val original = readToolText(file, raw)
+        val original = if (context.isRemote) {
+            readRemoteText(context, raw)
+        } else {
+            readToolText(resolveToolFile(raw, context.workingDir), raw)
+        }
         // 逐级尝试 exact -> line_trimmed -> block_anchor 替换器, 见 TextReplacers.kt
         val result = try {
             replaceText(original, oldText, newText, replaceAll)
         } catch (e: IllegalArgumentException) {
             error("${e.message} (path: $raw)")
         }
-        val entry = writeToolText(file, result.updated, overwrite = true, context.workingDir, raw)
+        val entry = if (context.isRemote) {
+            writeRemoteText(context, raw, result.updated, overwrite = true)
+        } else {
+            val file = resolveToolFile(raw, context.workingDir)
+            writeToolText(file, result.updated, overwrite = true, context.workingDir, raw)
+        }
         val diff = generateUnifiedDiff(original, result.updated, entry.path)
         listOf(
             UIMessagePart.Text(
@@ -246,10 +295,23 @@ private fun createShellTool(
     context: WorkspaceToolContext,
     workspaceRepository: WorkspaceRepository,
 ) = Tool(
-    name = "workspace_shell",
+    name = context.toolName("shell"),
     description = buildString {
-        append("Run a shell command in the workspace \"${context.workspaceName}\" (directory: ${context.workingDir.absolutePath}). ")
-        append("Use cwd for a path relative to the workspace directory. ")
+        if (context.isRemote) {
+            val target = context.sshTarget
+            append("Run a shell command in the workspace \"${context.workspaceName}\" ")
+            append("on the remote host ${target?.endpoint} (remote directory: ${target?.remoteRoot}). ")
+            append(
+                "The command runs in a real Linux shell there; tools like python, node or java are available if the host provides them. "
+            )
+        } else if (context.workspaceId != null) {
+            append("Run a shell command in the workspace \"${context.workspaceName}\" ")
+            append("(directory: ${context.workingDir.absolutePath}). ")
+        } else {
+            append("Run a shell command in the sandbox ")
+            append("(directory: ${context.workingDir.absolutePath}). ")
+        }
+        append("Use cwd for a path relative to that directory. ")
         if (!context.defaultCwd.isNullOrBlank()) {
             append("Defaults to '${context.defaultCwd}'. ")
         }
@@ -285,21 +347,32 @@ private fun createShellTool(
             required = listOf("command"),
         )
     },
-    needsApproval = { context.needsApproval("workspace_shell") },
+    needsApproval = { context.needsApproval("shell") },
     execute = {
         val params = it.jsonObject
         val command = params.string("command") ?: error("command is required")
         val cwd = (params.string("cwd") ?: context.defaultCwd.orEmpty())
             .removePrefix("/workspace/").removePrefix("/workspace")
         val overtimeOverride = params.string("overtime")?.toLongOrNull()?.takeIf { it > 0 }
-        val workspaceId = context.workspaceId ?: error("No workspace is declared")
-        val result = workspaceRepository.executeCommandWithSettings(
-            id = workspaceId,
-            command = command,
-            cwd = cwd,
-            timeoutSecondsOverride = overtimeOverride,
-            overflowFileName = "shell-${System.currentTimeMillis()}.log",
-        )
+        val overflowFileName = "shell-${System.currentTimeMillis()}.log"
+        val workspaceId = context.workspaceId
+        val result = if (workspaceId == null) {
+            // 没有声明任何工作区：命令仍然可用，根目录是沙箱
+            workspaceRepository.executeSandboxCommandWithSettings(
+                command = command,
+                cwd = cwd,
+                timeoutSecondsOverride = overtimeOverride,
+                overflowFileName = overflowFileName,
+            )
+        } else {
+            workspaceRepository.executeCommandWithSettings(
+                id = workspaceId,
+                command = command,
+                cwd = cwd,
+                timeoutSecondsOverride = overtimeOverride,
+                overflowFileName = overflowFileName,
+            )
+        }
         listOf(
             UIMessagePart.Text(
                 buildJsonObject {
@@ -350,6 +423,104 @@ private fun isOutsideWorkingDir(raw: String, workingDir: File): Boolean = runCat
     val root = workingDir.canonicalPath
     target != root && !target.startsWith(root + File.separator)
 }.getOrDefault(true)
+
+/** 审批判断：本地看工作区目录，远程看是否用了绝对路径 */
+private fun isOutsideWorkspace(context: WorkspaceToolContext, raw: String): Boolean =
+    if (context.isRemote) {
+        isOutsideRemoteRoot(raw, context.sshTarget)
+    } else {
+        isOutsideWorkingDir(raw, context.workingDir)
+    }
+
+/**
+ * 远程侧拿不到可靠的规范化路径，只把「绝对路径」当作可能需要审批。
+ *
+ * 相对路径一定落在 [SshTarget.remoteRoot] 之内；[SshTarget.remoteRoot] 是 `~` 时
+ * 无法判断绝对路径是否在 home 里，保守地要求审批。
+ */
+private fun isOutsideRemoteRoot(raw: String, target: SshTarget?): Boolean {
+    if (target == null) return true
+    val trimmed = raw.trim()
+    if (!trimmed.startsWith("/")) return false
+    val root = target.remoteRoot.trimEnd('/')
+    if (root.isEmpty() || root == "~") return true
+    return trimmed != root && !trimmed.startsWith("$root/")
+}
+
+/** 远程读文本：先 stat 判断存在/类型/大小，再取内容，避免把目录或超大文件整个拉过来 */
+private suspend fun readRemoteText(context: WorkspaceToolContext, raw: String): String =
+    withContext(Dispatchers.IO) {
+        val runner = context.sshRunner ?: error("SSH 未配置")
+        val target = context.sshTarget ?: error("SSH 未配置")
+        val stat = runner.stat(target, raw) ?: error("File does not exist: $raw")
+        require(!stat.isDirectory) { "Path is not a file: $raw" }
+        require(stat.sizeBytes <= MAX_READ_FILE_BYTES) {
+            "File is too large to read: $raw (${stat.sizeBytes / 1024 / 1024}MB, max ${MAX_READ_FILE_BYTES / 1024 / 1024}MB). Use shell commands like head, tail, or grep to read parts of it."
+        }
+        runner.readText(target, raw)
+    }
+
+/** 远程读文件，图片走 base64 拉回来再交给聊天文件管理器 */
+private suspend fun readRemoteFile(context: WorkspaceToolContext, raw: String): List<UIMessagePart> {
+    if (!raw.isImagePath()) {
+        val text = readRemoteText(context, raw)
+        return listOf(
+            UIMessagePart.Text(
+                buildJsonObject {
+                    put("path", raw)
+                    put("text", text)
+                }.toString()
+            )
+        )
+    }
+    val bytes = withContext(Dispatchers.IO) {
+        val runner = context.sshRunner ?: error("SSH 未配置")
+        val target = context.sshTarget ?: error("SSH 未配置")
+        val stat = runner.stat(target, raw) ?: error("File does not exist: $raw")
+        require(!stat.isDirectory) { "Path is not a file: $raw" }
+        require(stat.sizeBytes <= MAX_READ_FILE_BYTES) {
+            "File is too large to read: $raw (${stat.sizeBytes / 1024 / 1024}MB, max ${MAX_READ_FILE_BYTES / 1024 / 1024}MB)."
+        }
+        runner.readBytes(target, raw)
+    }
+    val filesManager = getKoin().get<FilesManager>()
+    val uris = filesManager.createChatFilesByByteArrays(listOf(bytes))
+    return listOf(
+        UIMessagePart.Image(url = uris.first().toString()),
+        UIMessagePart.Text(
+            buildJsonObject {
+                put("path", raw)
+                put("description", "Image file read successfully")
+            }.toString()
+        ),
+    )
+}
+
+/** 远程写文本：内容经 stdin 一次性发过去，在远端本地落盘 */
+private suspend fun writeRemoteText(
+    context: WorkspaceToolContext,
+    raw: String,
+    text: String,
+    overwrite: Boolean,
+): WorkspaceFileEntry = withContext(Dispatchers.IO) {
+    val runner = context.sshRunner ?: error("SSH 未配置")
+    val target = context.sshTarget ?: error("SSH 未配置")
+    val bytes = text.toByteArray()
+    require(bytes.size <= MAX_WRITE_FILE_BYTES) {
+        "Content is too large to write: ${bytes.size} bytes (max $MAX_WRITE_FILE_BYTES)"
+    }
+    if (!overwrite) {
+        require(runner.stat(target, raw) == null) { "File already exists: $raw" }
+    }
+    val stat = runner.writeText(target, raw, text, overwrite)
+    WorkspaceFileEntry(
+        path = raw,
+        name = raw.trimEnd('/').substringAfterLast('/'),
+        isDirectory = false,
+        sizeBytes = stat.sizeBytes,
+        updatedAt = System.currentTimeMillis(),
+    )
+}
 
 private suspend fun readToolText(file: File, raw: String): String = withContext(Dispatchers.IO) {
     require(file.exists()) { "File does not exist: $raw" }

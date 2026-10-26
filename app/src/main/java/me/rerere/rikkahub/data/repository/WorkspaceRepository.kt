@@ -6,10 +6,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.DEFAULT_SHELL_OVERTIME_SECONDS
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.workspace.SshEnvironment
+import me.rerere.workspace.SshRunner
+import me.rerere.workspace.SshTarget
 import me.rerere.workspace.ToolchainEnvironment
 import me.rerere.workspace.ToolchainManager
 import me.rerere.workspace.WorkspaceCommandResult
@@ -33,13 +36,19 @@ class WorkspaceRepository(
     private val settingsStore: SettingsStore,
     /** 没有声明工作区时，文件工具的根目录 */
     private val sandboxRoot: File,
+    /** SSH 工作区的远端执行与文件读写 */
+    private val sshRunner: SshRunner,
 ) {
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
-    /** 当前被声明给 AI 的工作区（最多一个），关闭声明时为空 */
-    fun declaredFlow(): Flow<WorkspaceEntity?> = dao.declaredFlow()
+    /** 当前被声明给 AI 的工作区：本地与 SSH 各最多一个 */
+    fun declaredFlow(): Flow<List<WorkspaceEntity>> = dao.declaredFlow()
 
-    suspend fun getDeclared(): WorkspaceEntity? = dao.getDeclared()
+    suspend fun getDeclared(type: String): WorkspaceEntity? = dao.getDeclaredByType(type)
+
+    suspend fun getDeclaredLocal(): WorkspaceEntity? = getDeclared(WorkspaceEntity.TYPE_LOCAL)
+
+    suspend fun getDeclaredSsh(): WorkspaceEntity? = getDeclared(WorkspaceEntity.TYPE_SSH)
 
     /**
      * 沙箱目录：没有声明工作区时，文件工具以它为根。
@@ -116,13 +125,17 @@ class WorkspaceRepository(
         return dao.getAll().any { it.id != excludeId && it.name.trim() == target }
     }
 
-    /** 把此工作区声明给 AI；DAO 事务保证同一时刻只有一个工作区被声明 */
+    /**
+     * 把此工作区声明给 AI。
+     *
+     * 本地与 SSH 各允许一个声明，DAO 事务只清除同类型的其他声明；取消声明只影响自己。
+     */
     suspend fun setDeclared(id: String, declared: Boolean) {
         val now = System.currentTimeMillis()
         if (declared) {
             dao.setDeclared(id, now)
         } else {
-            dao.clearDeclared(now)
+            dao.clearDeclaredById(id, now)
         }
     }
 
@@ -158,6 +171,88 @@ class WorkspaceRepository(
 
     /** termex 扩展包的检测结果，供设置页决定开关是否可用 */
     fun termexStatus() = toolchainManager.detect()
+
+    // ---- SSH 工作区 ----
+
+    /** 切换工作区类型并写入 SSH 连接参数 */
+    suspend fun setSshConfig(
+        id: String,
+        type: String,
+        host: String?,
+        port: Int,
+        username: String?,
+        remoteRoot: String?,
+    ) {
+        require(type == WorkspaceEntity.TYPE_LOCAL || type == WorkspaceEntity.TYPE_SSH) {
+            "未知的工作区类型：$type"
+        }
+        require(port in 1..65535) { "端口必须在 1..65535 之间" }
+        val current = dao.getById(id) ?: error("Workspace not found: $id")
+        // 切换类型前检查目标类型是否已有另一个开启的工作区：每类同时最多一个
+        if (current.type != type) {
+            val conflict = dao.getAll().firstOrNull {
+                it.id != id && it.declared && it.type == type
+            }
+            require(conflict == null) {
+                val label = if (type == WorkspaceEntity.TYPE_SSH) "SSH" else "本地"
+                "已有${label}工作区「${conflict?.name}」开启，请先关闭它再切换类型"
+            }
+        }
+        dao.setSshConfig(
+            id = id,
+            type = type,
+            host = host?.trim()?.takeIf { it.isNotEmpty() },
+            port = port,
+            username = username?.trim()?.takeIf { it.isNotEmpty() },
+            root = remoteRoot?.trim()?.takeIf { it.isNotEmpty() },
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
+    /** SSH 客户端是否可用（依赖 termex 工具链里的 ssh） */
+    fun isSshAvailable(): Boolean = sshRunner.isAvailable()
+
+    /**
+     * 首次配置命令：让用户粘到目标终端里执行一次。
+     *
+     * 命令里带上了 app 自己生成的公钥，所以跑完就能用；末尾回显 whoami 供填回用户名。
+     * 只要求已填主机——用户名正是执行这条命令后才能得到的。
+     */
+    suspend fun sshSetupCommand(id: String, environment: SshEnvironment): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val target = requireSshCommandTarget(id)
+                sshRunner.setupCommand(target, sshRunner.ensureKeyPair(), environment)
+            }
+        }
+
+    /** 通道断开后的重开命令（Termux 被杀后 sshd 不会自己起来） */
+    suspend fun sshReconnectCommand(id: String, environment: SshEnvironment): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val target = requireSshCommandTarget(id)
+                sshRunner.reconnectCommand(target, environment)
+            }
+        }
+
+    /** 测试连接；成功时返回远端「用户名\nhome」两行 */
+    suspend fun testSshConnection(id: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val target = requireSshTarget(id)
+            sshRunner.testConnection(target).getOrThrow()
+        }
+    }
+
+    private suspend fun requireSshTarget(id: String): SshTarget {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return workspace.sshTarget() ?: error("请先填写主机与用户名")
+    }
+
+    /** 生成复制命令用的目标：只要求主机，用户名可以等执行完 setup 命令后再填 */
+    private suspend fun requireSshCommandTarget(id: String): SshTarget {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return workspace.sshCommandTarget() ?: error("请先填写主机")
+    }
 
     /** 工作区实际目录（[WorkspaceEntity.directory] 覆盖或默认 files 目录） */
     suspend fun workingDirectory(id: String): File {
@@ -281,6 +376,20 @@ class WorkspaceRepository(
         onOvertime: (() -> Unit)? = null,
     ): WorkspaceCommandResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        // SSH 工作区：整条命令发到远端执行，本地不起进程
+        workspace.sshTarget()?.let { target ->
+            return runInterruptible(Dispatchers.IO) {
+                sshRunner.run(
+                    target = target,
+                    command = command,
+                    cwd = cwd,
+                    overtimeMillis = overtimeMillis,
+                    autoStopOnOvertime = autoStopOnOvertime,
+                    stdin = stdin,
+                    onOvertime = onOvertime,
+                )
+            }
+        }
         val toolchain = toolchainEnvironment(id)
         // runInterruptible 让协程取消转化为线程中断，从而打断阻塞的等待并杀掉进程
         return runInterruptible(Dispatchers.IO) {
@@ -324,6 +433,38 @@ class WorkspaceRepository(
             overflowFileName = overflowFileName,
             onOvertime = onOvertime,
         )
+    }
+
+    /**
+     * 没有声明任何工作区时，在沙箱目录执行命令。
+     *
+     * 沙箱没有「Linux 工具链」开关，始终用 Android 原生 shell（`/system/bin/sh` + toybox）。
+     */
+    suspend fun executeSandboxCommandWithSettings(
+        command: String,
+        cwd: String = "",
+        timeoutSecondsOverride: Long? = null,
+        stdin: ByteArray? = null,
+        overflowFileName: String? = null,
+        onOvertime: (() -> Unit)? = null,
+    ): WorkspaceCommandResult {
+        val settings = settingsStore.awaitLoaded()
+        val overtimeSeconds = timeoutSecondsOverride
+            ?: settings.shellOvertimeSeconds?.toLong()
+            ?: UNLIMITED_OVERTIME
+        val dir = sandboxDir()
+        return runInterruptible(Dispatchers.IO) {
+            manager.executeCommandIn(
+                dir = dir,
+                command = command,
+                cwd = cwd,
+                overtimeMillis = if (overtimeSeconds <= 0) UNLIMITED_OVERTIME else overtimeSeconds * 1_000L,
+                autoStopOnOvertime = settings.shellAutoStopOnOvertime,
+                stdin = stdin,
+                overflowFileName = overflowFileName,
+                onOvertime = onOvertime,
+            )
+        }
     }
 
     suspend fun delete(id: String): Boolean {

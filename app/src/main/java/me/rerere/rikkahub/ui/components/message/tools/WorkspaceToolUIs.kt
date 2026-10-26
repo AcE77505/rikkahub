@@ -299,7 +299,7 @@ object ShellToolUI : ToolUIRenderer {
     private const val TITLE_MAX_CHARS = 40
     private const val SUMMARY_MAX_LINES = 8
 
-    override val toolName: String = "workspace_shell"
+    override val toolName: String = "shell"
 
     override fun icon(context: ToolUIContext): ImageVector = HugeIcons.ComputerTerminal01
 

@@ -103,6 +103,7 @@ import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.TerminalDirectoryPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceFileEditorPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTerminalPage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.SshKeyPage
 import me.rerere.rikkahub.ui.pages.favorite.FavoritePage
 import me.rerere.rikkahub.ui.pages.history.HistoryPage
 import me.rerere.rikkahub.ui.pages.imggen.ImageGenPage
@@ -578,6 +579,10 @@ class RouteActivity : ComponentActivity() {
                                 WorkspacePage()
                             }
 
+                            entry<Screen.SshKey> {
+                                SshKeyPage()
+                            }
+
                             entry<Screen.WorkspaceDetail> { key ->
                                 WorkspaceDetailPage(key.id)
                             }
@@ -820,6 +825,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Workspaces : Screen
+
+    @Serializable
+    data object SshKey : Screen
 
     @Serializable
     data class WorkspaceDetail(val id: String) : Screen

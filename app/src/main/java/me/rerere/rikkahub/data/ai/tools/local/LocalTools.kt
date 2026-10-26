@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai.tools.local
 
 import android.content.Context
 import me.rerere.ai.core.Tool
+import me.rerere.rikkahub.data.ai.tools.SSH_TOOL_PREFIX
 import me.rerere.rikkahub.data.ai.tools.WorkspaceToolContext
 import me.rerere.rikkahub.data.ai.tools.createWorkspaceTools
 import me.rerere.rikkahub.data.datastore.Settings
@@ -9,6 +10,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.tts.provider.TTSManager
+import me.rerere.workspace.SshRunner
 
 class LocalTools(
     private val context: Context,
@@ -16,6 +18,7 @@ class LocalTools(
     private val ttsManager: TTSManager,
     private val settingsStore: SettingsStore,
     private val workspaceRepository: WorkspaceRepository,
+    private val sshRunner: SshRunner,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -84,29 +87,61 @@ class LocalTools(
                 if (LocalToolOption.WorkspaceWriteFile in options) add("write_file")
                 if (LocalToolOption.WorkspaceEditFile in options) add("edit_file")
             }
-            if (LocalToolOption.WorkspaceShell in options) add("workspace_shell")
+            if (LocalToolOption.WorkspaceShell in options) add("shell")
         }
         if (enabledTools.isEmpty()) return emptyList()
 
-        // 没有声明工作区时不再整体跳过：文件工具退回沙箱目录继续可用，
-        // shell 由 createWorkspaceTools 判断 workspaceId 为空后自动不挂载
-        val workspace = workspaceRepository.getDeclared()
-        val workingDir = workspace
-            ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
-            ?: workspaceRepository.sandboxDir()
         val settings = settingsStore.awaitLoaded()
-        return createWorkspaceTools(
-            context = WorkspaceToolContext(
-                workspaceId = workspace?.id,
-                workspaceName = workspace?.name.orEmpty(),
-                workingDir = workingDir,
-                defaultCwd = workspaceCwd?.removePrefix("/workspace/")?.removePrefix("/workspace"),
-                approvals = settings.toolApprovals,
-                overtimeSeconds = settings.shellOvertimeSeconds,
-                autoStopOnOvertime = settings.shellAutoStopOnOvertime,
-                enabledTools = enabledTools,
-            ),
-            workspaceRepository = workspaceRepository,
-        )
+        val sandbox = workspaceRepository.sandboxDir()
+        val defaultCwd = workspaceCwd?.removePrefix("/workspace/")?.removePrefix("/workspace")
+
+        // 本地组常驻：声明了本地工作区就用它的目录，否则用沙箱
+        val local = workspaceRepository.getDeclaredLocal()
+        val localWorkingDir = local
+            ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
+            ?: sandbox
+
+        // 远程组只在声明了 SSH 工作区且连接参数完整时挂载；工具名带 ssh_ 前缀
+        val remote = workspaceRepository.getDeclaredSsh()?.let { workspace ->
+            workspace.sshTarget()?.let { workspace to it }
+        }
+
+        return buildList {
+            addAll(
+                createWorkspaceTools(
+                    context = WorkspaceToolContext(
+                        workspaceId = local?.id,
+                        workspaceName = local?.name.orEmpty(),
+                        workingDir = localWorkingDir,
+                        defaultCwd = defaultCwd,
+                        approvals = settings.toolApprovals,
+                        overtimeSeconds = settings.shellOvertimeSeconds,
+                        autoStopOnOvertime = settings.shellAutoStopOnOvertime,
+                        enabledTools = enabledTools,
+                    ),
+                    workspaceRepository = workspaceRepository,
+                )
+            )
+            remote?.let { (workspace, target) ->
+                addAll(
+                    createWorkspaceTools(
+                        context = WorkspaceToolContext(
+                            workspaceId = workspace.id,
+                            workspaceName = workspace.name,
+                            workingDir = sandbox,
+                            defaultCwd = defaultCwd,
+                            approvals = settings.toolApprovals,
+                            overtimeSeconds = settings.shellOvertimeSeconds,
+                            autoStopOnOvertime = settings.shellAutoStopOnOvertime,
+                            enabledTools = enabledTools,
+                            sshRunner = sshRunner,
+                            sshTarget = target,
+                            toolPrefix = SSH_TOOL_PREFIX,
+                        ),
+                        workspaceRepository = workspaceRepository,
+                    )
+                )
+            }
+        }
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -20,14 +21,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
@@ -35,6 +40,8 @@ import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.transformers.DEFAULT_WORKSPACE_PROMPT
 import me.rerere.rikkahub.data.ai.transformers.WorkspacePromptPlaceholders
+import me.rerere.rikkahub.data.ai.transformers.buildWorkspacePromptSections
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.Tag
@@ -43,6 +50,7 @@ import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.insertAtCursor
 import me.rerere.ui.components.RikkaConfirmDialog
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /**
  * 工作区提示词编辑页。
@@ -57,6 +65,21 @@ fun SettingWorkspacePromptPage(vm: SettingVM = koinViewModel()) {
     var showResetDialog by rememberSaveable { mutableStateOf(false) }
 
     val promptState = rememberTextFieldState(initialText = settings.workspacePrompt)
+
+    val context = LocalContext.current
+    val workspaceRepository: WorkspaceRepository = koinInject()
+    val declared by workspaceRepository.declaredFlow().collectAsState(initial = emptyList())
+    var promptPreview by remember { mutableStateOf("") }
+
+    // 预览与真正注入共用 buildWorkspacePromptSections，避免两套逻辑走偏
+    LaunchedEffect(declared, settings.workspacePrompt, settings.localTools) {
+        promptPreview = buildWorkspacePromptSections(
+            context = context,
+            settings = settings,
+            workspaceCwd = null,
+            workspaceRepository = workspaceRepository,
+        )
+    }
 
     // 设置是启动时异步读盘的：拿到真实值后同步一次，避免首次打开显示占位值
     LaunchedEffect(settings.init) {
@@ -113,8 +136,39 @@ fun SettingWorkspacePromptPage(vm: SettingVM = koinViewModel()) {
                         maxLines = 24,
                     )
                     Text(
+                        text = stringResource(R.string.setting_workspace_prompt_render_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
                         text = stringResource(R.string.setting_workspace_prompt_not_declared_hint),
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            CardGroup(
+                title = { Text(stringResource(R.string.setting_workspace_prompt_preview)) },
+            ) {
+                formItem {
+                    val previewText = if (promptPreview.isBlank()) {
+                        stringResource(R.string.setting_workspace_prompt_preview_empty)
+                    } else {
+                        promptPreview
+                    }
+                    SelectionContainer {
+                        Text(
+                            text = previewText,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.setting_workspace_prompt_preview_hint),
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -124,15 +178,43 @@ fun SettingWorkspacePromptPage(vm: SettingVM = koinViewModel()) {
                 title = { Text(stringResource(R.string.setting_workspace_prompt_available_variables)) },
             ) {
                 formItem {
+                    Text(
+                        text = stringResource(R.string.setting_workspace_prompt_vars_common),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        WorkspacePromptPlaceholders.ordered.forEach { key ->
-                            Tag(onClick = { promptState.insertAtCursor("{{$key}}") }) {
-                                Text(placeholderLabel(key))
+                        WorkspacePromptPlaceholders.ordered
+                            .filterNot { it in LOCAL_ONLY_PLACEHOLDERS }
+                            .forEach { key ->
+                                Tag(onClick = { promptState.insertAtCursor("{{$key}}") }) {
+                                    Text(placeholderLabel(key))
+                                }
                             }
-                        }
+                    }
+                    Text(
+                        text = stringResource(R.string.setting_workspace_prompt_vars_local_only),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.setting_workspace_prompt_vars_local_only_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        WorkspacePromptPlaceholders.ordered
+                            .filter { it in LOCAL_ONLY_PLACEHOLDERS }
+                            .forEach { key ->
+                                Tag(onClick = { promptState.insertAtCursor("{{$key}}") }) {
+                                    Text(placeholderLabel(key))
+                                }
+                            }
                     }
                 }
             }
@@ -153,6 +235,13 @@ fun SettingWorkspacePromptPage(vm: SettingVM = koinViewModel()) {
         Text(stringResource(R.string.setting_workspace_prompt_reset_confirm))
     }
 }
+
+/** 这些目录在手机上，SSH 段渲染时会被整行删除 */
+private val LOCAL_ONLY_PLACEHOLDERS = setOf(
+    WorkspacePromptPlaceholders.SKILLS_DIR,
+    WorkspacePromptPlaceholders.BUILTIN_SKILLS_DIR,
+    WorkspacePromptPlaceholders.UPLOAD_DIR,
+)
 
 @Composable
 private fun placeholderLabel(key: String): String = stringResource(

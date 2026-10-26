@@ -11,7 +11,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.AppScope
@@ -19,6 +18,7 @@ import me.rerere.rikkahub.CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.conversationIntent
+import me.rerere.rikkahub.data.ai.tools.baseWorkspaceToolName
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
@@ -27,6 +27,7 @@ import me.rerere.rikkahub.data.model.generationPhase
 import me.rerere.rikkahub.utils.cancelNotification
 import me.rerere.rikkahub.utils.sendNotification
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 // Live Update 通知节流间隔：流式输出每个chunk都会触发一次更新，
@@ -146,7 +147,7 @@ class ChatNotificationManager(
     private fun shellOvertimeSuffix(message: UIMessage): String {
         val threshold = settingsStore.settingsFlow.value.shellOvertimeSeconds ?: return ""
         val tool = message.parts.filterIsInstance<UIMessagePart.Tool>()
-            .lastOrNull { !it.isExecuted && it.toolName.endsWith("workspace_shell") } ?: return ""
+            .lastOrNull { !it.isExecuted && baseWorkspaceToolName(it.toolName) == "shell" } ?: return ""
         val startedAt = tool.startedAt ?: return ""
         val elapsedSeconds = (Clock.System.now() - startedAt).inWholeSeconds
         if (elapsedSeconds < threshold) return ""

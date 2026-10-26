@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.workspace.SshTarget
 import me.rerere.workspace.Workspace
 
 @Entity(
@@ -45,7 +46,52 @@ data class WorkspaceEntity(
     // 是否启用 Linux 工具链（bash / openssl / curl / ssh，来源为 bin.mt.termex）
     @ColumnInfo("toolchain_enabled", defaultValue = "0")
     val toolchainEnabled: Boolean = false,
+    // 本地工作区还是 SSH 远程工作区
+    @ColumnInfo("type", defaultValue = "LOCAL")
+    val type: String = TYPE_LOCAL,
+    @ColumnInfo("ssh_host")
+    val sshHost: String? = null,
+    @ColumnInfo("ssh_port", defaultValue = "8022")
+    val sshPort: Int = SshTarget.DEFAULT_PORT,
+    @ColumnInfo("ssh_username")
+    val sshUsername: String? = null,
+    // 远程工作目录；为空时用登录用户的 home
+    @ColumnInfo("ssh_root")
+    val sshRoot: String? = null,
 ) {
+    val isSsh: Boolean get() = type == TYPE_SSH
+
+    /** 组装 SSH 连接目标；非 SSH 工作区或未填全时返回 null */
+    fun sshTarget(): SshTarget? {
+        if (!isSsh) return null
+        val host = sshHost?.trim().orEmpty()
+        val username = sshUsername?.trim().orEmpty()
+        if (host.isEmpty() || username.isEmpty()) return null
+        return SshTarget(
+            host = host,
+            port = sshPort,
+            username = username,
+            remoteRoot = sshRoot?.trim()?.takeIf { it.isNotEmpty() } ?: SshTarget.DEFAULT_REMOTE_ROOT,
+        )
+    }
+
+    /**
+     * 生成「复制到远端终端」的命令时只需要主机和端口。
+     *
+     * setup 命令本身会回显 `whoami`，用户正是靠它得到用户名的，所以这里不能要求用户名已填。
+     */
+    fun sshCommandTarget(): SshTarget? {
+        if (!isSsh) return null
+        val host = sshHost?.trim().orEmpty()
+        if (host.isEmpty()) return null
+        return SshTarget(
+            host = host,
+            port = sshPort,
+            username = sshUsername?.trim().orEmpty(),
+            remoteRoot = sshRoot?.trim()?.takeIf { it.isNotEmpty() } ?: SshTarget.DEFAULT_REMOTE_ROOT,
+        )
+    }
+
     fun toolApprovalOverrides(): Map<String, Boolean> = runCatching {
         JsonInstant.decodeFromString<Map<String, Boolean>>(toolApprovals)
     }.getOrDefault(emptyMap())
@@ -61,5 +107,11 @@ data class WorkspaceEntity(
 
     companion object {
         const val LEGACY_SHELL_STATUS_DISABLED = "DISABLED"
+
+        /** 本地工作区：文件与命令都跑在本 app 的沙箱里 */
+        const val TYPE_LOCAL = "LOCAL"
+
+        /** SSH 工作区：文件与命令都通过 ssh 在远端执行 */
+        const val TYPE_SSH = "SSH"
     }
 }

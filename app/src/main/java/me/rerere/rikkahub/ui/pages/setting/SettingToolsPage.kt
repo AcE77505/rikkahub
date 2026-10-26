@@ -324,7 +324,7 @@ private val APPROVAL_TOOLS = listOf(
     "read_file" to R.string.workspace_tool_read_file,
     "write_file" to R.string.workspace_tool_write_file,
     "edit_file" to R.string.workspace_tool_edit_file,
-    "workspace_shell" to R.string.workspace_tool_shell,
+    "shell" to R.string.workspace_tool_shell,
 )
 
 /** 行尾展示当前阈值 */

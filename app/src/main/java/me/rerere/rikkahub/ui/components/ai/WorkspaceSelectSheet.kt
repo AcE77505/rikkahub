@@ -36,12 +36,12 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 /**
  * 选择要「声明」给 AI 的工作区。
  *
- * 声明是全局互斥的：选一个会把其他的取消声明，选「不声明」则请求里不包含任何工作区说明。
+ * 本地与 SSH 各最多声明一个：同组内选一个会取消另一个，两组合并后最多两个。
  */
 internal fun WorkspaceSelectSheet(
-    declaredId: String?,
+    declaredIds: Set<String>,
     workspaces: List<WorkspaceEntity>,
-    onSelect: (String?) -> Unit,
+    onSelect: (workspaceId: String?, type: String) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -71,18 +71,22 @@ internal fun WorkspaceSelectSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                // 不声明
-                WorkspaceSelectRow(
-                    title = stringResource(R.string.workspace_page_not_declared),
-                    selected = declaredId == null,
-                    onClick = { onSelect(null) },
-                )
-                workspaces.forEach { workspace ->
-                    WorkspaceSelectRow(
-                        title = workspace.name,
-                        status = workspace.directory?.takeIf { it.isNotBlank() },
-                        selected = workspace.id == declaredId,
-                        onClick = { onSelect(workspace.id) },
+                val local = workspaces.filterNot { it.isSsh }
+                val remote = workspaces.filter { it.isSsh }
+                if (local.isNotEmpty()) {
+                    WorkspaceGroup(
+                        title = stringResource(R.string.workspace_detail_connection_local),
+                        workspaces = local,
+                        declaredIds = declaredIds,
+                        onSelect = onSelect,
+                    )
+                }
+                if (remote.isNotEmpty()) {
+                    WorkspaceGroup(
+                        title = stringResource(R.string.workspace_detail_connection_ssh),
+                        workspaces = remote,
+                        declaredIds = declaredIds,
+                        onSelect = onSelect,
                     )
                 }
             }
@@ -110,6 +114,40 @@ internal fun WorkspaceSelectSheet(
                     .clickable { onManage() },
             )
         }
+    }
+}
+
+@Composable
+private fun WorkspaceGroup(
+    title: String,
+    workspaces: List<WorkspaceEntity>,
+    declaredIds: Set<String>,
+    onSelect: (workspaceId: String?, type: String) -> Unit,
+) {
+    val type = workspaces.first().type
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+    // 本组不声明
+    WorkspaceSelectRow(
+        title = stringResource(R.string.workspace_page_not_declared),
+        selected = workspaces.none { it.id in declaredIds },
+        onClick = { onSelect(null, type) },
+    )
+    workspaces.forEach { workspace ->
+        WorkspaceSelectRow(
+            title = workspace.name,
+            status = if (workspace.isSsh) {
+                workspace.sshTarget()?.endpoint ?: workspace.sshHost
+            } else {
+                workspace.directory?.takeIf { it.isNotBlank() }
+            },
+            selected = workspace.id in declaredIds,
+            onClick = { onSelect(workspace.id, workspace.type) },
+        )
     }
 }
 

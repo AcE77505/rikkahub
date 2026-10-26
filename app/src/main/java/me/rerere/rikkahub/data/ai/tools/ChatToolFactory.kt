@@ -55,7 +55,7 @@ class ChatToolFactory(
         workspaceCwd: String? = null,
     ): List<Tool> {
         // 工作区工具不再依赖助手绑定：开关在设置里，目标是被声明的工作区
-        val declaredWorkspace = workspaceRepository.getDeclared()
+        val declaredLocal = workspaceRepository.getDeclaredLocal()
         val tools = buildList {
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
@@ -96,11 +96,13 @@ class ChatToolFactory(
                 )
             }
         }
-        // 过长的输出存成文件让模型按需读取；没有工作区工具时模型读不到文件，只能原样返回
-        val workspaceDir = declaredWorkspace
+        // 过长的输出存成文件让模型按需读取；没有声明本地工作区时落到沙箱，
+        // 本地的 read_file / shell 仍然够得着
+        val workspaceDir = declaredLocal
             ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
             ?.takeIf { it.isDirectory }
-        return if (workspaceDir == null) tools else tools.map { withOutputTruncation(it, workspaceDir) }
+            ?: workspaceRepository.sandboxDir()
+        return tools.map { withOutputTruncation(it, workspaceDir) }
     }
 
     private fun withOutputTruncation(tool: Tool, workspaceDir: File): Tool {
@@ -129,7 +131,7 @@ class ChatToolFactory(
                     appendLine("[Tool output truncated: $totalChars characters total]")
                     appendLine("Full output saved as `$relativePath` inside the workspace directory.")
                     appendLine("Read it with read_file (path: \"$relativePath\")")
-                    appendLine("or with workspace_shell: `cat \"$relativePath\"` / `grep \"pattern\" \"$relativePath\"`")
+                    appendLine("or with shell: `cat \"$relativePath\"` / `grep \"pattern\" \"$relativePath\"`")
                     appendLine()
                     append(fullText.take(TOOL_OUTPUT_PREVIEW_CHARS))
                 }

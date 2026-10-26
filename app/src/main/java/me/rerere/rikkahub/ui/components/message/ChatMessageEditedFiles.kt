@@ -50,6 +50,7 @@ private const val DEFAULT_VISIBLE_COUNT = 3
 // 旧对话里记的是改名前的 workspace_*，一并认，历史消息的改动文件列表才不会空
 private val WORKSPACE_FILE_TOOL_NAMES = setOf(
     "write_file", "edit_file",
+    "ssh_write_file", "ssh_edit_file",
     "workspace_write_file", "workspace_edit_file",
 )
 
