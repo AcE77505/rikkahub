@@ -38,9 +38,9 @@ class MemoryFileVM(
         if (normalizedPath == null) {
             flowOf(MemoryFileState.Missing)
         } else {
-            memoryRepository.getFilesFlow(memoryId).map { files ->
-                files.find { it.path == normalizedPath }?.let(MemoryFileState::Loaded) ?: MemoryFileState.Missing
-            }
+            // 只查当前文件：之前是整个记忆库的 Flow，库大时会拖慢进入页面
+            memoryRepository.getFileFlow(memoryId, normalizedPath)
+                .map { file -> file?.let(MemoryFileState::Loaded) ?: MemoryFileState.Missing }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, MemoryFileState.Loading)
 
     /** 新建文件，路径已被占用时返回 [MemoryWriteResult.Conflict] */
@@ -50,10 +50,20 @@ class MemoryFileVM(
         }
     }
 
-    fun save(content: String, onResult: (MemoryWriteResult) -> Unit) {
-        val path = normalizedPath ?: return
+    fun save(
+        newPath: String?,
+        content: String,
+        onSaved: (MemoryWriteResult, String?) -> Unit,
+    ) {
+        val oldPath = normalizedPath ?: return
+        val target = newPath?.let(MemoryFile::normalizePath) ?: oldPath
         viewModelScope.launch {
-            onResult(memoryRepository.writeFile(memoryId, path, content))
+            val result = if (target == oldPath) {
+                memoryRepository.writeFile(memoryId, oldPath, content)
+            } else {
+                memoryRepository.moveFile(memoryId, oldPath, target, content)
+            }
+            onSaved(result, target)
         }
     }
 

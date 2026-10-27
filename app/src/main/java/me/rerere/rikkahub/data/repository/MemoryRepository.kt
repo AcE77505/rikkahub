@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,6 +46,12 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         return memoryDAO.getFile(assistantId, normalized)?.toMemoryFile()
     }
 
+    /** 单个文件的 Flow：详情页只需要它，不必把整个记忆库都查出来 */
+    fun getFileFlow(assistantId: String, path: String): Flow<MemoryFile?> {
+        val normalized = MemoryFile.normalizePath(path) ?: return flowOf(null)
+        return memoryDAO.getFileFlow(assistantId, normalized).map { it?.toMemoryFile() }
+    }
+
     /** 新建或整体覆盖 */
     suspend fun writeFile(
         assistantId: String,
@@ -52,6 +59,52 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         content: String,
         ifVersion: String? = null,
     ): MemoryWriteResult = update(assistantId, path, ifVersion, allowCreate = true) { Edit.Content(content) }
+
+    /**
+     * 修改路径并写入内容。目标路径已存在时返回冲突。
+     *
+     * 记忆文件以 path 作为键，路径变化等价于「删旧 + 建新」，和普通写入共用一把锁。
+     */
+    suspend fun moveFile(
+        assistantId: String,
+        fromPath: String,
+        toPath: String,
+        content: String,
+    ): MemoryWriteResult = writeLock.withLock {
+        val from = MemoryFile.normalizePath(fromPath) ?: return@withLock invalidPath(fromPath)
+        val to = MemoryFile.normalizePath(toPath) ?: return@withLock invalidPath(toPath)
+        if (from == to) {
+            val entity = MemoryFileEntity(
+                assistantId = assistantId,
+                path = to,
+                content = content,
+                updatedAt = System.currentTimeMillis(),
+            )
+            memoryDAO.upsertFile(entity)
+            return@withLock MemoryWriteResult.Success(entity.toMemoryFile())
+        }
+        val current = memoryDAO.getFile(assistantId, from)?.toMemoryFile()
+            ?: return@withLock MemoryWriteResult.Conflict(null)
+        memoryDAO.getFile(assistantId, to)?.let {
+            return@withLock MemoryWriteResult.Conflict(it.toMemoryFile())
+        }
+        val size = content.toByteArray().size
+        if (size > MemoryFile.MAX_BYTES && size > current.content.toByteArray().size) {
+            return@withLock MemoryWriteResult.Rejected(
+                "$to would exceed the ${MemoryFile.MAX_BYTES / 1024}KB limit. " +
+                    "Merge duplicates and drop outdated details instead of adding more."
+            )
+        }
+        memoryDAO.deleteFile(assistantId, from)
+        val entity = MemoryFileEntity(
+            assistantId = assistantId,
+            path = to,
+            content = content,
+            updatedAt = System.currentTimeMillis(),
+        )
+        memoryDAO.upsertFile(entity)
+        MemoryWriteResult.Success(entity.toMemoryFile())
+    }
 
     /** 把唯一匹配的 [oldStr] 换成 [newStr]，[newStr] 为空即删除 */
     suspend fun replaceInFile(
