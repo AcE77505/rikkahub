@@ -196,10 +196,8 @@ private fun createWriteFileTool(
             required = listOf("path", "text"),
         )
     },
-    needsApproval = {
-        val raw = runCatching { it.jsonObject.string("path").orEmpty() }.getOrDefault("")
-        context.needsApproval("write_file") || isOutsideWorkspace(context, raw)
-    },
+    // 审批只看「工具审批」开关：开关关掉后不再对工作区外路径追加确认
+    needsApproval = { context.needsApproval("write_file") },
     execute = {
         val params = it.jsonObject
         val raw = params.string("path") ?: error("path is required")
@@ -245,10 +243,8 @@ private fun createEditFileTool(
             required = listOf("path", "old_text", "new_text"),
         )
     },
-    needsApproval = {
-        val raw = runCatching { it.jsonObject.string("path").orEmpty() }.getOrDefault("")
-        context.needsApproval("edit_file") || isOutsideWorkspace(context, raw)
-    },
+    // 审批只看「工具审批」开关：开关关掉后不再对工作区外路径追加确认
+    needsApproval = { context.needsApproval("edit_file") },
     execute = {
         val params = it.jsonObject
         val raw = params.string("path") ?: error("path is required")
@@ -415,36 +411,6 @@ private fun resolveToolFile(raw: String, workingDir: File): File {
     require(trimmed.isNotEmpty()) { "path is required" }
     require(!trimmed.contains('\u0000')) { "path contains invalid character" }
     return if (trimmed.startsWith("/")) File(trimmed) else File(workingDir, trimmed)
-}
-
-/** 写操作免审批区：工作区目录内部；工作区之外的路径一律要审批 */
-private fun isOutsideWorkingDir(raw: String, workingDir: File): Boolean = runCatching {
-    val target = resolveToolFile(raw, workingDir).canonicalPath
-    val root = workingDir.canonicalPath
-    target != root && !target.startsWith(root + File.separator)
-}.getOrDefault(true)
-
-/** 审批判断：本地看工作区目录，远程看是否用了绝对路径 */
-private fun isOutsideWorkspace(context: WorkspaceToolContext, raw: String): Boolean =
-    if (context.isRemote) {
-        isOutsideRemoteRoot(raw, context.sshTarget)
-    } else {
-        isOutsideWorkingDir(raw, context.workingDir)
-    }
-
-/**
- * 远程侧拿不到可靠的规范化路径，只把「绝对路径」当作可能需要审批。
- *
- * 相对路径一定落在 [SshTarget.remoteRoot] 之内；[SshTarget.remoteRoot] 是 `~` 时
- * 无法判断绝对路径是否在 home 里，保守地要求审批。
- */
-private fun isOutsideRemoteRoot(raw: String, target: SshTarget?): Boolean {
-    if (target == null) return true
-    val trimmed = raw.trim()
-    if (!trimmed.startsWith("/")) return false
-    val root = target.remoteRoot.trimEnd('/')
-    if (root.isEmpty() || root == "~") return true
-    return trimmed != root && !trimmed.startsWith("$root/")
 }
 
 /** 远程读文本：先 stat 判断存在/类型/大小，再取内容，避免把目录或超大文件整个拉过来 */
