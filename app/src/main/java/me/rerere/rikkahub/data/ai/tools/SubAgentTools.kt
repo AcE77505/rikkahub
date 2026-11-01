@@ -65,7 +65,8 @@ fun createTaskTool(
             "Dispatch a focused sub-agent to handle an independent task and return a concise report. " +
                 "The sub-agent does not see this conversation, so restate any context it needs in `prompt`. " +
                 "Only its final report is returned; its working context never enters this conversation. " +
-                "Use it for self-contained work such as code changes, investigation, or review."
+                "Use it for self-contained work such as code changes, investigation, or review. " +
+                "Sub-agents do not coordinate file writes with each other or with you; avoid concurrent writers."
         )
         appendLine()
         appendLine()
@@ -271,7 +272,8 @@ fun createFleetTool(
             "sa_... reference. Use it for independent tasks that can run at the same time; a single " +
             "task should use `task` instead. All tasks share the conversation concurrency limit. " +
             "Sub-agents do not see this conversation, so restate the needed context in each prompt. " +
-            "Do not run two writers against the same file in one fleet.",
+            "Do not run two writers against the same file in one fleet. No write-path lease is enforced, " +
+            "so split overlapping writes with `depends_on` or run them in separate turns.",
         parameters = {
             InputSchema.Obj(
                 properties = buildJsonObject {
