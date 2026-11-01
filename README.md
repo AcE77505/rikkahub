@@ -37,7 +37,8 @@ This fork is based on [RikkaHub](https://github.com/rikkahub/rikkahub). If you a
 ### Subagents
 
 - New `task` tool: the main assistant can dispatch a focused sub-agent for independent work such as code changes, investigation, or review.
-- `fleet` dispatches multiple independent sub-agents in parallel, up to the conversation concurrency limit.
+- `fleet` supports `id` / `depends_on`: dependent tasks start after their dependencies, whose reports are appended to the prompt.
+- `task` supports `adopt_ref` to reuse an existing `sa_...` result without running a sub-agent.
 - Sub-agent progress is streamed by default: `task` / `fleet` cards show the phase, elapsed time, and recent activity.
 - Sub-agents end with `complete_subtask`; completed or cancelled runs can be continued with `continue_from`.
 - The sub-agent runs in an isolated context and returns only its final report, so its working context does not pollute the parent conversation.

@@ -114,6 +114,7 @@ class ChatToolFactory(
         val allTools = if (conversationId != null) {
             val taskTool = createTaskTool(
                 runner = subAgentRunner,
+                store = subAgentStore,
                 settings = settings,
                 assistant = assistant,
                 parentModel = model,

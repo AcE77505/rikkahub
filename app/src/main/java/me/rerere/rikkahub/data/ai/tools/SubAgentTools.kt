@@ -19,6 +19,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentProgressRegistry
+import me.rerere.rikkahub.data.ai.subagent.SubAgentResult
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunner
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStatus
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
@@ -38,6 +39,7 @@ private const val MAX_SUBAGENT_PREVIEW_CHARS = 4_000
  */
 fun createTaskTool(
     runner: SubAgentRunner,
+    store: SubAgentStore,
     settings: Settings,
     assistant: Assistant,
     parentModel: Model,
@@ -116,21 +118,63 @@ fun createTaskTool(
                                 "conversation. The prior transcript is loaded and the new prompt is appended.",
                         )
                     })
+                    put("adopt_ref", buildJsonObject {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "Optional sa_... reference to reuse an existing result without running a sub-agent. " +
+                                "When set, `prompt` is not required.",
+                        )
+                    })
                 },
                 required = listOf("prompt"),
             )
         },
         needsApproval = { args ->
-            val raw = runCatching {
-                args.jsonObject["agent"]?.jsonPrimitive?.contentOrNull
-            }.getOrNull()
-            val agent = findAgent(raw)
-            agent != null &&
-                agent.requiresApproval &&
-                (!agent.rememberApproval || !approvalRegistry.isApproved(conversationId, agent.id))
+            val adoptRef = args.jsonObject["adopt_ref"]
+                ?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            if (adoptRef != null) {
+                false
+            } else {
+                val raw = runCatching {
+                    args.jsonObject["agent"]?.jsonPrimitive?.contentOrNull
+                }.getOrNull()
+                val agent = findAgent(raw)
+                agent != null &&
+                    agent.requiresApproval &&
+                    (!agent.rememberApproval || !approvalRegistry.isApproved(conversationId, agent.id))
+            }
         },
         execute = { args ->
             val params = args.jsonObject
+            val adoptRef = params["adopt_ref"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            if (adoptRef != null) {
+                val read = runCatching {
+                    store.readResult(
+                        ref = adoptRef,
+                        parentConversationId = conversationId.toString(),
+                        offsetBytes = 0,
+                        limitBytes = MAX_SUBAGENT_PREVIEW_CHARS,
+                    )
+                }.getOrNull()
+                    ?: return@Tool subAgentError(
+                        "unknown_ref",
+                        "No readable result for $adoptRef in this conversation",
+                    )
+                return@Tool listOf(
+                    UIMessagePart.Text(
+                        buildJsonObject {
+                            put("status", "adopted")
+                            put("ref", read.ref)
+                            put("result", read.text)
+                            put("total_bytes", read.totalBytes)
+                            read.nextOffsetBytes?.let { put("next_offset_bytes", it) }
+                        }.toString()
+                    )
+                )
+            }
             val prompt = params["prompt"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (prompt.isEmpty()) {
                 return@Tool subAgentError("invalid_prompt", "prompt is required")
@@ -241,6 +285,18 @@ fun createFleetTool(
                                     put("type", "string")
                                     put("description", "Name of an enabled sub-agent. Omit to use the first one.")
                                 })
+                                put("id", buildJsonObject {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        "Optional unique task id. Defaults to task_<index>; use it from depends_on.",
+                                    )
+                                })
+                                put("depends_on", buildJsonObject {
+                                    put("type", "array")
+                                    put("description", "Task ids that must finish first; their reports are appended to this prompt.")
+                                    put("items", buildJsonObject { put("type", "string") })
+                                })
                                 put("prompt", buildJsonObject {
                                     put("type", "string")
                                     put("description", "Self-contained task description.")
@@ -280,11 +336,18 @@ fun createFleetTool(
             if (tasks.size > 8) {
                 return@Tool subAgentError("too_many_tasks", "fleet accepts at most 8 tasks")
             }
-            val requests = tasks.map { task ->
+            val requests = tasks.mapIndexed { index, task ->
                 val obj = task.jsonObject
                 val prompt = obj["prompt"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                 val name = obj["agent"]?.jsonPrimitive?.contentOrNull
+                val id = obj["id"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?.takeIf { it.isNotEmpty() } ?: "task_$index"
+                val dependsOn = obj["depends_on"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                    .orEmpty()
                 FleetRequest(
+                    id = id,
+                    dependsOn = dependsOn,
                     subAgent = findAgent(name),
                     prompt = prompt,
                     maxSteps = obj["max_steps"]?.jsonPrimitive?.intOrNull,
@@ -298,45 +361,80 @@ fun createFleetTool(
                     "task[$invalid] needs a valid agent and a non-empty prompt",
                 )
             }
+            val ids = requests.map { it.id }
+            if (ids.size != ids.toSet().size) {
+                return@Tool subAgentError("duplicate_task_id", "task ids must be unique")
+            }
+            val missingDependency = requests.firstNotNullOfOrNull { request ->
+                request.dependsOn.firstOrNull { it !in ids }?.let { request.id to it }
+            }
+            if (missingDependency != null) {
+                return@Tool subAgentError(
+                    "unknown_dependency",
+                    "task ${missingDependency.first} depends on unknown task ${missingDependency.second}",
+                )
+            }
 
+            val results = LinkedHashMap<String, SubAgentResult>()
+            val pending = requests.toMutableList()
             val toolCallId = coroutineContext[ToolCallContext]?.toolCallId
-            val results = try {
-                coroutineScope {
-                    requests.map { request ->
-                        async {
-                            request to runner.run(
-                                settings = settings,
-                                parentAssistant = assistant,
-                                parentModel = parentModel,
-                                subAgent = checkNotNull(request.subAgent),
-                                task = request.prompt,
-                                baseTools = baseTools,
-                                conversationId = conversationId,
-                                maxStepsOverride = request.maxSteps,
-                                timeoutSecondsOverride = request.timeoutSeconds,
-                                onProgress = { progress ->
-                                    toolCallId?.let { progressRegistry.update(it, progress) }
-                                },
-                            )
-                        }
-                    }.awaitAll()
+            try {
+                while (pending.isNotEmpty()) {
+                    val ready = pending.filter { request ->
+                        request.dependsOn.all { dependency -> results.containsKey(dependency) }
+                    }
+                    if (ready.isEmpty()) {
+                        return@Tool subAgentError(
+                            "dependency_cycle",
+                            "depends_on contains a cycle or an unresolvable dependency",
+                        )
+                    }
+                    val batch = coroutineScope {
+                        ready.map { request ->
+                            async {
+                                request to runner.run(
+                                    settings = settings,
+                                    parentAssistant = assistant,
+                                    parentModel = parentModel,
+                                    subAgent = checkNotNull(request.subAgent),
+                                    task = withDependencyReports(request, results),
+                                    baseTools = baseTools,
+                                    conversationId = conversationId,
+                                    maxStepsOverride = request.maxSteps,
+                                    timeoutSecondsOverride = request.timeoutSeconds,
+                                    onProgress = { progress ->
+                                        toolCallId?.let { progressRegistry.update(it, progress) }
+                                    },
+                                )
+                            }
+                        }.awaitAll()
+                    }
+                    batch.forEach { (request, result) -> results[request.id] = result }
+                    pending.removeAll(ready.toSet())
                 }
             } finally {
                 toolCallId?.let { progressRegistry.clear(it) }
             }
 
-            val allCompleted = results.all { (_, result) -> result.status == SubAgentStatus.COMPLETED }
-            val anyCompleted = results.any { (_, result) -> result.status == SubAgentStatus.COMPLETED }
+            val ordered = requests.map { request -> request to checkNotNull(results[request.id]) }
+            val allCompleted = ordered.all { (_, result) -> result.status == SubAgentStatus.COMPLETED }
+            val anyCompleted = ordered.any { (_, result) -> result.status == SubAgentStatus.COMPLETED }
             val status = when {
                 allCompleted -> "completed"
                 anyCompleted -> "partial"
                 else -> "failed"
             }
             val tasksJson = buildJsonArray {
-                results.forEach { (request, result) ->
+                ordered.forEach { (request, result) ->
                     add(
                         buildJsonObject {
+                            put("id", request.id)
                             put("agent", request.subAgent?.name.orEmpty())
+                            if (request.dependsOn.isNotEmpty()) {
+                                put("depends_on", buildJsonArray {
+                                    request.dependsOn.forEach { add(it) }
+                                })
+                            }
                             put("status", result.status.name.lowercase())
                             result.ref?.let { put("ref", it) }
                             result.error?.let { put("error", it) }
@@ -359,11 +457,35 @@ fun createFleetTool(
 }
 
 private data class FleetRequest(
+    val id: String,
+    val dependsOn: List<String>,
     val subAgent: SubAgent?,
     val prompt: String,
     val maxSteps: Int?,
     val timeoutSeconds: Int?,
 )
+
+/** 把已完成依赖的报告附在新任务提示词后面，供被依赖的任务使用。 */
+private fun withDependencyReports(
+    request: FleetRequest,
+    results: Map<String, SubAgentResult>,
+): String {
+    if (request.dependsOn.isEmpty()) return request.prompt
+    return buildString {
+        append(request.prompt)
+        append("\n\n## Dependency task results\n")
+        request.dependsOn.forEach { id ->
+            val result = results[id]
+            append("\n### ").append(id).append('\n')
+            append("status: ").append(result?.status?.name?.lowercase() ?: "missing").append('\n')
+            val body = result?.text ?: result?.error
+            if (!body.isNullOrBlank()) {
+                append(body.take(8_000))
+                append('\n')
+            }
+        }
+    }
+}
 
 /**
  * `task` 只返回有界预览；长报告通过这个工具分页读取，避免一次性灌进主对话上下文。

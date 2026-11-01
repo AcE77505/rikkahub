@@ -666,6 +666,8 @@ Researcher
 - [x] `SubAgent` 模型、`Settings.subAgents`、`Assistant.enabledSubAgents`；
 - [x] `task` 工具与子代理独立上下文执行；
 - [x] `fleet` 并行派发（最多 8 个任务，共享会话并发上限；不声明写路径）；
+- [x] `fleet` 任务 `id` / `depends_on`：依赖完成后才启动，依赖报告会附加到提示词；
+- [x] `task` 的 `adopt_ref`：直接复用已有结果，不重新运行；
 - [x] 默认流式预览：`task` / `fleet` 卡片显示阶段、耗时和最近活动；
 - [x] `complete_subtask` 终局报告工具；
 - [x] `continue_from`：从同一对话中已完成/已取消的子代理继续；
@@ -692,7 +694,7 @@ Researcher
 - [ ] `parallel_tasks` 的依赖图与依赖结果注入；
 - [ ] 写路径声明与写租约（并行写冲突检查）；
 - [ ] 后台运行、完成通知、进程重启恢复；
-- [ ] `task_id` steering / `adopt_ref`；
+- [ ] `task_id` steering（依赖后台运行，当前同步派发不提供）；
 - [ ] 新页面文案接入 `strings.xml` 的完整 i18n。
 
 > 按当前约定：`task` 不接通知/悬浮窗；不做写路径租约；流式预览默认开启，不单独提供开关。
