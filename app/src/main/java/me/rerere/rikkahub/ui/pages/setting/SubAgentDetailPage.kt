@@ -27,12 +27,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.ModelType
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.SubAgent
 import me.rerere.rikkahub.data.model.SubAgentToolDefaults
 import me.rerere.rikkahub.ui.components.ai.ModelField
@@ -154,19 +156,19 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text(if (isNew) "新建子代理" else "编辑子代理") },
+                title = { Text(stringResource(if (isNew) R.string.subagent_new_title else R.string.subagent_edit_title)) },
                 navigationIcon = { BackButton() },
                 actions = {
                     if (!isNew) {
                         TextButton(onClick = ::delete) {
-                            Text("删除", color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.subagent_delete), color = MaterialTheme.colorScheme.error)
                         }
                     }
                     TextButton(
                         onClick = ::save,
                         enabled = name.isNotBlank(),
                     ) {
-                        Text("保存")
+                        Text(stringResource(R.string.subagent_save))
                     }
                 },
                 scrollBehavior = scrollBehavior,
@@ -194,7 +196,7 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("子代理不存在，可能已被删除")
+                Text(stringResource(R.string.subagent_missing))
             }
             return@Scaffold
         }
@@ -205,8 +207,8 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item("basic") {
-                CardGroup(title = { Text("基本") }) {
-                    formItem(headlineContent = { Text("名称") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_basic)) }) {
+                    formItem(headlineContent = { Text(stringResource(R.string.subagent_name)) }) {
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
@@ -214,7 +216,7 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    formItem(headlineContent = { Text("描述") }) {
+                    formItem(headlineContent = { Text(stringResource(R.string.subagent_description)) }) {
                         OutlinedTextField(
                             value = description,
                             onValueChange = { description = it },
@@ -223,8 +225,8 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                         )
                     }
                     formItem(
-                        headlineContent = { Text("系统提示词") },
-                        supportingContent = { Text("留空时使用默认子代理提示；不会继承主助手的角色设定") },
+                        headlineContent = { Text(stringResource(R.string.subagent_system_prompt)) },
+                        supportingContent = { Text(stringResource(R.string.subagent_system_prompt_desc)) },
                     ) {
                         OutlinedTextField(
                             value = systemPrompt,
@@ -237,21 +239,21 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
             }
 
             item("model") {
-                CardGroup(title = { Text("模型与思考") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_model_section)) }) {
                     formItem(
-                        headlineContent = { Text("聊天模型") },
-                        supportingContent = { Text("与助手使用同一套聊天模型选择；清空表示跟随父模型") },
+                        headlineContent = { Text(stringResource(R.string.subagent_chat_model)) },
+                        supportingContent = { Text(stringResource(R.string.subagent_chat_model_desc)) },
                     ) {
                         ModelField(
                             model = modelListState.currentModel,
                             onClick = { modelListState.open() },
-                            placeholder = "跟随父模型",
+                            placeholder = stringResource(R.string.subagent_follow_parent_model),
                             onClear = { modelId = null },
                         )
                     }
                     item(
-                        headlineContent = { Text("思考预算") },
-                        supportingContent = { Text("与助手使用同一套思考预算选择") },
+                        headlineContent = { Text(stringResource(R.string.subagent_thinking_budget)) },
+                        supportingContent = { Text(stringResource(R.string.subagent_thinking_budget_desc)) },
                         trailingContent = {
                             ReasoningButton(
                                 reasoningLevel = reasoningLevel,
@@ -260,8 +262,8 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                         },
                     )
                     formItem(
-                        headlineContent = { Text("温度") },
-                        supportingContent = { Text("默认关闭，跟随助手的温度设置") },
+                        headlineContent = { Text(stringResource(R.string.subagent_temperature)) },
+                        supportingContent = { Text(stringResource(R.string.subagent_temperature_desc)) },
                         trailingContent = {
                             Switch(
                                 checked = temperature != null,
@@ -296,31 +298,31 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
             }
 
             item("permissions") {
-                CardGroup(title = { Text("权限") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_permissions)) }) {
                     switchItem(
                         checked = readOnly,
                         onCheckedChange = { readOnly = it },
-                        supportingContent = { Text("只保留读取、搜索、技能等只读工具；关闭后才允许写文件和执行命令") },
-                        headlineContent = { Text("只读") },
+                        supportingContent = { Text(stringResource(R.string.subagent_readonly_desc)) },
+                        headlineContent = { Text(stringResource(R.string.subagent_readonly)) },
                     )
                     switchItem(
                         checked = requiresApproval,
                         onCheckedChange = { requiresApproval = it },
-                        supportingContent = { Text("每次派发这个子代理时都要求用户确认") },
-                        headlineContent = { Text("派发时需要审批") },
+                        supportingContent = { Text(stringResource(R.string.subagent_requires_approval_desc)) },
+                        headlineContent = { Text(stringResource(R.string.subagent_requires_approval)) },
                     )
                     switchItem(
                         checked = rememberApproval,
                         onCheckedChange = { rememberApproval = it },
                         enabled = requiresApproval,
-                        supportingContent = { Text("批准一次后，本对话内派发同一子代理不再询问") },
-                        headlineContent = { Text("记住本次对话的批准") },
+                        supportingContent = { Text(stringResource(R.string.subagent_remember_approval_desc)) },
+                        headlineContent = { Text(stringResource(R.string.subagent_remember_approval)) },
                     )
                 }
             }
 
             item("tools") {
-                CardGroup(title = { Text("允许工具") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_allowed_tools)) }) {
                     switchItem(
                         checked = useDefaultTools,
                         onCheckedChange = { enabled ->
@@ -331,17 +333,19 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                         },
                         supportingContent = {
                             Text(
-                                "使用默认模板时与其它子代理共享同一份工具列表" +
-                                    "（当前 ${settings.subAgentDefaultTools.size} 个）；关闭后会复制一份供你增减"
+                                stringResource(
+                                    R.string.subagent_use_default_tools_desc,
+                                    settings.subAgentDefaultTools.size,
+                                )
                             )
                         },
-                        headlineContent = { Text("使用默认工具模板") },
+                        headlineContent = { Text(stringResource(R.string.subagent_use_default_tools)) },
                     )
                     if (!useDefaultTools) {
                         SubAgentToolDefaults.TOOL_GROUPS.forEach { group ->
                             item(
                                 headlineContent = { Text(group.title) },
-                                supportingContent = { Text("${group.tools.size} 个工具") },
+                                supportingContent = { Text(stringResource(R.string.subagent_tools_count, group.tools.size)) },
                             )
                             group.tools.forEach { toolName ->
                                 switchItem(
@@ -354,7 +358,7 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                                         }
                                     },
                                     supportingContent = if (readOnly && toolName in SubAgentToolDefaults.WRITE_TOOLS) {
-                                        { Text("只读模式下不会生效") }
+                                        { Text(stringResource(R.string.subagent_readonly_tool_note)) }
                                     } else {
                                         null
                                     },
@@ -363,8 +367,8 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                             }
                         }
                         formItem(
-                            headlineContent = { Text("其他工具名") },
-                            supportingContent = { Text("MCP 或其他动态工具名，用逗号分隔") },
+                            headlineContent = { Text(stringResource(R.string.subagent_extra_tools)) },
+                            supportingContent = { Text(stringResource(R.string.subagent_extra_tools_desc)) },
                         ) {
                             OutlinedTextField(
                                 value = extraToolsText,
@@ -378,8 +382,8 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
             }
 
             item("limits") {
-                CardGroup(title = { Text("运行限制") }) {
-                    formItem(headlineContent = { Text("最大步数") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_limits)) }) {
+                    formItem(headlineContent = { Text(stringResource(R.string.subagent_max_steps)) }) {
                         OutlinedTextField(
                             value = maxSteps,
                             onValueChange = { maxSteps = it.filter(Char::isDigit) },
@@ -388,7 +392,7 @@ fun SubAgentDetailPage(id: String, vm: SettingVM = koinViewModel()) {
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    formItem(headlineContent = { Text("超时（秒）") }) {
+                    formItem(headlineContent = { Text(stringResource(R.string.subagent_timeout_seconds)) }) {
                         OutlinedTextField(
                             value = timeoutSeconds,
                             onValueChange = { timeoutSeconds = it.filter(Char::isDigit) },

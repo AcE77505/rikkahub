@@ -21,8 +21,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.SubAgentToolDefaults
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -55,7 +57,7 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text("默认工具模板") },
+                title = { Text(stringResource(R.string.subagent_default_tools)) },
                 navigationIcon = { BackButton() },
                 actions = {
                     TextButton(
@@ -64,7 +66,7 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
                             extraToolsText = ""
                         },
                     ) {
-                        Text("恢复默认")
+                        Text(stringResource(R.string.subagent_restore_default))
                     }
                     TextButton(
                         onClick = {
@@ -77,7 +79,7 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
                             navController.popBackStack()
                         },
                     ) {
-                        Text("保存")
+                        Text(stringResource(R.string.subagent_save))
                     }
                 },
                 scrollBehavior = scrollBehavior,
@@ -93,11 +95,11 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item("tools") {
-                CardGroup(title = { Text("允许的工具") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_allowed_tools)) }) {
                     SubAgentToolDefaults.TOOL_GROUPS.forEach { group ->
                         item(
                             headlineContent = { Text(group.title) },
-                            supportingContent = { Text("${group.tools.size} 个工具") },
+                            supportingContent = { Text(stringResource(R.string.subagent_tools_count, group.tools.size)) },
                         )
                         group.tools.forEach { toolName ->
                             switchItem(
@@ -106,7 +108,7 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
                                     tools = if (checked) tools + toolName else tools - toolName
                                 },
                                 supportingContent = if (toolName in SubAgentToolDefaults.WRITE_TOOLS) {
-                                    { Text("只读子代理会自动过滤这个工具") }
+                                    { Text(stringResource(R.string.subagent_readonly_filter_note)) }
                                 } else {
                                     null
                                 },
@@ -115,8 +117,8 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
                         }
                     }
                     formItem(
-                        headlineContent = { Text("其他工具名") },
-                        supportingContent = { Text("MCP 或其他动态工具名，用逗号分隔") },
+                        headlineContent = { Text(stringResource(R.string.subagent_extra_tools)) },
+                        supportingContent = { Text(stringResource(R.string.subagent_extra_tools_desc)) },
                     ) {
                         OutlinedTextField(
                             value = extraToolsText,
@@ -130,8 +132,7 @@ fun SubAgentDefaultToolsPage(vm: SettingVM = koinViewModel()) {
             item("hint") {
                 Column(modifier = Modifier.padding(horizontal = 4.dp)) {
                     Text(
-                        text = "这里维护的是共享模板。新建子代理默认使用它；" +
-                            "在子代理编辑页关闭「使用默认工具模板」后，会复制一份到该子代理自己的列表。",
+                        text = stringResource(R.string.subagent_default_tools_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

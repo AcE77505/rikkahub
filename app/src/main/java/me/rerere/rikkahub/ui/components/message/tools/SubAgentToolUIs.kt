@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.jsonArray
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tools
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.subagent.SubAgentPhase
 import me.rerere.rikkahub.data.ai.subagent.SubAgentProgressRegistry
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -29,7 +31,11 @@ class SubAgentTaskToolUI : ToolUIRenderer {
     @Composable
     override fun title(context: ToolUIContext): String {
         val agent = context.arguments.getStringContent("agent")
-        return if (agent.isNullOrBlank()) "子代理" else "子代理 · $agent"
+        return if (agent.isNullOrBlank()) {
+            stringResource(R.string.subagent_tool_task_title)
+        } else {
+            stringResource(R.string.subagent_tool_task_title_agent, agent)
+        }
     }
 
     override fun hasSummary(context: ToolUIContext): Boolean =
@@ -42,17 +48,17 @@ class SubAgentTaskToolUI : ToolUIRenderer {
         val progress = progressMap[context.tool.toolCallId]
         if (progress != null) {
             val phase = when (progress.phase) {
-                SubAgentPhase.RUNNING -> "运行中"
-                SubAgentPhase.REASONING -> "思考中"
-                SubAgentPhase.RESPONDING -> "回复中"
-                SubAgentPhase.TOOL -> "调用工具"
+                SubAgentPhase.RUNNING -> stringResource(R.string.subagent_phase_running)
+                SubAgentPhase.REASONING -> stringResource(R.string.subagent_phase_reasoning)
+                SubAgentPhase.RESPONDING -> stringResource(R.string.subagent_phase_responding)
+                SubAgentPhase.TOOL -> stringResource(R.string.subagent_phase_tool)
             }
-            val activity = progress.toolName?.let { "工具 $it" }
+            val activity = progress.toolName?.let { stringResource(R.string.subagent_tool_activity, it) }
                 ?: progress.text?.lineSequence()?.lastOrNull { it.isNotBlank() }?.take(160)
                 ?: progress.reasoning?.lineSequence()?.lastOrNull { it.isNotBlank() }?.take(160)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "$phase · ${progress.elapsedMs / 1000}s",
+                    text = stringResource(R.string.subagent_tool_elapsed, phase, (progress.elapsedMs / 1000).toInt()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -73,15 +79,15 @@ class SubAgentTaskToolUI : ToolUIRenderer {
         val steps = context.content.getStringContent("steps")
         val ref = context.content.getStringContent("ref")
         val text = when {
-            status == null -> "运行中"
-            status == "completed" -> "完成"
-            status == "timed_out" -> "超时"
-            status == "failed" -> "失败"
+            status == null -> stringResource(R.string.subagent_phase_running)
+            status == "completed" -> stringResource(R.string.subagent_tool_status_completed)
+            status == "timed_out" -> stringResource(R.string.subagent_tool_status_timed_out)
+            status == "failed" -> stringResource(R.string.subagent_tool_status_failed)
             else -> status
         }
         val detail = listOfNotNull(
             text,
-            steps?.let { "$it 步" },
+            steps?.toIntOrNull()?.let { stringResource(R.string.subagent_tool_steps, it) },
             ref,
         ).joinToString(" · ")
         Text(
@@ -99,7 +105,7 @@ class SubAgentFleetToolUI : ToolUIRenderer {
     override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Tools
 
     @Composable
-    override fun title(context: ToolUIContext): String = "并行子代理"
+    override fun title(context: ToolUIContext): String = stringResource(R.string.subagent_fleet_title)
 
     override fun hasSummary(context: ToolUIContext): Boolean =
         context.loading || context.content != null
@@ -111,17 +117,17 @@ class SubAgentFleetToolUI : ToolUIRenderer {
         val progress = progressMap[context.tool.toolCallId]
         if (progress != null) {
             val phase = when (progress.phase) {
-                SubAgentPhase.RUNNING -> "运行中"
-                SubAgentPhase.REASONING -> "思考中"
-                SubAgentPhase.RESPONDING -> "回复中"
-                SubAgentPhase.TOOL -> "调用工具"
+                SubAgentPhase.RUNNING -> stringResource(R.string.subagent_phase_running)
+                SubAgentPhase.REASONING -> stringResource(R.string.subagent_phase_reasoning)
+                SubAgentPhase.RESPONDING -> stringResource(R.string.subagent_phase_responding)
+                SubAgentPhase.TOOL -> stringResource(R.string.subagent_phase_tool)
             }
-            val activity = progress.toolName?.let { "工具 $it" }
+            val activity = progress.toolName?.let { stringResource(R.string.subagent_tool_activity, it) }
                 ?: progress.text?.lineSequence()?.lastOrNull { it.isNotBlank() }?.take(160)
                 ?: progress.reasoning?.lineSequence()?.lastOrNull { it.isNotBlank() }?.take(160)
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "$phase · ${progress.elapsedMs / 1000}s",
+                    text = stringResource(R.string.subagent_tool_elapsed, phase, (progress.elapsedMs / 1000).toInt()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -141,14 +147,14 @@ class SubAgentFleetToolUI : ToolUIRenderer {
         val status = context.content.getStringContent("status")
         val count = context.content?.jsonObjectOrNull?.get("tasks")?.jsonArray?.size
         val text = when {
-            status == null -> "运行中"
-            status == "completed" -> "完成"
-            status == "partial" -> "部分完成"
-            status == "failed" -> "失败"
+            status == null -> stringResource(R.string.subagent_phase_running)
+            status == "completed" -> stringResource(R.string.subagent_tool_status_completed)
+            status == "partial" -> stringResource(R.string.subagent_tool_status_partial)
+            status == "failed" -> stringResource(R.string.subagent_tool_status_failed)
             else -> status
         }
         Text(
-            text = listOfNotNull(text, count?.let { "$it 个子代理" }).joinToString(" · "),
+            text = listOfNotNull(text, count?.let { stringResource(R.string.subagent_fleet_count, it) }).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -164,7 +170,11 @@ class SubAgentReadToolUI : ToolUIRenderer {
     @Composable
     override fun title(context: ToolUIContext): String {
         val ref = context.arguments.getStringContent("ref")
-        return if (ref.isNullOrBlank()) "读取子代理结果" else "读取子代理结果 · $ref"
+        return if (ref.isNullOrBlank()) {
+            stringResource(R.string.subagent_read_title)
+        } else {
+            stringResource(R.string.subagent_read_title_ref, ref)
+        }
     }
 
     override fun hasSummary(context: ToolUIContext): Boolean = context.content != null || context.loading
@@ -172,7 +182,7 @@ class SubAgentReadToolUI : ToolUIRenderer {
     @Composable
     override fun Summary(context: ToolUIContext) {
         val text = context.content?.jsonPrimitiveOrNull?.contentOrNull
-            ?: if (context.loading) "读取中" else null
+            ?: if (context.loading) stringResource(R.string.subagent_reading) else null
         if (text != null) {
             Text(
                 text = text.lineSequence().firstOrNull().orEmpty(),

@@ -17,10 +17,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tools
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -50,7 +52,7 @@ fun AssistantSubAgentsPage(id: String) {
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text("子代理") },
+                title = { Text(stringResource(R.string.subagent_page_title)) },
                 navigationIcon = { BackButton() },
                 scrollBehavior = scrollBehavior,
                 colors = CustomColors.topBarColors,
@@ -62,8 +64,8 @@ fun AssistantSubAgentsPage(id: String) {
         if (settings.subAgents.isEmpty()) {
             Box(modifier = Modifier.padding(innerPadding)) {
                 ExtensionEmptyState(
-                    message = "还没有配置子代理。先在设置 → 工具里创建一个，再回来启用。",
-                    buttonText = "去创建子代理",
+                    message = stringResource(R.string.subagent_empty_message),
+                    buttonText = stringResource(R.string.subagent_create_action),
                     onAction = { navController.navigate(Screen.SettingSubAgents) },
                     icon = HugeIcons.Tools,
                 )
@@ -83,7 +85,7 @@ fun AssistantSubAgentsPage(id: String) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item("subagents") {
-                CardGroup(title = { Text("可派发的子代理") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_dispatchable)) }) {
                     settings.subAgents.forEach { agent ->
                         switchItem(
                             checked = agent.id in assistant.enabledSubAgents,
@@ -97,14 +99,21 @@ fun AssistantSubAgentsPage(id: String) {
                             },
                             leadingContent = { CardGroupIcon(HugeIcons.Tools) },
                             supportingContent = {
+                                val access = stringResource(
+                                    if (agent.readOnly) R.string.subagent_badge_readonly
+                                    else R.string.subagent_badge_writable
+                                )
+                                val limits = stringResource(
+                                    R.string.subagent_badge_steps_timeout,
+                                    agent.maxSteps,
+                                    agent.timeoutSeconds,
+                                )
+                                val summary = listOf(access, limits).joinToString(" · ")
                                 Text(
-                                    buildString {
-                                        if (agent.description.isNotBlank()) {
-                                            append(agent.description)
-                                            append("\n")
-                                        }
-                                        append(if (agent.readOnly) "只读" else "可写")
-                                        append(" · ${agent.maxSteps} 步 · ${agent.timeoutSeconds}s")
+                                    if (agent.description.isBlank()) {
+                                        summary
+                                    } else {
+                                        agent.description + "\n" + summary
                                     }
                                 )
                             },

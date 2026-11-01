@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.annotation.StringRes
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,10 +29,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Clock01
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunMeta
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunStatus
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
@@ -60,7 +64,7 @@ fun SubAgentRunsPage(store: SubAgentStore = koinInject()) {
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text("子代理运行记录") },
+                title = { Text(stringResource(R.string.subagent_runs_title)) },
                 navigationIcon = { BackButton() },
                 scrollBehavior = scrollBehavior,
                 colors = CustomColors.topBarColors,
@@ -77,7 +81,7 @@ fun SubAgentRunsPage(store: SubAgentStore = koinInject()) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "还没有子代理运行记录",
+                    text = stringResource(R.string.subagent_runs_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -90,25 +94,26 @@ fun SubAgentRunsPage(store: SubAgentStore = koinInject()) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item("runs") {
-                CardGroup(title = { Text("全部运行") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_all_runs)) }) {
                     runs.forEach { run ->
                         item(
                             onClick = { selected = run },
                             leadingContent = { CardGroupIcon(HugeIcons.Clock01) },
                             supportingContent = {
                                 Text(
-                                    buildString {
-                                        append(statusLabel(run.status))
-                                        append(" · ")
-                                        append(run.startedAt.toTimeText())
-                                        append(" · ")
-                                        append("${run.steps} 步")
-                                        append(" · 对话 ${run.parentConversationId.take(8)}")
-                                    }
+                                    listOf(
+                                        stringResource(statusRes(run.status)),
+                                        run.startedAt.toTimeText(),
+                                        stringResource(R.string.subagent_run_steps, run.steps),
+                                        stringResource(
+                                            R.string.subagent_run_conversation,
+                                            run.parentConversationId.take(8),
+                                        ),
+                                    ).joinToString(" · ")
                                 )
                             },
                             headlineContent = {
-                                Text(run.label.ifBlank { "子代理" })
+                                Text(run.label.ifBlank { stringResource(R.string.subagent_label) })
                             },
                         )
                     }
@@ -160,7 +165,7 @@ private fun SubAgentRunDialog(
         when (meta.status) {
             SubAgentRunStatus.COMPLETED, SubAgentRunStatus.CANCELLED -> load(0)
             else -> {
-                error = meta.error ?: statusLabel(meta.status)
+                error = meta.error ?: meta.status.name.lowercase()
                 loading = false
             }
         }
@@ -168,19 +173,22 @@ private fun SubAgentRunDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(meta.label.ifBlank { "子代理" }) },
+        title = { Text(meta.label.ifBlank { stringResource(R.string.subagent_label) }) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "${statusLabel(meta.status)} · ${meta.startedAt.toTimeText()}",
+                    text = listOf(
+                        stringResource(statusRes(meta.status)),
+                        meta.startedAt.toTimeText(),
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 when {
-                    loading -> Text("读取中…")
+                    loading -> Text(stringResource(R.string.subagent_loading))
                     error != null -> Text(
                         text = error.orEmpty(),
                         color = MaterialTheme.colorScheme.error,
@@ -192,7 +200,7 @@ private fun SubAgentRunDialog(
                         val next = nextOffset
                         if (next != null) {
                             TextButton(onClick = { scope.launch { load(next) } }) {
-                                Text("加载更多")
+                                Text(stringResource(R.string.subagent_load_more))
                             }
                         }
                     }
@@ -201,18 +209,19 @@ private fun SubAgentRunDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭")
+                Text(stringResource(R.string.subagent_close))
             }
         },
     )
 }
 
-private fun statusLabel(status: SubAgentRunStatus): String = when (status) {
-    SubAgentRunStatus.RUNNING -> "运行中"
-    SubAgentRunStatus.COMPLETED -> "已完成"
-    SubAgentRunStatus.CANCELLED -> "已取消"
-    SubAgentRunStatus.FAILED -> "失败"
-    SubAgentRunStatus.INTERRUPTED -> "已中断"
+@StringRes
+private fun statusRes(status: SubAgentRunStatus): Int = when (status) {
+    SubAgentRunStatus.RUNNING -> R.string.subagent_status_running
+    SubAgentRunStatus.COMPLETED -> R.string.subagent_status_completed
+    SubAgentRunStatus.CANCELLED -> R.string.subagent_status_cancelled
+    SubAgentRunStatus.FAILED -> R.string.subagent_status_failed
+    SubAgentRunStatus.INTERRUPTED -> R.string.subagent_status_interrupted
 }
 
 private fun Long.toTimeText(): String =

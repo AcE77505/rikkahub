@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ai.provider.ModelType
@@ -29,6 +30,7 @@ import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Tools
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.components.ai.ModelField
 import me.rerere.rikkahub.ui.components.ai.ModelListSheet
@@ -63,7 +65,7 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text("子代理") },
+                title = { Text(stringResource(R.string.subagent_page_title)) },
                 navigationIcon = { BackButton() },
                 scrollBehavior = scrollBehavior,
                 colors = CustomColors.topBarColors,
@@ -78,15 +80,15 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item("global") {
-                CardGroup(title = { Text("全局设置") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_global_settings)) }) {
                     formItem(
-                        headlineContent = { Text("默认子代理模型") },
-                        supportingContent = { Text("未单独设置模型的子代理使用；清空后跟随父模型") },
+                        headlineContent = { Text(stringResource(R.string.subagent_default_model)) },
+                        supportingContent = { Text(stringResource(R.string.subagent_default_model_desc)) },
                     ) {
                         ModelField(
                             model = modelListState.currentModel,
                             onClick = { modelListState.open() },
-                            placeholder = "跟随父模型",
+                            placeholder = stringResource(R.string.subagent_follow_parent_model),
                             onClear = {
                                 vm.updateSettings { it.copy(subAgentModelId = null) }
                             },
@@ -94,36 +96,36 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
                     }
                     item(
                         onClick = { showConcurrencyDialog = true },
-                        supportingContent = { Text("同一会话同时运行的子代理数量") },
-                        headlineContent = { Text("并发上限") },
+                        supportingContent = { Text(stringResource(R.string.subagent_concurrency_desc)) },
+                        headlineContent = { Text(stringResource(R.string.subagent_concurrency_limit)) },
                         trailingContent = { Text("${settings.subAgentMaxConcurrency}") },
                     )
                     item(
                         onClick = { navController.navigate(Screen.SubAgentRuns) },
                         leadingContent = { CardGroupIcon(HugeIcons.Clock01) },
-                        supportingContent = { Text("查看这台设备上的子代理运行记录") },
-                        headlineContent = { Text("运行记录") },
+                        supportingContent = { Text(stringResource(R.string.subagent_runs_desc)) },
+                        headlineContent = { Text(stringResource(R.string.subagent_runs)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
                 }
             }
 
             item("defaultTools") {
-                CardGroup(title = { Text("默认工具模板") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_default_tools)) }) {
                     item(
                         onClick = { navController.navigate(Screen.SubAgentDefaultTools) },
                         leadingContent = { CardGroupIcon(HugeIcons.Tools) },
                         supportingContent = {
-                            Text("未自定义的子代理共享这一份工具列表（${settings.subAgentDefaultTools.size} 个）")
+                            Text(stringResource(R.string.subagent_default_tools_shared_desc, settings.subAgentDefaultTools.size))
                         },
-                        headlineContent = { Text("默认工具模板") },
+                        headlineContent = { Text(stringResource(R.string.subagent_default_tools)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
                 }
             }
 
             item("subagents") {
-                CardGroup(title = { Text("子代理定义") }) {
+                CardGroup(title = { Text(stringResource(R.string.subagent_definitions)) }) {
                     settings.subAgents.forEach { agent ->
                         item(
                             onClick = {
@@ -131,14 +133,24 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
                             },
                             leadingContent = { CardGroupIcon(HugeIcons.PencilEdit01) },
                             supportingContent = {
-                                Text(
-                                    buildString {
-                                        append(if (agent.readOnly) "只读" else "可写")
-                                        append(" · ${agent.maxSteps} 步 · ${agent.timeoutSeconds}s")
-                                        if (agent.requiresApproval) append(" · 派发需审批")
-                                        if (agent.allowedTools == null) append(" · 默认工具模板")
-                                    }
+                                val access = stringResource(
+                                    if (agent.readOnly) R.string.subagent_badge_readonly
+                                    else R.string.subagent_badge_writable
                                 )
+                                val limits = stringResource(
+                                    R.string.subagent_badge_steps_timeout,
+                                    agent.maxSteps,
+                                    agent.timeoutSeconds,
+                                )
+                                val extras = buildList {
+                                    if (agent.requiresApproval) {
+                                        add(stringResource(R.string.subagent_badge_requires_approval))
+                                    }
+                                    if (agent.allowedTools == null) {
+                                        add(stringResource(R.string.subagent_badge_default_tools))
+                                    }
+                                }
+                                Text((listOf(access, limits) + extras).joinToString(" · "))
                             },
                             headlineContent = { Text(agent.name) },
                         )
@@ -146,8 +158,8 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SubAgentDetail("")) },
                         leadingContent = { CardGroupIcon(HugeIcons.Add01) },
-                        supportingContent = { Text("新建一个可被助手派发的子代理") },
-                        headlineContent = { Text("新建子代理") },
+                        supportingContent = { Text(stringResource(R.string.subagent_new_desc)) },
+                        headlineContent = { Text(stringResource(R.string.subagent_new)) },
                     )
                 }
             }
@@ -155,13 +167,12 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
             item("hint") {
                 Column(modifier = Modifier.padding(horizontal = 4.dp)) {
                     Text(
-                        text = "子代理在独立上下文里运行，不会继承主助手的角色设定和对话历史。" +
-                            "派发时只把任务描述发给它，完成后只回传最终报告。",
+                        text = stringResource(R.string.subagent_intro),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "这里只管理定义；哪个助手能派发哪些子代理，请在助手详情页里勾选。",
+                        text = stringResource(R.string.subagent_manage_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp),
@@ -174,7 +185,7 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
     if (showConcurrencyDialog) {
         AlertDialog(
             onDismissRequest = { showConcurrencyDialog = false },
-            title = { Text("并发上限") },
+            title = { Text(stringResource(R.string.subagent_concurrency_limit)) },
             text = {
                 Column {
                     (1..8).forEach { value ->
@@ -193,7 +204,7 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
             },
             confirmButton = {
                 TextButton(onClick = { showConcurrencyDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.subagent_cancel))
                 }
             },
         )
