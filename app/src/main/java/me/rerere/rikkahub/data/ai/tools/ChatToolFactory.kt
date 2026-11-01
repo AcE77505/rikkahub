@@ -10,6 +10,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
+import me.rerere.rikkahub.data.ai.subagent.SubAgentProgressRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunner
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
@@ -53,6 +54,7 @@ class ChatToolFactory(
     private val subAgentRunner: SubAgentRunner,
     private val subAgentStore: SubAgentStore,
     private val subAgentApprovalRegistry: SubAgentApprovalRegistry,
+    private val subAgentProgressRegistry: SubAgentProgressRegistry,
 ) {
     suspend fun createTools(
         settings: Settings,
@@ -118,9 +120,25 @@ class ChatToolFactory(
                 baseTools = tools,
                 conversationId = conversationId,
                 approvalRegistry = subAgentApprovalRegistry,
+                progressRegistry = subAgentProgressRegistry,
             )
             if (taskTool != null) {
-                tools + taskTool + createReadSubAgentResultTool(subAgentStore, conversationId)
+                val fleetTool = createFleetTool(
+                    runner = subAgentRunner,
+                    settings = settings,
+                    assistant = assistant,
+                    parentModel = model,
+                    baseTools = tools,
+                    conversationId = conversationId,
+                    approvalRegistry = subAgentApprovalRegistry,
+                    progressRegistry = subAgentProgressRegistry,
+                )
+                buildList {
+                    addAll(tools)
+                    add(taskTool)
+                    add(createReadSubAgentResultTool(subAgentStore, conversationId))
+                    fleetTool?.let(::add)
+                }
             } else {
                 tools
             }

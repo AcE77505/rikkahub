@@ -2,6 +2,7 @@ package me.rerere.ai.agent
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.buildJsonObject
@@ -54,7 +55,7 @@ internal class AgentLoop(
             if (current != null && current.getTools().any { !it.isExecuted }) {
                 val pending = requestApprovals(current)
                 if (pending.isNotEmpty()) return finish(AgentFinishReason.AwaitingApproval(pending))
-                executeTools()
+                if (executeTools()) return finish(AgentFinishReason.Completed)
             } else if (current != null && steps > 0) {
                 return finish(AgentFinishReason.Completed)
             }
@@ -157,9 +158,11 @@ internal class AgentLoop(
         return generated
     }
 
-    // 按调用顺序逐个执行，每执行完一个就更新一次，中途取消时已经执行的结果不会丢
-    private suspend fun executeTools() {
+    // 按调用顺序逐个执行，每执行完一个就更新一次，中途取消时已经执行的结果不会丢。
+    // 返回 true 表示执行了 terminal 工具，本轮应立即结束。
+    private suspend fun executeTools(): Boolean {
         val tools = checkNotNull(message).getTools().filter { !it.isExecuted }
+        var terminal = false
         for (tool in tools) {
             // 只给真正运行的工具计时；开始时先写一次，界面才能在执行中实时显示耗时
             val runs = tool.approvalState == ToolApprovalState.Auto || tool.approvalState == ToolApprovalState.Approved
@@ -168,7 +171,9 @@ internal class AgentLoop(
             updateTool(tool.toolCallId) {
                 it.copy(output = output, finishedAt = if (runs) Clock.System.now() else it.finishedAt)
             }
+            if (runs && findTool(tool.toolName)?.terminal == true) terminal = true
         }
+        return terminal
     }
 
     private suspend fun updateTool(toolCallId: String, transform: (UIMessagePart.Tool) -> UIMessagePart.Tool) {
@@ -197,7 +202,9 @@ internal class AgentLoop(
         val definition = findTool(tool.toolName) ?: error("Tool ${tool.toolName} not found")
         val args = runCatching { json.parseToJsonElement(tool.input.ifBlank { "{}" }) }
             .getOrElse { error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}") }
-        definition.execute(args).ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }
+        withContext(ToolCallContext(tool.toolCallId)) {
+            definition.execute(args).ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }
+        }
     } catch (e: CancellationException) {
         // 取消必须向上传播，否则停止生成会被误报为工具执行错误
         throw e

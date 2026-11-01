@@ -1,21 +1,31 @@
 package me.rerere.rikkahub.data.ai.tools
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import me.rerere.ai.agent.ToolCallContext
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
+import me.rerere.rikkahub.data.ai.subagent.SubAgentProgressRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunner
+import me.rerere.rikkahub.data.ai.subagent.SubAgentStatus
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.SubAgent
+import kotlin.coroutines.coroutineContext
 import kotlin.uuid.Uuid
 
 private const val MAX_SUBAGENT_PREVIEW_CHARS = 4_000
@@ -34,6 +44,7 @@ fun createTaskTool(
     baseTools: List<Tool>,
     conversationId: Uuid,
     approvalRegistry: SubAgentApprovalRegistry,
+    progressRegistry: SubAgentProgressRegistry,
 ): Tool? {
     val enabled = settings.subAgents.filter { it.id in assistant.enabledSubAgents }
     if (enabled.isEmpty()) return null
@@ -97,6 +108,14 @@ fun createTaskTool(
                             "Optional timeout in seconds. Defaults to the sub-agent's configured value.",
                         )
                     })
+                    put("continue_from", buildJsonObject {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "Optional sa_... reference from a completed or cancelled run in this " +
+                                "conversation. The prior transcript is loaded and the new prompt is appended.",
+                        )
+                    })
                 },
                 required = listOf("prompt"),
             )
@@ -124,17 +143,27 @@ fun createTaskTool(
                         "Available: ${enabled.joinToString { it.name }}",
                 )
 
-            val result = runner.run(
-                settings = settings,
-                parentAssistant = assistant,
-                parentModel = parentModel,
-                subAgent = subAgent,
-                task = prompt,
-                baseTools = baseTools,
-                conversationId = conversationId,
-                maxStepsOverride = params["max_steps"]?.jsonPrimitive?.intOrNull,
-                timeoutSecondsOverride = params["timeout_seconds"]?.jsonPrimitive?.intOrNull,
-            )
+            val toolCallId = coroutineContext[ToolCallContext]?.toolCallId
+            val result = try {
+                runner.run(
+                    settings = settings,
+                    parentAssistant = assistant,
+                    parentModel = parentModel,
+                    subAgent = subAgent,
+                    task = prompt,
+                    baseTools = baseTools,
+                    conversationId = conversationId,
+                    maxStepsOverride = params["max_steps"]?.jsonPrimitive?.intOrNull,
+                    timeoutSecondsOverride = params["timeout_seconds"]?.jsonPrimitive?.intOrNull,
+                    continueFrom = params["continue_from"]?.jsonPrimitive?.contentOrNull?.trim()
+                        ?.takeIf { it.isNotEmpty() },
+                    onProgress = { progress ->
+                        toolCallId?.let { progressRegistry.update(it, progress) }
+                    },
+                )
+            } finally {
+                toolCallId?.let { progressRegistry.clear(it) }
+            }
 
             val fullText = result.text
             val truncated = fullText != null && fullText.length > MAX_SUBAGENT_PREVIEW_CHARS
@@ -169,8 +198,174 @@ fun createTaskTool(
 }
 
 /**
- * 读取一个已完成/已取消子代理的完整结果，按 UTF-8 字节分页。
+ * 并行派发多个子代理。每个任务仍是独立的 `SubAgentRunner`，共享同一会话并发上限。
  *
+ * 不声明写路径：多个写任务可能同时改同一个文件，调用方应自行避免这种用法。
+ */
+fun createFleetTool(
+    runner: SubAgentRunner,
+    settings: Settings,
+    assistant: Assistant,
+    parentModel: Model,
+    baseTools: List<Tool>,
+    conversationId: Uuid,
+    approvalRegistry: SubAgentApprovalRegistry,
+    progressRegistry: SubAgentProgressRegistry,
+): Tool? {
+    val enabled = settings.subAgents.filter { it.id in assistant.enabledSubAgents }
+    if (enabled.isEmpty()) return null
+
+    fun findAgent(raw: String?): SubAgent? {
+        val name = raw?.trim().orEmpty()
+        return if (name.isEmpty()) enabled.firstOrNull()
+        else enabled.firstOrNull { it.name.equals(name, ignoreCase = true) }
+    }
+
+    return Tool(
+        name = "fleet",
+        description = "Dispatch multiple sub-agents in parallel and return each final report with its " +
+            "sa_... reference. Use it for independent tasks that can run at the same time; a single " +
+            "task should use `task` instead. All tasks share the conversation concurrency limit. " +
+            "Sub-agents do not see this conversation, so restate the needed context in each prompt. " +
+            "Do not run two writers against the same file in one fleet.",
+        parameters = {
+            InputSchema.Obj(
+                properties = buildJsonObject {
+                    put("tasks", buildJsonObject {
+                        put("type", "array")
+                        put("description", "Two or more independent sub-agent tasks.")
+                        put("items", buildJsonObject {
+                            put("type", "object")
+                            put("properties", buildJsonObject {
+                                put("agent", buildJsonObject {
+                                    put("type", "string")
+                                    put("description", "Name of an enabled sub-agent. Omit to use the first one.")
+                                })
+                                put("prompt", buildJsonObject {
+                                    put("type", "string")
+                                    put("description", "Self-contained task description.")
+                                })
+                                put("max_steps", buildJsonObject { put("type", "integer") })
+                                put("timeout_seconds", buildJsonObject { put("type", "integer") })
+                            })
+                            put("required", buildJsonArray { add("prompt") })
+                        })
+                    })
+                },
+                required = listOf("tasks"),
+            )
+        },
+        needsApproval = { args ->
+            val tasks = runCatching { args.jsonObject["tasks"]?.jsonArray }.getOrNull()
+            if (tasks.isNullOrEmpty()) {
+                true
+            } else {
+                tasks.any { task ->
+                    val name = runCatching {
+                        task.jsonObject["agent"]?.jsonPrimitive?.contentOrNull
+                    }.getOrNull()
+                    val agent = findAgent(name)
+                    agent == null ||
+                        (agent.requiresApproval &&
+                            (!agent.rememberApproval || !approvalRegistry.isApproved(conversationId, agent.id)))
+                }
+            }
+        },
+        execute = { args ->
+            val tasks = runCatching { args.jsonObject["tasks"]?.jsonArray }.getOrNull()
+                ?: return@Tool subAgentError("invalid_tasks", "tasks is required")
+            if (tasks.isEmpty()) {
+                return@Tool subAgentError("invalid_tasks", "tasks must not be empty")
+            }
+            if (tasks.size > 8) {
+                return@Tool subAgentError("too_many_tasks", "fleet accepts at most 8 tasks")
+            }
+            val requests = tasks.map { task ->
+                val obj = task.jsonObject
+                val prompt = obj["prompt"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val name = obj["agent"]?.jsonPrimitive?.contentOrNull
+                FleetRequest(
+                    subAgent = findAgent(name),
+                    prompt = prompt,
+                    maxSteps = obj["max_steps"]?.jsonPrimitive?.intOrNull,
+                    timeoutSeconds = obj["timeout_seconds"]?.jsonPrimitive?.intOrNull,
+                )
+            }
+            val invalid = requests.indexOfFirst { it.subAgent == null || it.prompt.isEmpty() }
+            if (invalid != -1) {
+                return@Tool subAgentError(
+                    "invalid_tasks",
+                    "task[$invalid] needs a valid agent and a non-empty prompt",
+                )
+            }
+
+            val toolCallId = coroutineContext[ToolCallContext]?.toolCallId
+            val results = try {
+                coroutineScope {
+                    requests.map { request ->
+                        async {
+                            request to runner.run(
+                                settings = settings,
+                                parentAssistant = assistant,
+                                parentModel = parentModel,
+                                subAgent = checkNotNull(request.subAgent),
+                                task = request.prompt,
+                                baseTools = baseTools,
+                                conversationId = conversationId,
+                                maxStepsOverride = request.maxSteps,
+                                timeoutSecondsOverride = request.timeoutSeconds,
+                                onProgress = { progress ->
+                                    toolCallId?.let { progressRegistry.update(it, progress) }
+                                },
+                            )
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                toolCallId?.let { progressRegistry.clear(it) }
+            }
+
+            val allCompleted = results.all { (_, result) -> result.status == SubAgentStatus.COMPLETED }
+            val anyCompleted = results.any { (_, result) -> result.status == SubAgentStatus.COMPLETED }
+            val status = when {
+                allCompleted -> "completed"
+                anyCompleted -> "partial"
+                else -> "failed"
+            }
+            val tasksJson = buildJsonArray {
+                results.forEach { (request, result) ->
+                    add(
+                        buildJsonObject {
+                            put("agent", request.subAgent?.name.orEmpty())
+                            put("status", result.status.name.lowercase())
+                            result.ref?.let { put("ref", it) }
+                            result.error?.let { put("error", it) }
+                            result.text?.take(2_000)?.let { put("result", it) }
+                            put("steps", result.steps)
+                        }
+                    )
+                }
+            }
+            listOf(
+                UIMessagePart.Text(
+                    buildJsonObject {
+                        put("status", status)
+                        put("tasks", tasksJson)
+                    }.toString()
+                )
+            )
+        },
+    )
+}
+
+private data class FleetRequest(
+    val subAgent: SubAgent?,
+    val prompt: String,
+    val maxSteps: Int?,
+    val timeoutSeconds: Int?,
+)
+
+/**
  * `task` 只返回有界预览；长报告通过这个工具分页读取，避免一次性灌进主对话上下文。
  */
 fun createReadSubAgentResultTool(
@@ -241,6 +436,32 @@ fun createReadSubAgentResultTool(
         } catch (e: Exception) {
             subAgentError("read_failed", e.message ?: e::class.simpleName.orEmpty())
         }
+    },
+)
+
+/**
+ * 子代理的终局报告工具：调用后本轮立即结束，报告正文由 SubAgentRunner 提取。
+ */
+fun buildCompleteSubtaskTool(): Tool = Tool(
+    name = "complete_subtask",
+    description = "Submit the final report for this sub-agent task and end the run. " +
+        "Call this once as your last action. The report is what the parent assistant receives.",
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("report", buildJsonObject {
+                    put("type", "string")
+                    put("description", "The complete final report, preferably Markdown.")
+                })
+            },
+            required = listOf("report"),
+        )
+    },
+    terminal = true,
+    execute = { args ->
+        val report = args.jsonObject["report"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        require(report.isNotEmpty()) { "report is required" }
+        listOf(UIMessagePart.Text("Report submitted (${report.length} chars). The run will end."))
     },
 )
 

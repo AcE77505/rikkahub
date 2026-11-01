@@ -88,7 +88,15 @@ class SubAgentStore(
         ref: String,
         messages: List<UIMessage>,
         steps: Int,
-    ) = updateTerminal(ref, SubAgentRunStatus.COMPLETED, null, steps) { messages }
+        text: String? = null,
+    ) = updateTerminal(ref, SubAgentRunStatus.COMPLETED, null, steps) {
+        val extra = text
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && messages.lastOrNull()?.toText()?.trim() != it }
+            ?.let { listOf(UIMessage.assistant(it)) }
+            .orEmpty()
+        messages + extra
+    }
 
     suspend fun cancel(
         ref: String,
@@ -209,6 +217,25 @@ class SubAgentStore(
                     .sortedByDescending { it.startedAt }
             }
         }
+
+    /**
+     * 读取一个可续跑的 transcript。只允许同一父会话下已完成/已取消的运行。
+     */
+    suspend fun transcriptForContinuation(
+        ref: String,
+        parentConversationId: String,
+    ): List<UIMessage>? = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val meta = readMeta(ref) ?: return@synchronized null
+            if (meta.parentConversationId != parentConversationId) return@synchronized null
+            if (meta.status != SubAgentRunStatus.COMPLETED &&
+                meta.status != SubAgentRunStatus.CANCELLED
+            ) {
+                return@synchronized null
+            }
+            readTranscript(ref).ifEmpty { null }
+        }
+    }
 
     private fun metaFile(ref: String): File = File(root, "$ref.meta.json")
 

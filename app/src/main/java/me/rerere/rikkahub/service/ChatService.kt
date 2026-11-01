@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.agent.AgentEvent
@@ -593,22 +594,37 @@ class ChatService(
         val tool = session.state.value.currentMessages
             .asSequence()
             .flatMap { it.getTools().asSequence() }
-            .firstOrNull { it.toolCallId == toolCallId && it.toolName == "task" }
+            .firstOrNull {
+                it.toolCallId == toolCallId && (it.toolName == "task" || it.toolName == "fleet")
+            }
             ?: return
-        val agentName = runCatching {
-            JsonInstant.parseToJsonElement(tool.input).jsonObject["agent"]?.jsonPrimitive?.contentOrNull
-        }.getOrNull()?.trim().orEmpty()
+        val input = runCatching {
+            JsonInstant.parseToJsonElement(tool.input).jsonObject
+        }.getOrNull() ?: return
         val settings = settingsStore.awaitLoaded()
         val assistant = settings.getAssistantOf(session.state.value)
         val enabled = settings.subAgents.filter { it.id in assistant.enabledSubAgents }
-        val subAgent = if (agentName.isEmpty()) {
-            enabled.firstOrNull()
-        } else {
-            enabled.firstOrNull { it.name.equals(agentName, ignoreCase = true) }
+
+        fun mark(name: String?) {
+            val trimmed = name?.trim().orEmpty()
+            val subAgent = if (trimmed.isEmpty()) {
+                enabled.firstOrNull()
+            } else {
+                enabled.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
+            }
+            if (subAgent != null && subAgent.rememberApproval) {
+                registry.markApproved(conversationId, subAgent.id)
+            }
         }
-        subAgent?.let { agent ->
-            if (agent.rememberApproval) {
-                registry.markApproved(conversationId, agent.id)
+
+        when (tool.toolName) {
+            "task" -> mark(input["agent"]?.jsonPrimitive?.contentOrNull)
+            "fleet" -> input["tasks"]?.jsonArray?.forEach { task ->
+                mark(
+                    runCatching {
+                        task.jsonObject["agent"]?.jsonPrimitive?.contentOrNull
+                    }.getOrNull()
+                )
             }
         }
     }

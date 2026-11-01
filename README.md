@@ -37,6 +37,9 @@ This fork is based on [RikkaHub](https://github.com/rikkahub/rikkahub). If you a
 ### Subagents
 
 - New `task` tool: the main assistant can dispatch a focused sub-agent for independent work such as code changes, investigation, or review.
+- `fleet` dispatches multiple independent sub-agents in parallel, up to the conversation concurrency limit.
+- Sub-agent progress is streamed by default: `task` / `fleet` cards show the phase, elapsed time, and recent activity.
+- Sub-agents end with `complete_subtask`; completed or cancelled runs can be continued with `continue_from`.
 - The sub-agent runs in an isolated context and returns only its final report, so its working context does not pollute the parent conversation.
 - Configure sub-agents under **Settings → Tools → Sub-agents**: chat model, thinking budget, temperature, read-only mode, tool allow-list, approval, max steps, and timeout.
 - Results are persisted as `sa_...` transcripts and can be read back with `read_subagent_result`, including cancelled partial output.

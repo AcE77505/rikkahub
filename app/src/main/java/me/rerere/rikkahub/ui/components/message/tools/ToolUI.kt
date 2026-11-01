@@ -112,6 +112,7 @@ object ToolUIRegistry {
         WriteFileToolUI,
         ShellToolUI,
         SubAgentTaskToolUI(),
+        SubAgentFleetToolUI(),
         SubAgentReadToolUI(),
     ).plus(MemoryFileToolUI.all).associateBy { it.toolName }
 

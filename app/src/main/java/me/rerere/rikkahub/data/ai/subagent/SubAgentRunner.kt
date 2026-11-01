@@ -8,6 +8,9 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
@@ -19,6 +22,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.UsageRecorder
 import me.rerere.rikkahub.data.ai.UsageSource
 import me.rerere.rikkahub.data.ai.UsageTag
@@ -30,6 +34,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.DEFAULT_SUBAGENT_SYSTEM_PROMPT
 import me.rerere.rikkahub.data.model.SubAgent
 import me.rerere.rikkahub.data.model.SubAgentToolDefaults
+import me.rerere.rikkahub.data.ai.tools.buildCompleteSubtaskTool
 import kotlin.uuid.Uuid
 
 /** 子代理运行结果；只把最终报告和状态交回主 Agent，不暴露子代理的完整上下文 */
@@ -53,6 +58,7 @@ private val READ_ONLY_TOOL_NAMES = SubAgentToolDefaults.DEFAULT_ALLOWED_TOOLS
 /** 即使配置放开写权限，也不能交给无人值守子代理的工具：递归、审批和需要设备界面的工具 */
 private val ALWAYS_DENIED_TOOL_NAMES = setOf(
     "task",
+    "fleet",
     "read_subagent_result",
     "ask_user",
     "clipboard_tool",
@@ -84,16 +90,31 @@ class SubAgentRunner(
         conversationId: Uuid,
         maxStepsOverride: Int? = null,
         timeoutSecondsOverride: Int? = null,
+        continueFrom: String? = null,
+        onProgress: (SubAgentProgress) -> Unit = {},
     ): SubAgentResult {
         val timeoutSeconds = (timeoutSecondsOverride ?: subAgent.timeoutSeconds)
             .coerceIn(10, SubAgent.MAX_TIMEOUT_SECONDS)
         val timeoutMs = timeoutSeconds * 1000L
+        val prior = if (continueFrom != null) {
+            store.transcriptForContinuation(continueFrom, conversationId.toString())
+                ?: return SubAgentResult(
+                    status = SubAgentStatus.FAILED,
+                    error = "Cannot continue sub-agent $continueFrom: it is missing, not completed, or belongs to another conversation",
+                )
+        } else {
+            emptyList()
+        }
         val systemPrompt = subAgent.systemPrompt.trim()
             .ifBlank { DEFAULT_SUBAGENT_SYSTEM_PROMPT }
-        val messages = listOf(
-            UIMessage.system(systemPrompt),
-            UIMessage.user(task),
-        )
+        val messages = if (prior.isEmpty()) {
+            listOf(
+                UIMessage.system(systemPrompt),
+                UIMessage.user(task),
+            )
+        } else {
+            prior + UIMessage.user(task)
+        }
         val ref = store.newRef()
         val now = System.currentTimeMillis()
         store.prepare(
@@ -127,6 +148,8 @@ class SubAgentRunner(
                         conversationId = conversationId,
                         maxStepsOverride = maxStepsOverride,
                         onMessage = { lastMessage = it },
+                        onProgress = onProgress,
+                        startedAt = now,
                     )
                 }
             }
@@ -141,7 +164,7 @@ class SubAgentRunner(
                 )
             }
             when (result.status) {
-                SubAgentStatus.COMPLETED -> store.complete(ref, transcript, result.steps)
+                SubAgentStatus.COMPLETED -> store.complete(ref, transcript, result.steps, result.text)
                 SubAgentStatus.FAILED, SubAgentStatus.TIMED_OUT ->
                     store.fail(ref, transcript, result.error ?: "Sub-agent failed")
                 SubAgentStatus.CANCELLED -> store.cancel(ref, transcript, result.error ?: "cancelled")
@@ -172,6 +195,8 @@ class SubAgentRunner(
         conversationId: Uuid,
         maxStepsOverride: Int?,
         onMessage: (UIMessage) -> Unit,
+        onProgress: (SubAgentProgress) -> Unit,
+        startedAt: Long,
     ): SubAgentResult {
         val model = settings.findModelById(
             subAgent.modelId,
@@ -181,17 +206,18 @@ class SubAgentRunner(
             status = SubAgentStatus.FAILED,
             error = "No provider found for model ${model.displayName}",
         )
-        val tools = selectTools(
+        val selectedTools = selectTools(
             baseTools = baseTools,
             subAgent = subAgent,
             defaultTools = settings.subAgentDefaultTools,
         )
-        if (tools.isEmpty() && subAgent.readOnly) {
+        if (selectedTools.isEmpty() && subAgent.readOnly) {
             return SubAgentResult(
                 status = SubAgentStatus.FAILED,
                 error = "No read-only tools available for this sub-agent",
             )
         }
+        val tools = selectedTools + buildCompleteSubtaskTool()
 
         val request = AgentRequest(
             provider = usageRecorder.wrap(
@@ -201,7 +227,7 @@ class SubAgentRunner(
             providerSetting = providerSetting,
             messages = messages,
             tools = tools,
-            stream = false,
+            stream = true,
             maxSteps = (maxStepsOverride ?: subAgent.maxSteps)
                 .coerceIn(1, SubAgent.MAX_MAX_STEPS),
             retry = settings.retryPolicy(),
@@ -225,12 +251,44 @@ class SubAgentRunner(
         }
 
         var finished: me.rerere.ai.ui.UIMessage? = null
+        var lastEmit = 0L
+        var lastPhase: SubAgentPhase? = null
+        fun emitProgress(message: UIMessage) {
+            val now = System.currentTimeMillis()
+            val text = message.parts.filterIsInstance<UIMessagePart.Text>()
+                .lastOrNull()?.text?.trim()?.takeIf { it.isNotEmpty() }
+            val reasoning = message.parts.filterIsInstance<UIMessagePart.Reasoning>()
+                .lastOrNull()?.reasoning?.trim()?.takeIf { it.isNotEmpty() }
+            val toolName = message.getTools().lastOrNull()?.toolName
+            val phase = when {
+                toolName != null -> SubAgentPhase.TOOL
+                text != null -> SubAgentPhase.RESPONDING
+                reasoning != null -> SubAgentPhase.REASONING
+                else -> SubAgentPhase.RUNNING
+            }
+            if (phase == lastPhase && now - lastEmit < 100) return
+            lastPhase = phase
+            lastEmit = now
+            onProgress(
+                SubAgentProgress(
+                    phase = phase,
+                    text = text?.take(4_000),
+                    reasoning = reasoning?.take(4_000),
+                    toolName = toolName,
+                    elapsedMs = (now - startedAt).coerceAtLeast(0),
+                )
+            )
+        }
         runAgent(request, hooks).collect { event ->
             when (event) {
-                is AgentEvent.MessageUpdated -> onMessage(event.message)
+                is AgentEvent.MessageUpdated -> {
+                    onMessage(event.message)
+                    emitProgress(event.message)
+                }
                 is AgentEvent.Finished -> {
                     finished = event.message
                     onMessage(event.message)
+                    emitProgress(event.message)
                 }
                 else -> Unit
             }
@@ -239,7 +297,15 @@ class SubAgentRunner(
             status = SubAgentStatus.FAILED,
             error = "Sub-agent finished without a message",
         )
-        val text = message.toText().trim()
+        val report = message.getTools()
+            .lastOrNull { it.toolName == "complete_subtask" && it.isExecuted }
+            ?.let { tool ->
+                runCatching {
+                    tool.inputAsJson().jsonObject["report"]?.jsonPrimitive?.contentOrNull
+                }.getOrNull()
+            }
+            ?.trim()
+        val text = report?.takeIf { it.isNotEmpty() } ?: message.toText().trim()
         if (text.isBlank()) {
             return SubAgentResult(
                 status = SubAgentStatus.FAILED,

@@ -665,6 +665,10 @@ Researcher
 
 - [x] `SubAgent` 模型、`Settings.subAgents`、`Assistant.enabledSubAgents`；
 - [x] `task` 工具与子代理独立上下文执行；
+- [x] `fleet` 并行派发（最多 8 个任务，共享会话并发上限；不声明写路径）；
+- [x] 默认流式预览：`task` / `fleet` 卡片显示阶段、耗时和最近活动；
+- [x] `complete_subtask` 终局报告工具；
+- [x] `continue_from`：从同一对话中已完成/已取消的子代理继续；
 - [x] 默认只读工具集、递归防护、超时、步数上限；
 - [x] `SubAgentStore`：transcript + meta + `sa_...` 引用；
 - [x] `read_subagent_result` 按 UTF-8 字节分页读取；
@@ -685,12 +689,10 @@ Researcher
 
 ### 未完成（P4 可选）
 
-- [ ] `fleet` / `parallel_tasks` 并行派发与依赖图；
+- [ ] `parallel_tasks` 的依赖图与依赖结果注入；
 - [ ] 写路径声明与写租约（并行写冲突检查）；
 - [ ] 后台运行、完成通知、进程重启恢复；
-- [ ] `continue_from` / `task_id` steering / `adopt_ref`；
-- [ ] `complete_subtask` 证据校验；
-- [ ] 子代理推理/文本流式预览；
+- [ ] `task_id` steering / `adopt_ref`；
 - [ ] 新页面文案接入 `strings.xml` 的完整 i18n。
 
-> P4 的并行/后台能力需要改 `AgentLoop` 的工具并发模型和 `ChatService` 的后台通知链路，属于架构级改动，单独推进。
+> 按当前约定：`task` 不接通知/悬浮窗；不做写路径租约；流式预览默认开启，不单独提供开关。

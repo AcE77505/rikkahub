@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.ChatRequestFactory
 import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
+import me.rerere.rikkahub.data.ai.subagent.SubAgentProgressRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunner
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
@@ -101,6 +102,10 @@ val appModule = module {
     }
 
     single {
+        SubAgentProgressRegistry()
+    }
+
+    single {
         SubAgentRunner(
             providerManager = get(),
             usageRecorder = get(),
@@ -120,6 +125,7 @@ val appModule = module {
             subAgentRunner = get(),
             subAgentStore = get(),
             subAgentApprovalRegistry = get(),
+            subAgentProgressRegistry = get(),
         )
     }
 

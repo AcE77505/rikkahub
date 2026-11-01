@@ -15,6 +15,8 @@ data class Tool(
     val parameters: () -> InputSchema? = { null },
     val systemPrompt: (model: Model, messages: List<UIMessage>) -> String = { _, _ -> "" },
     val needsApproval: (JsonElement) -> Boolean = { false },
+    /** 执行后立即结束本轮 agent 循环，用于提交最终报告的工具 */
+    val terminal: Boolean = false,
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )
 
