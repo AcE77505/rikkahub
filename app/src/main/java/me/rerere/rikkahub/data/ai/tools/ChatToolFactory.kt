@@ -9,6 +9,9 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
+import me.rerere.rikkahub.data.ai.subagent.SubAgentRunner
+import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
@@ -47,12 +50,16 @@ class ChatToolFactory(
     private val mcpManager: McpManager,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
+    private val subAgentRunner: SubAgentRunner,
+    private val subAgentStore: SubAgentStore,
+    private val subAgentApprovalRegistry: SubAgentApprovalRegistry,
 ) {
     suspend fun createTools(
         settings: Settings,
         assistant: Assistant,
         model: Model,
         workspaceCwd: String? = null,
+        conversationId: Uuid? = null,
     ): List<Tool> {
         // 工作区工具不再依赖助手绑定：开关在设置里，目标是被声明的工作区
         val declaredLocal = workspaceRepository.getDeclaredLocal()
@@ -102,7 +109,25 @@ class ChatToolFactory(
             ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
             ?.takeIf { it.isDirectory }
             ?: workspaceRepository.sandboxDir()
-        return tools.map { withOutputTruncation(it, workspaceDir) }
+        val allTools = if (conversationId != null) {
+            val taskTool = createTaskTool(
+                runner = subAgentRunner,
+                settings = settings,
+                assistant = assistant,
+                parentModel = model,
+                baseTools = tools,
+                conversationId = conversationId,
+                approvalRegistry = subAgentApprovalRegistry,
+            )
+            if (taskTool != null) {
+                tools + taskTool + createReadSubAgentResultTool(subAgentStore, conversationId)
+            } else {
+                tools
+            }
+        } else {
+            tools
+        }
+        return allTools.map { withOutputTruncation(it, workspaceDir) }
     }
 
     private fun withOutputTruncation(tool: Tool, workspaceDir: File): Tool {

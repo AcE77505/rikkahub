@@ -1690,6 +1690,7 @@
   <string name="stats_page_source_translation">Translation</string>
   <string name="stats_page_source_memory">Memory</string>
   <string name="stats_page_source_ocr">OCR</string>
+  <string name="stats_page_source_subagent">Sub-agents</string>
   <string name="image_preview_saving">Saving…</string>
   <string name="image_preview_saved">Image saved</string>
   <string name="setting_provider_page_account">Account</string>

@@ -49,6 +49,7 @@ import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Message02
 import me.rerere.hugeicons.stroke.Puzzle
 import me.rerere.hugeicons.stroke.Settings03
+import me.rerere.hugeicons.stroke.Tools
 import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -162,6 +163,12 @@ fun AssistantDetailPage(id: String) {
                         leadingContent = { CardGroupIcon(HugeIcons.McpServer, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.assistant_detail_mcp_desc)) },
                         headlineContent = { Text(stringResource(R.string.assistant_page_tab_mcp)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantSubAgents(id)) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Tools, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text("选择这个助手可以派发哪些子代理") },
+                        headlineContent = { Text("子代理") },
                     )
                 }
             }

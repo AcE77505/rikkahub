@@ -24,6 +24,9 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.RetryAttempt
@@ -44,6 +47,8 @@ import me.rerere.rikkahub.data.ai.ConversationMetaGenerator
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.ai.TranslationHandler
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
+import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
@@ -76,6 +81,7 @@ import me.rerere.rikkahub.data.model.withTranslation
 import me.rerere.rikkahub.data.model.withoutConversationFields
 import me.rerere.rikkahub.data.model.withoutUnresumableToolCalls
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
@@ -114,6 +120,8 @@ class ChatService(
     val mcpManager: McpManager,
     private val filesManager: FilesManager,
     private val folderRepository: FolderRepository,
+    private val subAgentStore: SubAgentStore? = null,
+    private val subAgentApprovalRegistry: SubAgentApprovalRegistry? = null,
 ) {
     /** 一轮生成的结果 */
     private sealed interface TurnResult {
@@ -544,6 +552,9 @@ class ChatService(
                 try {
                     afterPreviousGeneration(previousJob) {
                         ensureInitialized(session)
+                        if (approved && answer == null) {
+                            markSubAgentApproved(conversationId, toolCallId)
+                        }
                         val newApprovalState = when {
                             answer != null -> ToolApprovalState.Answered(answer)
                             approved -> ToolApprovalState.Approved
@@ -571,6 +582,36 @@ class ChatService(
     }
 
     // ---- 生成回复 ----
+
+    /**
+     * 用户批准一次 task 派发后，把子代理记入当前对话的免审批集合。
+     * 只处理 task，且只解析当前消息里确实存在的工具调用。
+     */
+    private suspend fun markSubAgentApproved(conversationId: Uuid, toolCallId: String) {
+        val registry = subAgentApprovalRegistry ?: return
+        val session = sessionManager.get(conversationId) ?: return
+        val tool = session.state.value.currentMessages
+            .asSequence()
+            .flatMap { it.getTools().asSequence() }
+            .firstOrNull { it.toolCallId == toolCallId && it.toolName == "task" }
+            ?: return
+        val agentName = runCatching {
+            JsonInstant.parseToJsonElement(tool.input).jsonObject["agent"]?.jsonPrimitive?.contentOrNull
+        }.getOrNull()?.trim().orEmpty()
+        val settings = settingsStore.awaitLoaded()
+        val assistant = settings.getAssistantOf(session.state.value)
+        val enabled = settings.subAgents.filter { it.id in assistant.enabledSubAgents }
+        val subAgent = if (agentName.isEmpty()) {
+            enabled.firstOrNull()
+        } else {
+            enabled.firstOrNull { it.name.equals(agentName, ignoreCase = true) }
+        }
+        subAgent?.let { agent ->
+            if (agent.rememberApproval) {
+                registry.markApproved(conversationId, agent.id)
+            }
+        }
+    }
 
     /**
      * 生成一轮回复：请求模型、执行工具，直到模型不再调用工具、有工具需要审批或达到步数上限。
@@ -1100,6 +1141,8 @@ class ChatService(
         discardQueuedMessages(session)
         session.replace(newConversation(conversationId), existsInDatabase = false) { previous ->
             conversationRepo.getConversationById(conversationId)?.let { conversationRepo.deleteConversation(it) }
+            subAgentStore?.deleteByParent(conversationId.toString())
+            subAgentApprovalRegistry?.clear(conversationId)
             // 数据库那份不知道只在内存里出现过的附件
             previous?.let { filesManager.deleteChatFiles(it.files) }
         }

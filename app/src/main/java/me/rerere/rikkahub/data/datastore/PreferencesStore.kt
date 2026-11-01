@@ -179,6 +179,10 @@ class SettingsStore internal constructor(
         // 工具开关与审批（全局，所有助手共用）
         val LOCAL_TOOLS = stringPreferencesKey("local_tools")
         val TOOL_APPROVALS = stringPreferencesKey("tool_approvals")
+        val SUB_AGENTS = stringPreferencesKey("sub_agents")
+        val SUBAGENT_DEFAULT_TOOLS = stringPreferencesKey("subagent_default_tools")
+        val SUBAGENT_MODEL = stringPreferencesKey("subagent_model")
+        val SUBAGENT_MAX_CONCURRENCY = intPreferencesKey("subagent_max_concurrency")
         val SHELL_OVERTIME_SECONDS = intPreferencesKey("shell_overtime_seconds")
         val SHELL_AUTO_STOP_ON_OVERTIME = booleanPreferencesKey("shell_auto_stop_on_overtime")
         val WORKSPACE_PROMPT = stringPreferencesKey("workspace_prompt")

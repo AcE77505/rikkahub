@@ -1,10 +1,57 @@
 package me.rerere.rikkahub.data.datastore
 
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+import me.rerere.rikkahub.data.model.SubAgent
 
 /** 读盘后和每次修改后都要过一遍，保证内存里的设置始终是规整的。 */
 internal fun Settings.normalized(): Settings =
-    withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies()
+    withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies().withValidSubAgents()
+
+/**
+ * 子代理定义去重、裁剪，并清掉助手里的悬空引用。
+ *
+ * 子代理定义是全局共享的，删除或无效的 id 不能继续留在 `Assistant.enabledSubAgents` 里。
+ */
+internal fun Settings.withValidSubAgents(): Settings {
+    val cleaned = subAgents
+        .map { agent ->
+            agent.copy(
+                name = agent.name.trim().take(SubAgent.MAX_NAME_LENGTH),
+                description = agent.description.trim().take(SubAgent.MAX_DESCRIPTION_LENGTH),
+                allowedTools = agent.allowedTools
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    ?.toSet()
+                    ?.takeIf { it.isNotEmpty() },
+                maxSteps = agent.maxSteps.coerceIn(1, SubAgent.MAX_MAX_STEPS),
+                timeoutSeconds = agent.timeoutSeconds.coerceIn(10, SubAgent.MAX_TIMEOUT_SECONDS),
+            )
+        }
+        .filter { it.name.isNotEmpty() }
+        .distinctBy { it.id }
+
+    val validIds = cleaned.mapTo(HashSet()) { it.id }
+    val normalizedDefaultTools = subAgentDefaultTools
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+    val updatedAssistants = assistants.map { assistant ->
+        val filtered = assistant.enabledSubAgents.filterTo(LinkedHashSet()) { it in validIds }
+        if (filtered == assistant.enabledSubAgents) assistant else assistant.copy(enabledSubAgents = filtered)
+    }
+
+    if (cleaned == subAgents &&
+        updatedAssistants == assistants &&
+        normalizedDefaultTools == subAgentDefaultTools
+    ) {
+        return this
+    }
+    return copy(
+        subAgents = cleaned,
+        subAgentDefaultTools = normalizedDefaultTools,
+        assistants = updatedAssistants,
+    )
+}
 
 /**
  * 「写入文件」「编辑文件」依赖「读取文件」。

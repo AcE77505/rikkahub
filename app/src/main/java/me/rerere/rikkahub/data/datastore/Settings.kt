@@ -19,6 +19,8 @@ import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Lorebook
 import me.rerere.rikkahub.data.model.PromptInjection
 import me.rerere.rikkahub.data.model.QuickMessage
+import me.rerere.rikkahub.data.model.SubAgent
+import me.rerere.rikkahub.data.model.SubAgentToolDefaults
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.sync.s3.S3Config
 import me.rerere.rikkahub.ui.theme.CustomTheme
@@ -85,6 +87,14 @@ data class Settings(
     val localTools: List<LocalToolOption> = emptyList(),
     // 工具审批的用户覆盖项（toolName -> needsApproval），未覆盖的工具沿用 WorkspaceToolDefaultApprovals
     val toolApprovals: Map<String, Boolean> = emptyMap(),
+    // 子代理定义，全局共享；哪个助手能派发哪些由 Assistant.enabledSubAgents 决定
+    val subAgents: List<SubAgent> = emptyList(),
+    // 未自定义 allowedTools 的子代理共享这一份默认工具模板
+    val subAgentDefaultTools: Set<String> = SubAgentToolDefaults.DEFAULT_ALLOWED_TOOLS,
+    // 全局子代理模型；null 表示跟随父轮模型
+    val subAgentModelId: Uuid? = null,
+    // 每个会话同时运行的子代理上限
+    val subAgentMaxConcurrency: Int = 3,
     // 命令超时提示阈值（秒），null 表示无限制：既不提示也不自动停止
     val shellOvertimeSeconds: Int? = DEFAULT_SHELL_OVERTIME_SECONDS,
     // 超过阈值后是否自动停止命令；关闭时只提示、命令继续执行

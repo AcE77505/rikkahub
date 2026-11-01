@@ -86,6 +86,7 @@ import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantExtensionsPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantLocalToolPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantMcpPage
+import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantSubAgentsPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantMemoryPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantPromptPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantRequestPage
@@ -114,6 +115,10 @@ import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingToolsPage
+import me.rerere.rikkahub.ui.pages.setting.SettingSubAgentsPage
+import me.rerere.rikkahub.ui.pages.setting.SubAgentDefaultToolsPage
+import me.rerere.rikkahub.ui.pages.setting.SubAgentDetailPage
+import me.rerere.rikkahub.ui.pages.setting.SubAgentRunsPage
 import me.rerere.rikkahub.ui.pages.setting.SettingWorkspacePromptPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesThemePage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesNotificationPage
@@ -412,6 +417,10 @@ class RouteActivity : ComponentActivity() {
                                 AssistantMcpPage(key.id)
                             }
 
+                            entry<Screen.AssistantSubAgents> { key ->
+                                AssistantSubAgentsPage(key.id)
+                            }
+
                             entry<Screen.AssistantInjections> { key ->
                                 AssistantExtensionsPage(key.id)
                             }
@@ -537,6 +546,22 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.SettingTools> {
                                 SettingToolsPage()
+                            }
+
+                            entry<Screen.SettingSubAgents> {
+                                SettingSubAgentsPage()
+                            }
+
+                            entry<Screen.SubAgentDetail> { key ->
+                                SubAgentDetailPage(key.id)
+                            }
+
+                            entry<Screen.SubAgentDefaultTools> {
+                                SubAgentDefaultToolsPage()
+                            }
+
+                            entry<Screen.SubAgentRuns> {
+                                SubAgentRunsPage()
                             }
 
                             entry<Screen.SettingWorkspacePrompt> {
@@ -707,6 +732,9 @@ sealed interface Screen : NavKey {
     data class AssistantMcp(val id: String) : Screen
 
     @Serializable
+    data class AssistantSubAgents(val id: String) : Screen
+
+    @Serializable
     data class AssistantInjections(val id: String) : Screen
 
     @Serializable
@@ -795,6 +823,18 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingTools : Screen
+
+    @Serializable
+    data object SettingSubAgents : Screen
+
+    @Serializable
+    data class SubAgentDetail(val id: String) : Screen
+
+    @Serializable
+    data object SubAgentDefaultTools : Screen
+
+    @Serializable
+    data object SubAgentRuns : Screen
 
     @Serializable
     data object SettingWorkspacePrompt : Screen

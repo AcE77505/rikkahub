@@ -193,6 +193,18 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                 }
             }
 
+            item("subagents") {
+                CardGroup {
+                    item(
+                        onClick = { navController.navigate(Screen.SettingSubAgents) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Tools) },
+                        supportingContent = { Text("配置可被助手派发的子代理") },
+                        headlineContent = { Text("子代理管理") },
+                        trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
+                    )
+                }
+            }
+
             item("localTools") {
                 CardGroup {
                     item(

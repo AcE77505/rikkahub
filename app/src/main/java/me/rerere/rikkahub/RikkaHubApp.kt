@@ -26,8 +26,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
+import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FileFolders
+import org.koin.java.KoinJavaComponent.getKoin
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.remote.ModelsDevUpdater
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
@@ -80,6 +82,12 @@ class RikkaHubApp : Application() {
             workManagerFactory()
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
         }
+
+        // 上次进程留下的子代理 RUNNING 记录标成 INTERRUPTED；启动时没有活跃会话
+        runBlocking(Dispatchers.IO) {
+            runCatching { getKoin().get<SubAgentStore>().cleanupStaleRunning() }
+        }
+
         this.createNotificationChannel()
 
         // set cursor window size to 32MB

@@ -14,6 +14,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Lorebook
 import me.rerere.rikkahub.data.model.PromptInjection
 import me.rerere.rikkahub.data.model.QuickMessage
+import me.rerere.rikkahub.data.model.SubAgent
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.sync.s3.S3Config
 import me.rerere.rikkahub.ui.theme.CustomTheme
@@ -161,6 +162,10 @@ private val SAMPLE = Settings(
     quickMessages = listOf(QuickMessage(id = id(13), title = "hi")),
     localTools = listOf(LocalToolOption.TimeInfo),
     toolApprovals = mapOf("workspace_shell" to false),
+    subAgents = listOf(SubAgent(id = id(40), name = "Reviewer")),
+    subAgentDefaultTools = setOf("read_file"),
+    subAgentModelId = id(41),
+    subAgentMaxConcurrency = 4,
     shellOvertimeSeconds = 60,
     shellAutoStopOnOvertime = true,
     workspacePrompt = "custom workspace prompt",
@@ -224,6 +229,10 @@ private val STORED_KEYS = setOf(
     "quick_messages",
     "local_tools",
     "tool_approvals",
+    "sub_agents",
+    "subagent_default_tools",
+    "subagent_model",
+    "subagent_max_concurrency",
     "shell_overtime_seconds",
     "shell_auto_stop_on_overtime",
     "workspace_prompt",

@@ -18,6 +18,9 @@ internal class FakeMemoryDAO : MemoryDAO {
     override suspend fun getFile(assistantId: String, path: String): MemoryFileEntity? =
         files.value.find { it.assistantId == assistantId && it.path == path }
 
+    override fun getFileFlow(assistantId: String, path: String): Flow<MemoryFileEntity?> =
+        files.map { all -> all.find { it.assistantId == assistantId && it.path == path } }
+
     override suspend fun upsertFile(file: MemoryFileEntity) = upsertFiles(listOf(file))
 
     override suspend fun upsertFiles(files: List<MemoryFileEntity>) {

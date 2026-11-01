@@ -173,6 +173,14 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         // 工具开关与审批
         json(LOCAL_TOOLS, Settings::localTools) { copy(localTools = it) },
         json(TOOL_APPROVALS, Settings::toolApprovals) { copy(toolApprovals = it) },
+        json(SUB_AGENTS, Settings::subAgents) { copy(subAgents = it) },
+        json(SUBAGENT_DEFAULT_TOOLS, Settings::subAgentDefaultTools) { copy(subAgentDefaultTools = it) },
+        SettingsField(
+            SUBAGENT_MODEL, Settings::subAgentModelId, { copy(subAgentModelId = it) },
+            encode = { it?.toString() },
+            decode = { Uuid.parse(it) },
+        ),
+        plain(SUBAGENT_MAX_CONCURRENCY, Settings::subAgentMaxConcurrency) { copy(subAgentMaxConcurrency = it) },
         SettingsField(
             SHELL_OVERTIME_SECONDS, Settings::shellOvertimeSeconds, { copy(shellOvertimeSeconds = it) },
             // null 表示无限制，用负数当哨兵，避免 key 被删掉后读回默认的 30 秒
