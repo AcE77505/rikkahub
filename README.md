@@ -23,6 +23,41 @@ Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqx
 > [!WARNING]
 > There are many forked versions of RikkaHub. Issues with forks are unrelated to RikkaHub, so please use forks with caution to avoid privacy leaks or excessive permission requests.
 
+## 🍴 This fork vs. upstream
+
+This fork is based on [RikkaHub](https://github.com/rikkahub/rikkahub). If you already know upstream, start here; everything not listed below keeps upstream behavior.
+
+### Workspace: native shell + SSH, no proot rootfs
+
+- Upstream ships a proot-based Linux workspace. This fork removes proot/rootfs and runs commands in the native Android shell (`/system/bin/sh` + toybox).
+- Optional Termux/Linux toolchain support can provide bash and extra tools.
+- Workspaces can be local or SSH remote. SSH supports password/key authentication and host fingerprint confirmation.
+- File tools are now `read_file`, `write_file`, `edit_file`, and `shell`. Old `workspace_*` names in existing conversations still resolve through aliases.
+
+### Subagents
+
+- New `task` tool: the main assistant can dispatch a focused sub-agent for independent work such as code changes, investigation, or review.
+- The sub-agent runs in an isolated context and returns only its final report, so its working context does not pollute the parent conversation.
+- Configure sub-agents under **Settings → Tools → Sub-agents**: chat model, thinking budget, temperature, read-only mode, tool allow-list, approval, max steps, and timeout.
+- Results are persisted as `sa_...` transcripts and can be read back with `read_subagent_result`, including cancelled partial output.
+- Sub-agents cannot dispatch another sub-agent.
+- Definitions are shared globally and enabled per assistant.
+
+### Tool approval
+
+- Tool approval is controlled by the global per-tool switches under **Settings → Tools → Tool approval**.
+- Editing or writing outside the workspace no longer adds a hidden approval requirement that bypasses those switches.
+- A sub-agent can remember one approval for the current conversation; this is a separate switch below “requires approval”.
+
+### Other fork changes
+
+- Memory entries support structured editing, drag sorting, and faster previews.
+- Workspace tool names and old conversations are migrated; MCP enable-state and workspace prompt/terminal entries are fixed.
+
+> Core areas not listed above, including providers, chat UI, MCP, skills, web access, media generation, and translation, remain upstream-compatible.
+
+> Sub-agent design details: [SUBAGENT_PLAN.md](SUBAGENT_PLAN.md)
+
 ## 💖 Sponsors
 
 | Sponsor | Description |
@@ -37,7 +72,7 @@ Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqx
 ## ✨ Features
 
 - 🎨 Material 3 Expressive design and 🌙 Dark mode
-- 📦 Workspace: a proot-based Linux agent environment
+- 📦 Workspace: native Android shell with optional Termux/Linux toolchain; local and SSH remote workspaces
 - 🎬 Media generation (image and video)
 - 🔄 Multiple AI Provider Support: custom API / URL / models (all OpenAI, Google, Anthropic compatible api)
 - 🖼️ Multimodal input support (Image, Text Documentation, PDF, Docx)
@@ -48,6 +83,7 @@ Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqx
 - 🧩 Prompt variables (model name, time, etc.)
 - 🤳 QR code export and import for providers
 - 🤖 Agent customization
+- 🧑‍💻 Sub-agents: isolated task dispatch with persisted reports
 - 🧠 File-based memory
 - 📝 AI Translation
 - 🌐 Custom HTTP request headers and request bodies
