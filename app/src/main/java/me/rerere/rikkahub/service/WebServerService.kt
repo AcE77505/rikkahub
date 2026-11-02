@@ -38,12 +38,14 @@ class WebServerService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var stateObserverJob: Job? = null
+    private var stopRequested = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                stopRequested = false
                 val port = intent.getIntExtra(EXTRA_PORT, 8080)
                 val localhostOnly = intent.getBooleanExtra(EXTRA_LOCALHOST_ONLY, false)
                 if (!startForegroundCompat()) {
@@ -55,6 +57,9 @@ class WebServerService : Service() {
             }
 
             ACTION_STOP -> {
+                stopRequested = true
+                // 服务可能是被通知栏按钮重新拉起的：观察器还没启动，也要等停止完成后收尾
+                startObservingState()
                 webServerManager.stop()
                 serviceScope.launch {
                     settingsStore.update { it.copy(webServerEnabled = false) }
@@ -86,8 +91,10 @@ class WebServerService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        // 兜底：即使状态流没来得及收尾，也不能把前台通知留在通知栏
+        runCatching { removeNotification() }
         serviceScope.cancel()
+        super.onDestroy()
     }
 
     private fun startForegroundCompat(): Boolean {
@@ -115,23 +122,31 @@ class WebServerService : Service() {
     private fun startObservingState() {
         if (stateObserverJob != null) return
         stateObserverJob = serviceScope.launch {
-            var wasRunning = false
             webServerManager.state.collect { state ->
                 when {
                     state.isRunning -> {
-                        wasRunning = true
                         val host = if (state.localhostOnly) "localhost" else (state.address ?: "localhost")
                         val url = "http://$host:${state.port}"
                         updateNotification(buildRunningNotification(url))
                     }
 
-                    wasRunning && !state.isRunning && !state.isLoading -> {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
-                    }
+                    stopRequested && !state.isLoading -> finishStoppedService()
                 }
             }
         }
+    }
+
+    private fun finishStoppedService() {
+        removeNotification()
+        stopSelf()
+    }
+
+    /** 先停止前台，再显式取消一次：部分 OEM 的 stopForeground 不会立即移除通知 */
+    private fun removeNotification() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        val notificationManager =
+            getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        notificationManager.cancel(NOTIFICATION_ID)
     }
 
     private fun updateNotification(notification: android.app.Notification) {
