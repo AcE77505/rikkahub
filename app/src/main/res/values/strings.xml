@@ -1166,7 +1166,8 @@
   <string name="setting_page_tools">Tools</string>
   <string name="setting_page_tools_desc">Tool switches, workspace declaration and approvals</string>
   <string name="setting_tools_workspace">Workspace</string>
-  <string name="setting_tools_workspace_desc">Create and configure working directories</string>
+  <string name="setting_tools_workspace_desc">%1$d enabled</string>
+  <string name="setting_tools_workspace_desc_none">Off</string>
   <string name="setting_tools_switches">Tool Switches</string>
   <string name="setting_tools_local_tools">Local Tools</string>
   <string name="setting_tools_local_tools_desc">Device capabilities the AI can call</string>
@@ -1181,7 +1182,6 @@
   <string name="setting_tools_overtime_seconds">%d s</string>
   <string name="setting_tools_terminal_dir">Terminal Directory</string>
   <string name="setting_tools_terminal_root">RikkaHub Terminal</string>
-  <string name="setting_tools_terminal_dir_desc">Toolchain and per-workspace HOME / TMP folders</string>
   <string name="setting_tools_open_in_file_manager">Open in File Manager</string>
   <string name="setting_tools_open_in_file_manager_desc">Reveal these folders in MT Manager or the system Files app</string>
   <string name="setting_tools_open_in_file_manager_steps">Storage access must be granted by the file manager itself. In MT Manager: open the sidebar → Add local storage → choose RikkaHub. Then a second RikkaHub storage appears with the terminal folders.</string>
@@ -1846,14 +1846,12 @@
   <string name="subagent_follow_parent_model">Follow parent model</string>
   <string name="subagent_concurrency_desc">Number of sub-agents running at once in one conversation</string>
   <string name="subagent_concurrency_limit">Concurrency limit</string>
-  <string name="subagent_runs_desc">View sub-agent runs on this device</string>
   <string name="subagent_runs">Runs</string>
   <string name="subagent_default_tools">Default tool template</string>
   <string name="subagent_default_tools_shared_desc">Sub-agents without custom tools share this list (%1$d tools)</string>
   <string name="subagent_definitions">Sub-agent definitions</string>
   <string name="subagent_badge_readonly">Read-only</string>
   <string name="subagent_badge_writable">Writable</string>
-  <string name="subagent_badge_steps_timeout">%1$d steps · %2$ds</string>
   <string name="subagent_badge_requires_approval">Dispatch requires approval</string>
   <string name="subagent_badge_default_tools">Default tool template</string>
   <string name="subagent_new_desc">Create a sub-agent that assistants can dispatch</string>

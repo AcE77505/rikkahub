@@ -103,17 +103,11 @@ fun AssistantSubAgentsPage(id: String) {
                                     if (agent.readOnly) R.string.subagent_badge_readonly
                                     else R.string.subagent_badge_writable
                                 )
-                                val limits = stringResource(
-                                    R.string.subagent_badge_steps_timeout,
-                                    agent.maxSteps,
-                                    agent.timeoutSeconds,
-                                )
-                                val summary = listOf(access, limits).joinToString(" · ")
                                 Text(
                                     if (agent.description.isBlank()) {
-                                        summary
+                                        access
                                     } else {
-                                        agent.description + "\n" + summary
+                                        agent.description + "\n" + access
                                     }
                                 )
                             },

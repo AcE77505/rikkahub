@@ -1653,7 +1653,8 @@
   <string name="setting_page_tools">工具</string>
   <string name="setting_page_tools_desc">工具開關、工作區宣告與審批</string>
   <string name="setting_tools_workspace">工作區</string>
-  <string name="setting_tools_workspace_desc">建立與設定工作目錄</string>
+  <string name="setting_tools_workspace_desc">已開啟%1$d個</string>
+  <string name="setting_tools_workspace_desc_none">未開啟</string>
   <string name="setting_tools_switches">工具開關</string>
   <string name="setting_tools_local_tools">本機工具</string>
   <string name="setting_tools_local_tools_desc">AI 可以呼叫的裝置能力</string>
@@ -1668,7 +1669,6 @@
   <string name="setting_tools_overtime_seconds">%d 秒</string>
   <string name="setting_tools_terminal_dir">終端目錄</string>
   <string name="setting_tools_terminal_root">RikkaHub 終端</string>
-  <string name="setting_tools_terminal_dir_desc">工具鏈與各工作區的 HOME / TMP 目錄</string>
   <string name="setting_tools_open_in_file_manager">在檔案管理員中開啟</string>
   <string name="setting_tools_open_in_file_manager_desc">在 MT 管理器或系統「檔案」中檢視這些目錄</string>
   <string name="setting_tools_open_in_file_manager_steps">儲存權限必須由檔案管理員發起。在 MT 管理器中：開啟側拉欄 → 新增本機儲存 → 選擇 RikkaHub。接著會出現第二個 RikkaHub 儲存，其中包含終端目錄。</string>

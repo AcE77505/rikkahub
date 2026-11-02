@@ -53,6 +53,7 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.tools.WorkspaceToolDefaultApprovals
 import me.rerere.rikkahub.data.ai.tools.resolveWorkspaceToolApproval
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
@@ -62,6 +63,7 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /** 命令超时提示阈值的可选值（秒）；null 表示无限制 */
 private val OVERTIME_OPTIONS = listOf(30, 60, 120, 300, null)
@@ -75,6 +77,9 @@ private val OVERTIME_OPTIONS = listOf(30, 60, 120, 300, null)
 @Composable
 fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val workspaceRepository: WorkspaceRepository = koinInject()
+    val declaredWorkspaces by workspaceRepository.declaredFlow()
+        .collectAsStateWithLifecycle(emptyList())
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var approvalDialogVisible by rememberSaveable { mutableStateOf(false) }
@@ -108,7 +113,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.Workspaces) },
                         leadingContent = { CardGroupIcon(HugeIcons.FolderCode) },
-                        supportingContent = { Text(stringResource(R.string.setting_tools_workspace_desc)) },
+                        supportingContent = { EnabledSummary(declaredWorkspaces.size) },
                         headlineContent = { Text(stringResource(R.string.setting_tools_workspace)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
@@ -198,7 +203,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SettingSubAgents) },
                         leadingContent = { CardGroupIcon(HugeIcons.Tools) },
-                        supportingContent = { Text("配置可被助手派发的子代理") },
+                        supportingContent = { EnabledSummary(settings.subAgents.size) },
                         headlineContent = { Text("子代理管理") },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
@@ -217,7 +222,6 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SettingTerminalDirectory()) },
                         leadingContent = { CardGroupIcon(HugeIcons.FolderOpen) },
-                        supportingContent = { Text(stringResource(R.string.setting_tools_terminal_dir_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_tools_terminal_dir)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
@@ -247,6 +251,18 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
             onDismiss = { approvalDialogVisible = false },
         )
     }
+}
+
+/** 「已开启 n 个」/「未开启」：入口行的数量摘要 */
+@Composable
+private fun EnabledSummary(count: Int) {
+    Text(
+        if (count > 0) {
+            stringResource(R.string.setting_tools_workspace_desc, count)
+        } else {
+            stringResource(R.string.setting_tools_workspace_desc_none)
+        }
+    )
 }
 
 private fun CardGroupScope.toolSwitch(

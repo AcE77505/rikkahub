@@ -103,7 +103,6 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
                     item(
                         onClick = { navController.navigate(Screen.SubAgentRuns) },
                         leadingContent = { CardGroupIcon(HugeIcons.Clock01) },
-                        supportingContent = { Text(stringResource(R.string.subagent_runs_desc)) },
                         headlineContent = { Text(stringResource(R.string.subagent_runs)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
@@ -137,11 +136,6 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
                                     if (agent.readOnly) R.string.subagent_badge_readonly
                                     else R.string.subagent_badge_writable
                                 )
-                                val limits = stringResource(
-                                    R.string.subagent_badge_steps_timeout,
-                                    agent.maxSteps,
-                                    agent.timeoutSeconds,
-                                )
                                 val extras = buildList {
                                     if (agent.requiresApproval) {
                                         add(stringResource(R.string.subagent_badge_requires_approval))
@@ -150,7 +144,7 @@ fun SettingSubAgentsPage(vm: SettingVM = koinViewModel()) {
                                         add(stringResource(R.string.subagent_badge_default_tools))
                                     }
                                 }
-                                Text((listOf(access, limits) + extras).joinToString(" · "))
+                                Text((listOf(access) + extras).joinToString(" · "))
                             },
                             headlineContent = { Text(agent.name) },
                         )
