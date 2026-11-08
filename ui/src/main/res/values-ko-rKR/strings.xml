@@ -30,4 +30,5 @@
   <string name="image_crop_original">원본</string>
   <string name="image_crop_load_failed">이미지를 불러올 수 없습니다</string>
   <string name="image_crop_failed">이미지를 자를 수 없습니다</string>
+  <string name="toast_copied">복사됨</string>
 </resources>

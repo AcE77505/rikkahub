@@ -9,6 +9,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.rikkahub.data.datastore.BackupItem
+import me.rerere.rikkahub.data.datastore.BackupSelection
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.AppDatabaseFactory
@@ -42,8 +44,11 @@ class BackupManagerTest {
             override fun getFilesDir() = File(directory, "files").apply { mkdirs() }
             override fun getCacheDir() = File(directory, "cache").apply { mkdirs() }
             override fun getNoBackupFilesDir() = File(directory, "no-backup").apply { mkdirs() }
-            override fun getDatabasePath(name: String): File = if (File(name).isAbsolute) File(name)
-                else File(directory, "databases/$name").also { it.parentFile!!.mkdirs() }
+            override fun getDatabasePath(name: String): File = if (File(name).isAbsolute) {
+                File(name)
+            } else {
+                File(directory, "databases/$name").also { it.parentFile!!.mkdirs() }
+            }
         }
         liveDatabase = AppDatabaseFactory.create(context)
         liveDatabase.openHelper.writableDatabase.execSQL("CREATE TABLE backup_probe (text TEXT)")
@@ -73,7 +78,7 @@ class BackupManagerTest {
                 zip.closeEntry()
             }
         }
-        manager.stageRestore(archive, includeDatabase = true, includeFiles = false)
+        manager.stageRestore(archive, selection(conversations = true, files = false))
         assertEquals("live", probe(liveDatabase))
         val staged = File(context.noBackupFilesDir, "backup-restore/pending/payload/database/rikka_hub")
         assertTrue(staged.isFile)
@@ -87,40 +92,68 @@ class BackupManagerTest {
     }
 
     @Test fun newArchiveContainsStandaloneDatabaseAndNoWalOrShm() = runBlocking {
-        val archive = manager.createBackup(includeDatabase = true, includeFiles = false)
+        val archive = manager.createBackup(selection(conversations = true, files = false))
         ZipFile(archive).use { zip ->
             assertTrue(zip.getEntry("settings.json") != null)
-            assertTrue(zip.getEntry(DatabaseBackup.ARCHIVE_DATABASE) != null)
+            assertTrue(zip.getEntry("backup.json") != null)
+            assertTrue(zip.getEntry("tables.db") != null)
             assertEquals(null, zip.getEntry(DatabaseBackup.WAL))
             assertEquals(null, zip.getEntry(DatabaseBackup.SHM))
         }
-        manager.stageRestore(archive, includeDatabase = true, includeFiles = false)
+        manager.stageRestore(archive, selection(conversations = true, files = false))
         assertEquals("live", probe(liveDatabase))
     }
 
+    /** 选「所有可备份内容」时输出旧版本也能读的格式：完整 settings + rikka_hub.db。 */
+    @Test fun allSelectionWritesLegacyCompatibleArchive() = runBlocking {
+        val archive = manager.createBackup(BackupSelection(items = setOf(BackupItem.ALL)))
+        ZipFile(archive).use { zip ->
+            assertTrue(zip.getEntry("settings.json") != null)
+            assertTrue(zip.getEntry("backup.json") != null)
+            assertTrue(zip.getEntry(DatabaseBackup.ARCHIVE_DATABASE) != null)
+            assertEquals(null, zip.getEntry("tables.db"))
+        }
+        // 新版本自己也能读回这种归档
+        manager.stageRestore(archive, BackupSelection(items = setOf(BackupItem.ALL)))
+        assertEquals("live", probe(liveDatabase))
+    }
+
+    /** 部分选择仍用新格式，旧版本读它会静默丢数据库，所以只在勾了全部时保证兼容。 */
+    @Test fun partialSelectionWritesTablesEntry() = runBlocking {
+        val archive = manager.createBackup(selection(conversations = true, files = false))
+        ZipFile(archive).use { zip ->
+            assertTrue(zip.getEntry("tables.db") != null)
+            assertEquals(null, zip.getEntry(DatabaseBackup.ARCHIVE_DATABASE))
+        }
+    }
+
     @Test fun launchCountStaysInSettingsJsonThroughBackupAndStaging() = runBlocking {
-        val archive = manager.createBackup(includeDatabase = false, includeFiles = false)
+        val archive = manager.createBackup(selection(conversations = false, files = false))
         val archived = ZipFile(archive).use { zip ->
             launchCountOf(zip.getInputStream(zip.getEntry("settings.json")).readBytes().decodeToString())
         }
         assertTrue(archived != null)
-        manager.stageRestore(archive, includeDatabase = false, includeFiles = false)
+        manager.stageRestore(archive, selection(conversations = false, files = false))
         val staged = File(context.noBackupFilesDir, "backup-restore/pending/settings.json").readText()
         assertEquals(archived, launchCountOf(staged))
     }
 
     @Test fun archiveWithoutLaunchCountRestoresItAsZero() = runBlocking {
-        val current = manager.createBackup(includeDatabase = false, includeFiles = false)
+        val current = manager.createBackup(selection(conversations = false, files = false))
         val settingsJson = ZipFile(current).use { zip ->
             zip.getInputStream(zip.getEntry("settings.json")).readBytes().decodeToString()
         }
         val archive = File(directory, "no-launch-count.zip")
         ZipOutputStream(archive.outputStream()).use { zip ->
             zip.putNextEntry(ZipEntry("settings.json"))
-            zip.write(JsonObject(JsonInstant.parseToJsonElement(settingsJson).jsonObject - "launchCount").toString().toByteArray())
+            zip.write(
+                JsonObject(
+                    JsonInstant.parseToJsonElement(settingsJson).jsonObject - "launchCount"
+                ).toString().toByteArray()
+            )
             zip.closeEntry()
         }
-        manager.stageRestore(archive, includeDatabase = false, includeFiles = false)
+        manager.stageRestore(archive, selection(conversations = false, files = false))
         val staged = File(context.noBackupFilesDir, "backup-restore/pending/settings.json").readText()
         assertEquals(0, launchCountOf(staged))
     }
@@ -135,14 +168,14 @@ class BackupManagerTest {
         File(session, "record/out_0.png").writeText("image")
         File(session, "record/out_1.mp4.part").writeText("half a video")
         File(session, "draft/asset.jpg").writeText("asset")
-        val archive = manager.createBackup(includeDatabase = false, includeFiles = true)
+        val archive = manager.createBackup(selection(conversations = false, files = true))
         ZipFile(archive).use { zip ->
             assertTrue(zip.getEntry("media_creation/session/record/out_0.png") != null)
             assertTrue(zip.getEntry("media_creation/session/draft/asset.jpg") != null)
             assertEquals(null, zip.getEntry("media_creation/session/record/out_1.mp4.part"))
         }
         session.deleteRecursively()
-        manager.stageRestore(archive, includeDatabase = false, includeFiles = true)
+        manager.stageRestore(archive, selection(conversations = false, files = true))
         assertFalse(session.exists())
         // Applying the staged settings would write to the real settings store of the app under test.
         assertTrue(File(context.noBackupFilesDir, "backup-restore/pending/settings.json").delete())
@@ -161,7 +194,7 @@ class BackupManagerTest {
         ZipOutputStream(archive.outputStream()).use { addFile(it, DatabaseBackup.ARCHIVE_DATABASE, future) }
         var failed = false
         try {
-            manager.stageRestore(archive, includeDatabase = true, includeFiles = false)
+            manager.stageRestore(archive, selection(conversations = true, files = false))
         } catch (_: Exception) {
             failed = true
         }
@@ -170,8 +203,20 @@ class BackupManagerTest {
         assertEquals("live", probe(liveDatabase))
     }
 
+    private fun selection(conversations: Boolean, files: Boolean) = BackupSelection(
+        items = buildSet {
+            if (conversations) add(BackupItem.CONVERSATIONS)
+            if (files) add(BackupItem.ALL)
+            // 这些用例都在验证归档结构，至少要选一项
+            if (isEmpty()) add(BackupItem.ALL)
+        },
+    )
+
     private fun probe(database: AppDatabase): String = database.openHelper.readableDatabase
-        .query("SELECT text FROM backup_probe").use { check(it.moveToFirst()); it.getString(0) }
+        .query("SELECT text FROM backup_probe").use {
+            check(it.moveToFirst())
+            it.getString(0)
+        }
 
     private fun addFile(zip: ZipOutputStream, name: String, file: File) {
         zip.putNextEntry(ZipEntry(name))

@@ -23,6 +23,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.BackupItem
 import me.rerere.rikkahub.data.datastore.WebDavConfig
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -32,12 +33,14 @@ import me.rerere.rikkahub.ui.pages.backup.components.BackupFilesSheet
 import me.rerere.rikkahub.ui.pages.backup.components.RemoteBackupLayout
 import me.rerere.rikkahub.ui.pages.backup.components.RemoteBackupStatus
 import me.rerere.rikkahub.ui.pages.backup.components.backupContentItem
+import me.rerere.rikkahub.ui.pages.backup.components.backupItemLabels
 
 @Composable
 fun WebDavTab(
     vm: BackupVM,
     onShowRestartDialog: () -> Unit
 ) {
+    val itemLabels = backupItemLabels(BackupItem.entries)
     val settings by vm.settings.collectAsStateWithLifecycle()
     val webDavConfig = settings.webDavConfig
     val backupItemsState by vm.webDavBackupItems.collectAsStateWithLifecycle()
@@ -162,15 +165,10 @@ fun WebDavTab(
 
         CardGroup {
             backupContentItem(
-                options = WebDavConfig.BackupItem.entries,
                 selected = webDavConfig.items,
-                onChange = { updateWebDavConfig(webDavConfig.copy(items = it)) },
-            ) { item ->
-                when (item) {
-                    WebDavConfig.BackupItem.DATABASE -> stringResource(R.string.backup_page_chat_records)
-                    WebDavConfig.BackupItem.FILES -> stringResource(R.string.backup_page_files)
-                }
-            }
+                onChange = { updateWebDavConfig(webDavConfig.copy(items = it.toList())) },
+                label = { itemLabels.getValue(it) },
+            )
         }
     }
 

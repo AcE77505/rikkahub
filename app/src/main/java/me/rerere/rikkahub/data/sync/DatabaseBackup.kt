@@ -15,8 +15,12 @@ internal object DatabaseBackup {
     /** VACUUM INTO includes committed WAL contents in a consistent, standalone snapshot. */
     fun createSnapshot(database: SupportSQLiteDatabase, destination: File) {
         check(!destination.exists()) { "Backup snapshot already exists" }
-        database.execSQL("VACUUM main INTO ?", arrayOf(destination.absolutePath))
+        // 路径写进 SQL 字面量：requery 的 execSQL 对 VACUUM/ATTACH 这类语句的参数绑定并不可靠
+        database.execSQL("VACUUM main INTO ${sqlLiteral(destination.absolutePath)}")
     }
+
+    /** SQL 字符串字面量，路径里的单引号要转义。 */
+    internal fun sqlLiteral(value: String): String = "'" + value.replace("'", "''") + "'"
 
     /** Only opens the staged copy. The caller must place its matching WAL beside it first. */
     fun normalize(context: Context, databaseFile: File) {

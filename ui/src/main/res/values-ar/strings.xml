@@ -30,4 +30,5 @@
   <string name="image_crop_original">الأصلي</string>
   <string name="image_crop_load_failed">تعذّر تحميل الصورة</string>
   <string name="image_crop_failed">تعذّر قص الصورة</string>
+  <string name="toast_copied">تم النسخ</string>
 </resources>

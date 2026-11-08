@@ -99,6 +99,10 @@ class SettingsStore internal constructor(
     constructor(context: Context, scope: AppScope) : this(context.settingsStore, scope)
 
     companion object {
+        /** 启动恢复时，在 [Settings] 从盘上加载之前读出现有的设置。 */
+        internal suspend fun loadFromDiskBeforeInitialization(context: Context): Settings =
+            context.settingsStore.data.first().toSettings()
+
         // 版本号
         val VERSION = intPreferencesKey("data_version")
 
@@ -206,6 +210,20 @@ class SettingsStore internal constructor(
             context.settingsStore.edit { preferences ->
                 preferences[LAUNCH_COUNT] = launchCount
                 preferences.putSettings(settings.normalized())
+            }
+        }
+
+        /**
+         * 把备份里的部分设置字段合进盘上现有的设置，没有提供的字段保持原值。
+         *
+         * 必须在 Settings 从盘上加载之前调用，否则内存里已经读到的旧值会盖掉这次写入。
+         */
+        internal suspend fun patchBeforeInitialization(context: Context, fields: SettingsFieldsValues) {
+            if (fields.isEmpty()) return
+            context.settingsStore.edit { preferences ->
+                // 直接读盘上的原始值，不补默认值，避免没被备份的字段被默认值改写
+                val current = preferences.toSettings()
+                preferences.putSettings(BackupFields.apply(current, fields))
             }
         }
     }

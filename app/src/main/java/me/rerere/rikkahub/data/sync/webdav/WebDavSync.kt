@@ -5,8 +5,11 @@ import android.util.Log
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import me.rerere.rikkahub.data.sync.BackupManager
+import me.rerere.rikkahub.data.datastore.BackupItem
+import me.rerere.rikkahub.data.datastore.BackupSelection
+import me.rerere.rikkahub.data.datastore.RestoreMode
 import me.rerere.rikkahub.data.datastore.WebDavConfig
+import me.rerere.rikkahub.data.sync.BackupManager
 import me.rerere.rikkahub.utils.fileSizeToString
 import java.io.File
 import java.time.Instant
@@ -98,21 +101,26 @@ class WebDavSync(
         Log.i(TAG, "deleteBackupFile: Deleted ${item.displayName}")
     }
 
-    suspend fun restoreFromLocalFile(file: File, config: WebDavConfig) {
-        restoreFromBackupFile(file, config)
+    suspend fun restoreFromLocalFile(
+        file: File,
+        config: WebDavConfig,
+        modes: Map<BackupItem, RestoreMode> = emptyMap(),
+    ) {
+        restoreFromBackupFile(file, config, modes)
     }
 
     suspend fun prepareBackupFile(config: WebDavConfig): File = backupManager.createBackup(
-        includeDatabase = WebDavConfig.BackupItem.DATABASE in config.items,
-        includeFiles = WebDavConfig.BackupItem.FILES in config.items,
+        BackupSelection(items = config.items.toSet())
     )
 
-    private suspend fun restoreFromBackupFile(backupFile: File, config: WebDavConfig) = backupManager.stageRestore(
+    private suspend fun restoreFromBackupFile(
+        backupFile: File,
+        config: WebDavConfig,
+        modes: Map<BackupItem, RestoreMode> = emptyMap(),
+    ) = backupManager.stageRestore(
         archive = backupFile,
-        includeDatabase = WebDavConfig.BackupItem.DATABASE in config.items,
-        includeFiles = WebDavConfig.BackupItem.FILES in config.items,
+        selection = BackupSelection(items = config.items.toSet(), modes = modes),
     )
-
 }
 
 data class WebDavBackupItem(

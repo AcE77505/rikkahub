@@ -5,6 +5,9 @@ import android.util.Log
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.data.datastore.BackupItem
+import me.rerere.rikkahub.data.datastore.BackupSelection
+import me.rerere.rikkahub.data.datastore.RestoreMode
 import me.rerere.rikkahub.data.sync.s3.S3Client
 import me.rerere.rikkahub.data.sync.s3.S3Config
 import me.rerere.rikkahub.utils.fileSizeToString
@@ -66,7 +69,11 @@ class S3Sync(
             .sortedByDescending { it.lastModified }
     }
 
-    suspend fun restoreFromS3(config: S3Config, item: S3BackupItem) = withContext(Dispatchers.IO) {
+    suspend fun restoreFromS3(
+        config: S3Config,
+        item: S3BackupItem,
+        modes: Map<BackupItem, RestoreMode> = emptyMap(),
+    ) = withContext(Dispatchers.IO) {
         val client = getS3Client(config)
         val backupFile = File.createTempFile("restore-", ".zip", context.cacheDir)
 
@@ -78,7 +85,7 @@ class S3Sync(
             Log.i(TAG, "restoreFromS3: Downloaded ${backupFile.length().fileSizeToString()}")
 
             // Restore from backup file
-            restoreFromBackupFile(backupFile, config)
+            restoreFromBackupFile(backupFile, config, modes)
         } finally {
             // Clean up temp file
             if (backupFile.exists()) {
@@ -95,16 +102,17 @@ class S3Sync(
     }
 
     suspend fun prepareBackupFile(config: S3Config): File = backupManager.createBackup(
-        includeDatabase = S3Config.BackupItem.DATABASE in config.items,
-        includeFiles = S3Config.BackupItem.FILES in config.items,
+        BackupSelection(items = config.items.toSet())
     )
 
-    private suspend fun restoreFromBackupFile(backupFile: File, config: S3Config) = backupManager.stageRestore(
+    private suspend fun restoreFromBackupFile(
+        backupFile: File,
+        config: S3Config,
+        modes: Map<BackupItem, RestoreMode>,
+    ) = backupManager.stageRestore(
         archive = backupFile,
-        includeDatabase = S3Config.BackupItem.DATABASE in config.items,
-        includeFiles = S3Config.BackupItem.FILES in config.items,
+        selection = BackupSelection(items = config.items.toSet(), modes = modes),
     )
-
 }
 
 data class S3BackupItem(

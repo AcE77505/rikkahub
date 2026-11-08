@@ -30,4 +30,5 @@
   <string name="image_crop_original">原图</string>
   <string name="image_crop_load_failed">无法加载图片</string>
   <string name="image_crop_failed">无法裁剪图片</string>
+  <string name="toast_copied">已复制</string>
 </resources>

@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.backup.components
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,6 +9,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,6 +32,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.FloatingToolbarDefaults.floatingToolbarVerticalNestedScroll
 import androidx.compose.material3.HorizontalFloatingToolbar
@@ -53,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Clock01
@@ -62,12 +67,11 @@ import me.rerere.hugeicons.stroke.Connect
 import me.rerere.hugeicons.stroke.FileZip
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.BackupItem
 import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
 import me.rerere.rikkahub.ui.components.ui.CardGroupScope
-import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceLabel
-import me.rerere.rikkahub.ui.components.ui.ConnectedMultiChoiceButtons
 import me.rerere.rikkahub.ui.components.ui.cardGroupItemShape
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.UiState
@@ -94,28 +98,69 @@ internal fun BackupActionIcon(
 }
 
 // 「备份内容」多选项，本地、WebDAV、S3 共用
-internal fun <T> CardGroupScope.backupContentItem(
-    options: List<T>,
-    selected: List<T>,
-    onChange: (List<T>) -> Unit,
-    label: @Composable (T) -> String,
-) = formItem(
-    headlineContent = { Text(stringResource(R.string.backup_page_backup_items)) },
+/** 备份项在界面上的名称。 */
+@StringRes
+internal fun BackupItem.labelRes(): Int = when (this) {
+    BackupItem.CONVERSATIONS -> R.string.backup_page_item_conversations
+    BackupItem.MCP -> R.string.backup_page_item_mcp
+    BackupItem.ASSISTANTS -> R.string.backup_page_item_assistants
+    BackupItem.ALL -> R.string.backup_page_item_all
+}
+
+/**
+ * 「备份内容」多选项。
+ *
+ * 用 [FlowRow] 让选项自动换行。「所有可备份内容」与其他选项互斥：选中它时忽略其他选项，
+ * 点击其他选项时自动取消它。
+ */
+internal fun CardGroupScope.backupContentItem(
+    selected: Collection<BackupItem>,
+    onChange: (Collection<BackupItem>) -> Unit,
+    label: (BackupItem) -> String,
 ) {
-    ConnectedMultiChoiceButtons(
-        options = options,
-        selected = selected,
-        onToggle = { option, checked ->
-            onChange(if (checked) selected + option else selected - option)
-        },
-    ) { option, isSelected ->
-        ConnectedChoiceLabel(
-            text = label(option),
-            selected = isSelected,
-            icon = HugeIcons.Tick01,
-        )
+    // 与 BackupSelection.effectiveItems 保持一致：ALL 在时只显示它
+    val effective = if (BackupItem.ALL in selected) setOf(BackupItem.ALL) else selected.toSet()
+    formItem(headlineContent = { Text(stringResource(R.string.backup_page_backup_items)) }) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (option in BackupItem.entries) {
+                val isSelected = option in effective
+                FilterChip(
+                    selected = isSelected,
+                    onClick = {
+                        onChange(
+                            when {
+                                option == BackupItem.ALL -> setOf(BackupItem.ALL)
+                                isSelected -> effective - option
+                                else -> (effective - BackupItem.ALL) + option
+                            }.takeIf { it.isNotEmpty() } ?: setOf(BackupItem.ALL)
+                        )
+                    },
+                    label = { Text(label(option)) },
+                    leadingIcon = if (isSelected) {
+                        {
+                            Icon(
+                                imageVector = HugeIcons.Tick01,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    shape = RoundedCornerShape(50),
+                )
+            }
+        }
     }
 }
+
+/** 备份项的名称，字符串在这里解析，再交给 [backupContentItem]。 */
+@Composable
+internal fun backupItemLabels(options: List<BackupItem>): Map<BackupItem, String> =
+    options.associateWith { stringResource(it.labelRes()) }
 
 // WebDAV / S3 页顶部的状态分组：上次备份时间，以及进入备份文件列表的入口
 @Composable

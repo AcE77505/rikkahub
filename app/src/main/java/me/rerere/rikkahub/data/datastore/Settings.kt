@@ -214,17 +214,8 @@ data class WebDavConfig(
     val username: String = "",
     val password: String = "",
     val path: String = "rikkahub_backups",
-    val items: List<BackupItem> = listOf(
-        BackupItem.DATABASE,
-        BackupItem.FILES
-    ),
-) {
-    @Serializable
-    enum class BackupItem {
-        DATABASE,
-        FILES,
-    }
-}
+    val items: List<BackupItem> = DEFAULT_BACKUP_ITEMS,
+)
 
 @Serializable
 data class BackupReminderConfig(

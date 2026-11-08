@@ -44,11 +44,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.content.ClipData
+import androidx.compose.ui.platform.ClipEntry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
@@ -56,6 +60,7 @@ import me.rerere.hugeicons.stroke.Alert02
 import me.rerere.hugeicons.stroke.AlertCircle
 import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.InformationCircle
+import me.rerere.ui.R
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -70,6 +75,8 @@ fun Toaster(
     modifier: Modifier = Modifier,
 ) {
     val motionScheme = MaterialTheme.motionScheme
+    // 点击错误提示会把它复制到剪贴板，再提示一次
+    val copiedMessage = stringResource(R.string.toast_copied)
     Column(
         modifier = modifier
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
@@ -96,6 +103,7 @@ fun Toaster(
                     ToastContent(
                         item = item,
                         onDismiss = { state.dismiss(item) },
+                        onCopied = { state.show(copiedMessage, ToastType.Success) },
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
                 }
@@ -108,9 +116,11 @@ fun Toaster(
 private fun ToastContent(
     item: ToastItem,
     onDismiss: () -> Unit,
+    onCopied: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = toastColors(item.type)
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
     var width by remember { mutableIntStateOf(0) }
@@ -119,7 +129,18 @@ private fun ToastContent(
     }
 
     Surface(
-        onClick = onDismiss,
+        // 错误提示点一下就复制，方便把完整报错发给别人；其它提示仍然只是点击关闭
+        onClick = {
+            if (item.type == ToastType.Error) {
+                scope.launch {
+                    clipboard.setClipEntry(
+                        ClipEntry(ClipData.newPlainText("Error", item.message))
+                    )
+                    onCopied()
+                }
+            }
+            onDismiss()
+        },
         shape = RoundedCornerShape(24.dp),
         color = colors.container,
         contentColor = colors.content,

@@ -102,7 +102,8 @@ private fun <T> ConnectedButtons(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
-        options.fastForEachIndexed { index, option ->
+        // 不能用 fastForEachIndexed：它的 lambda 不是 @Composable，content 里的 stringResource 会失去 Compose 上下文
+        options.forEachIndexed { index, option ->
             val selected = isSelected(option)
             val weight by animateFloatAsState(
                 targetValue = if (selected && growSelected) 1.3f else 1f,

@@ -25,6 +25,7 @@
 | 助手导出/导入 | 原生助手 JSON、第三方对话配置 | `AssistantSerializer`、`AssistantImporter` |
 | 助手配置工具 | AI 读写其他助手 | `AssistantConfigTools`、`LocalTools` |
 | 工作区/工具链 | shell 硬超时、su 直通 shim | `WorkspaceRepository`、`ToolchainManager` |
+| 数据备份分项 | 聊天记录 / MCP / 助手 / 所有可备份内容，逐项合并或覆盖，兼容旧版归档 | `BackupItem`、`BackupFields`、`BackupManager`、`DatabaseBackupTables` |
 
 ---
 
@@ -374,3 +375,76 @@
 - 会话列表长按菜单新增「导出」：`ConversationList` / `ConversationItem` 增加 `onExport` 回调，`ChatDrawer` 维护 `exportTarget`。
 - 导出目标从 `ConversationRepository.getConversationById` 重新读取，确保拿到完整会话；`ChatExportSheet` 的 `selectedMessages` 直接传全部 `currentMessage`，不经过多选。
 - 导出沿用现有格式面板（Markdown / 图片、包含/展开思考），保存和分享走 SAF（`CreateDocument`）。
+
+---
+
+## 11. 数据备份分项（2026-11-08）
+
+上游备份只有 `DATABASE` / `FILES` 两个粗粒度开关，设置项无法单独选择或恢复。本次把备份拆成「选项 + 资源」两层：界面只暴露四个选项，内部仍按资源精确导出/恢复。
+
+### 11.1 备份选项
+
+| 选项 | 内容 |
+|---|---|
+| 聊天记录 | 对话、消息、助手分组、收藏、记忆文件与整理进度、用量、翻译历史、媒体生成、托管文件索引 |
+| MCP | MCP 服务器与 OAuth 授权状态 |
+| 助手 | 助手、助手标签、子代理、快捷消息、模式注入、Lorebook、子代理模型与并发设置 |
+| 所有可备份内容 | 以上三项 + 提供商、搜索、语音、媒体生成、界面/网络/WebDAV/S3 设置、工作区、SSH 密钥、附件/技能/字体/生成媒体 |
+
+- `BackupItem`：界面选项；`BackupResource`：实际资源（9 种）。`BackupSelection.effectiveItems` 保证选了 `ALL` 时忽略其它选项，`BackupVM.updateLocalBackupItems` 做同样的归一化。
+- 默认值为 `ALL`，即完整备份。
+- `BackupItem.containsSecrets` 标记会写入密钥/token 的选项，导出和导入前各弹一次明文提示（本地页面）。
+
+### 11.2 归档格式
+
+| 条目 | 说明 |
+|---|---|
+| `backup.json` | 格式版本与本次包含的资源列表（`BackupManifest`） |
+| `settings.json` | 所选资源拥有的设置字段（键名与 `Settings` 属性一致）+ `launchCount` |
+| `rikka_hub.db` | 选「所有可备份内容」时的整库快照，沿用旧版文件名以兼容上游 |
+| `tables.db` | 部分选择时的整库快照（新格式，旧版不认识） |
+| `upload/` `skills/` `fonts/` `media_creation/` | 文件项 |
+| `ssh/` | 工作区项，含 `id_ed25519` 私钥 |
+
+- 数据库导出用 `VACUUM main INTO '<path>'`，随后 `normalize`（完整性校验 + checkpoint + 去 sidecar）。
+  **不要用 `ATTACH` 拼只含所选表的库**：requery 的 `execSQL` 不会把 `?` 绑定到 `ATTACH`/`VACUUM` 上，且对新建目标库会报 `SQLITE_CANTOPEN`。
+- 导出前会校验快照里确实含有待导出的表，缺失直接报错。
+
+### 11.3 恢复
+
+- 逐项选择「合并」或「覆盖」，默认：聊天记录/助手/所有可备份内容合并，MCP 覆盖。
+- 覆盖：`DELETE` 后整表插入；合并：按主键 `ON CONFLICT ... DO UPDATE`，
+  **不能用 `INSERT OR REPLACE`**——它会先删行，触发外键 `ON DELETE CASCADE`，把备份里没有的子表数据（如消息）一起删掉。
+- 整个分表写入在一个事务里完成，通过 `PendingRestore` 在下次启动、Room 打开之前应用。
+- 设置按资源字段合入盘上现有值（`SettingsStore.patchBeforeInitialization`），未备份字段保持现值。
+
+### 11.4 兼容性
+
+| 方向 | 结果 |
+|---|---|
+| 旧版归档 → 新版 | 兼容：无 `backup.json` 走旧格式分支，整库 + 完整设置 + 附件按所选资源恢复 |
+| 新版「所有可备份内容」→ 旧版 | 兼容：完整 `settings.json` + `rikka_hub.db` + 相同附件目录；`backup.json`、`ssh/` 被旧版忽略 |
+| 新版「部分选择」→ 旧版 | 不安全：旧版不认识 `tables.db`（数据库不恢复），且会把缺失的设置字段写成默认值 |
+
+- 旧枚举名映射：`DATABASE` → 聊天记录，其余（`FILES` 及上一版九项）→ 所有可备份内容。
+
+### 11.5 其他
+
+- 点击顶部错误提示会把完整报错复制到剪贴板并提示「已复制」（`ui/.../Toaster.kt`，仅 `ToastType.Error`）。
+- 导出失败提示改用 `backup_page_backup_failed`，不再误用「恢复失败」。
+- 新增测试：
+  - `BackupItemSerializerTest`：枚举序列化与旧值兼容、`ALL` 互斥、资源展开；
+  - `BackupSettingsFieldsTest`：所有资源的字段并集覆盖 `SETTINGS_FIELDS`，完整 `settings.json` 覆盖全部持久化字段；
+  - `BackupTableListTest`：表名清单与 Room schema（`app/schemas/...`）逐表对齐；
+  - `BackupManagerTest`（androidTest）：`ALL` 产出 `rikka_hub.db`、部分选择产出 `tables.db`。
+
+### 11.6 已知限制
+
+- `message_fts` / `message_fts_rowid` 不参与恢复：`message_fts` 是 FTS5 虚表，不能按普通表复制。恢复后旧消息无法被全文搜索，需要在恢复后重建索引（尚未实现）。
+- 数据库快照始终是整库，部分选择时备份体积与会包含未选资源的表数据（`workspaces` 仅少量行）；恢复时仍只写所选资源的表。
+
+### 11.7 本次改动文件
+
+- 新增：`data/datastore/BackupItem.kt`、`data/datastore/BackupFields.kt`、`data/sync/DatabaseBackupTables.kt`
+- 修改：`data/datastore/PreferencesStore.kt`、`data/datastore/Settings.kt`、`data/sync/BackupManager.kt`、`data/sync/DatabaseBackup.kt`、`data/sync/S3Sync.kt`、`data/sync/s3/S3Config.kt`、`data/sync/webdav/WebDavSync.kt`、`ui/components/ui/ConnectedChoiceButtons.kt`、`ui/pages/backup/BackupVM.kt`、`ui/pages/backup/components/BackupComponents.kt`、`ui/pages/backup/tabs/{ImportExportTab,WebDavTab,S3Tab}.kt`、`ui/.../toast/Toaster.kt`、`app/src/androidTest/.../BackupManagerTest.kt`
+- 字符串：`app` 与 `ui` 模块共 9 种语言的 `values*/strings.xml`

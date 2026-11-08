@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.BackupItem
 import me.rerere.rikkahub.data.sync.s3.S3Config
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.s3ConnectionItems
@@ -23,12 +24,14 @@ import me.rerere.rikkahub.ui.pages.backup.components.BackupFilesSheet
 import me.rerere.rikkahub.ui.pages.backup.components.RemoteBackupLayout
 import me.rerere.rikkahub.ui.pages.backup.components.RemoteBackupStatus
 import me.rerere.rikkahub.ui.pages.backup.components.backupContentItem
+import me.rerere.rikkahub.ui.pages.backup.components.backupItemLabels
 
 @Composable
 fun S3Tab(
     vm: BackupVM,
     onShowRestartDialog: () -> Unit
 ) {
+    val itemLabels = backupItemLabels(BackupItem.entries)
     val settings by vm.settings.collectAsStateWithLifecycle()
     val s3Config = settings.s3Config
     val backupItemsState by vm.s3BackupItems.collectAsStateWithLifecycle()
@@ -101,15 +104,10 @@ fun S3Tab(
 
         CardGroup {
             backupContentItem(
-                options = S3Config.BackupItem.entries,
                 selected = s3Config.items,
-                onChange = { updateS3Config(s3Config.copy(items = it)) },
-            ) { item ->
-                when (item) {
-                    S3Config.BackupItem.DATABASE -> stringResource(R.string.backup_page_chat_records)
-                    S3Config.BackupItem.FILES -> stringResource(R.string.backup_page_files)
-                }
-            }
+                onChange = { updateS3Config(s3Config.copy(items = it.toList())) },
+                label = { itemLabels.getValue(it) },
+            )
         }
     }
 

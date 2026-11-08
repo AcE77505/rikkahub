@@ -4,11 +4,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -17,9 +20,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
@@ -28,12 +33,16 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.FileExport
 import me.rerere.hugeicons.stroke.FileImport
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.data.datastore.WebDavConfig
+import me.rerere.rikkahub.data.datastore.BackupItem
+import me.rerere.rikkahub.data.datastore.RestoreMode
+import me.rerere.rikkahub.data.datastore.BackupSelection
 import me.rerere.rikkahub.ui.components.ui.CardGroup
+import me.rerere.rikkahub.ui.components.ui.CardGroupScope
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.pages.backup.BackupVM
 import me.rerere.rikkahub.ui.pages.backup.components.BackupActionIcon
 import me.rerere.rikkahub.ui.pages.backup.components.backupContentItem
+import me.rerere.rikkahub.ui.pages.backup.components.backupItemLabels
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -45,13 +54,19 @@ fun ImportExportTab(
     vm: BackupVM,
     onShowRestartDialog: () -> Unit
 ) {
+    val itemLabels = backupItemLabels(BackupItem.entries)
+    val restoreModeLabels = restoreModeLabels()
+    val restoreModeTitle = stringResource(R.string.backup_page_restore_mode)
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val selectedBackupItems by vm.localBackupItems.collectAsStateWithLifecycle()
+    val selection by vm.localBackupSelection.collectAsStateWithLifecycle()
     var isExporting by remember { mutableStateOf(false) }
     var isRestoring by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
+    // 勾选了含密钥的项时，导出/导入前先提醒一次
+    var showSecretsPrompt by remember { mutableStateOf(false) }
+    var secretsPromptIsExport by remember { mutableStateOf(true) }
 
     // 导入类型：local 为本地备份，chatbox 为 Chatbox 导入，cherry 为 Cherry Studio 导入
     var importType by remember { mutableStateOf("local") }
@@ -84,7 +99,7 @@ fun ImportExportTab(
                 }.onFailure { e ->
                     e.printStackTrace()
                     toaster.show(
-                        context.getString(R.string.backup_page_restore_failed, e.message ?: ""),
+                        context.getString(R.string.backup_page_backup_failed, e.message ?: ""),
                         type = ToastType.Error
                     )
                 }
@@ -185,21 +200,27 @@ fun ImportExportTab(
             title = { Text(stringResource(R.string.backup_page_local_backup_export)) },
         ) {
             backupContentItem(
-                options = WebDavConfig.BackupItem.entries,
-                selected = selectedBackupItems,
+                selected = selection.items,
                 onChange = { vm.updateLocalBackupItems(it) },
-            ) { item ->
-                when (item) {
-                    WebDavConfig.BackupItem.DATABASE -> stringResource(R.string.backup_page_chat_records)
-                    WebDavConfig.BackupItem.FILES -> stringResource(R.string.backup_page_files)
-                }
-            }
+                label = { itemLabels.getValue(it) },
+            )
+            // 恢复方式只影响导入；对话和子代理默认合并不替换
+            RestoreModeItems(
+                title = restoreModeTitle,
+                selection = selection,
+                itemLabels = itemLabels,
+                modeLabels = restoreModeLabels,
+                onSelect = { item, mode -> vm.updateLocalRestoreMode(item, mode) },
+            )
             item(
                 onClick = if (!isExporting) {
                     {
-                        val timestamp = LocalDateTime.now()
-                            .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
-                        createDocumentLauncher.launch("rikkahub_backup_$timestamp.zip")
+                        if (selection.effectiveItems.any { it.containsSecrets }) {
+                            secretsPromptIsExport = true
+                            showSecretsPrompt = true
+                        } else {
+                            createDocumentLauncher.launch(backupFileName())
+                        }
                     }
                 } else null,
                 headlineContent = { Text(stringResource(R.string.backup_page_local_backup_export)) },
@@ -218,7 +239,12 @@ fun ImportExportTab(
             item(
                 onClick = if (!isRestoring) {
                     {
-                        showImportConfirmDialog = true
+                        if (selection.effectiveItems.any { it.containsSecrets }) {
+                            secretsPromptIsExport = false
+                            showSecretsPrompt = true
+                        } else {
+                            showImportConfirmDialog = true
+                        }
                     }
                 } else null,
                 headlineContent = { Text(stringResource(R.string.backup_page_local_backup_import)) },
@@ -292,5 +318,86 @@ fun ImportExportTab(
                 }
             },
         )
+    }
+
+    if (showSecretsPrompt) {
+        AlertDialog(
+            onDismissRequest = { showSecretsPrompt = false },
+            title = { Text(stringResource(R.string.backup_page_secrets_title)) },
+            text = { Text(stringResource(R.string.backup_page_secrets_desc)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSecretsPrompt = false
+                        if (secretsPromptIsExport) {
+                            createDocumentLauncher.launch(backupFileName())
+                        } else {
+                            showImportConfirmDialog = true
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSecretsPrompt = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+private fun backupFileName(): String =
+    "rikkahub_backup_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".zip"
+
+private val RestoreModeOptions = listOf(RestoreMode.MERGE, RestoreMode.OVERWRITE)
+
+/** 恢复方式的名称，在 Composable 上下文里解析好再交给列表使用。 */
+@Composable
+private fun restoreModeLabels(): Map<RestoreMode, String> = RestoreModeOptions.associateWith {
+    stringResource(
+        when (it) {
+            RestoreMode.MERGE -> R.string.backup_page_restore_mode_merge
+            RestoreMode.OVERWRITE -> R.string.backup_page_restore_mode_overwrite
+        }
+    )
+}
+
+/** CardGroup 的 content 不是 @Composable 上下文，标题和各项名称都由调用方解析好传进来。 */
+private fun CardGroupScope.RestoreModeItems(
+    title: String,
+    selection: BackupSelection,
+    itemLabels: Map<BackupItem, String>,
+    modeLabels: Map<RestoreMode, String>,
+    onSelect: (BackupItem, RestoreMode) -> Unit,
+) {
+    val items = selection.effectiveItems.sortedBy { it.ordinal }
+    if (items.isEmpty()) return
+    formItem(headlineContent = { Text(title) }) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (item in items) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = itemLabels.getValue(item),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    // 用 FilterChip：ConnectedChoiceButtons 内部 fillMaxWidth，会把左侧名称挤没
+                    for (mode in RestoreModeOptions) {
+                        FilterChip(
+                            selected = selection.modeOf(item) == mode,
+                            onClick = { onSelect(item, mode) },
+                            label = { Text(modeLabels.getValue(mode)) },
+                            shape = RoundedCornerShape(50),
+                        )
+                    }
+                }
+            }
+        }
     }
 }

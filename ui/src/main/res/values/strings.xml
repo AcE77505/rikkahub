@@ -30,4 +30,5 @@
   <string name="image_crop_original">Original</string>
   <string name="image_crop_load_failed">Couldn\'t load the image</string>
   <string name="image_crop_failed">Couldn\'t crop the image</string>
+  <string name="toast_copied">Copied</string>
 </resources>

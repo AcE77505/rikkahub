@@ -8,20 +8,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.data.datastore.BackupItem
+import me.rerere.rikkahub.data.datastore.BackupSelection
+import me.rerere.rikkahub.data.datastore.DEFAULT_BACKUP_ITEMS
+import me.rerere.rikkahub.data.datastore.RestoreMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.datastore.WebDavConfig
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.saveUploadFromBytes
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.sync.S3BackupItem
+import me.rerere.rikkahub.data.sync.S3Sync
 import me.rerere.rikkahub.data.sync.importer.ChatboxImporter
 import me.rerere.rikkahub.data.sync.importer.CherryStudioProviderImporter
 import me.rerere.rikkahub.data.sync.webdav.WebDavBackupItem
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
-import me.rerere.rikkahub.data.sync.S3BackupItem
-import me.rerere.rikkahub.data.sync.S3Sync
 import me.rerere.rikkahub.utils.UiState
 import java.io.File
 
@@ -42,7 +46,11 @@ class BackupVM(
 
     val webDavBackupItems = MutableStateFlow<UiState<List<WebDavBackupItem>>>(UiState.Idle)
     val s3BackupItems = MutableStateFlow<UiState<List<S3BackupItem>>>(UiState.Idle)
-    val localBackupItems = MutableStateFlow(WebDavConfig.BackupItem.entries.toList())
+
+    /** 本地导出/导入勾选的备份项与恢复方式。 */
+    val localBackupSelection = MutableStateFlow(
+        BackupSelection(items = DEFAULT_BACKUP_ITEMS.toSet())
+    )
 
     init {
         loadBackupFileItems()
@@ -55,8 +63,14 @@ class BackupVM(
         }
     }
 
-    fun updateLocalBackupItems(items: List<WebDavConfig.BackupItem>) {
-        localBackupItems.value = items
+    fun updateLocalBackupItems(items: Collection<BackupItem>) {
+        // 「所有可备份内容」优先：同时存在其它选项时忽略它们
+        val normalized = if (BackupItem.ALL in items) setOf(BackupItem.ALL) else items.toSet()
+        localBackupSelection.update { it.copy(items = normalized) }
+    }
+
+    fun updateLocalRestoreMode(item: BackupItem, mode: RestoreMode) {
+        localBackupSelection.update { it.copy(modes = it.modes + (item to mode)) }
     }
 
     fun loadBackupFileItems() {
@@ -94,17 +108,20 @@ class BackupVM(
     }
 
     suspend fun exportToFile(): File {
+        // 导出只看勾选：本地文件不需要“恢复方式”
         val file = webDavSync.prepareBackupFile(
-            settings.value.webDavConfig.copy(items = localBackupItems.value)
+            settings.value.webDavConfig.copy(items = localBackupSelection.value.items.toList())
         )
         recordBackupTime()
         return file
     }
 
     suspend fun restoreFromLocalFile(file: File) {
+        val selection = localBackupSelection.value
         webDavSync.restoreFromLocalFile(
             file,
-            settings.value.webDavConfig.copy(items = localBackupItems.value),
+            settings.value.webDavConfig.copy(items = selection.effectiveItems.toList()),
+            selection.modes,
         )
     }
 
@@ -214,6 +231,7 @@ class BackupVM(
     }
 
     suspend fun restoreFromS3(item: S3BackupItem) {
+        // 远程备份的恢复方式固定：对话/子代理合并，其余覆盖
         s3Sync.restoreFromS3(config = settings.value.s3Config, item = item)
     }
 
