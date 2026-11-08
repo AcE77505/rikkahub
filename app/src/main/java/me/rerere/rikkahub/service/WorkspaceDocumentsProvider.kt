@@ -423,7 +423,8 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
             .forEach { child ->
                 val rel = if (relPath.isEmpty()) child.name else "$relPath/${child.name}"
                 // 符号链接不跟随：canonicalFile 会解析到 /data/app 之类的目录之外
-                if (java.nio.file.Files.isSymbolicLink(child.toPath())) return@forEach
+                val isSymlink = runCatching { child.canonicalPath != child.absolutePath }.getOrDefault(false)
+                if (isSymlink) return@forEach
                 addFileRow(
                     cursor = cursor,
                     documentId = buildId(rel),

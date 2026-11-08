@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
@@ -91,10 +92,16 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
 @Composable
-fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
+fun ChatPage(
+    id: Uuid,
+    text: String?,
+    files: List<Uri>,
+    nodeId: Uuid? = null,
+    presetGroupId: String? = null,
+) {
     val vm: ChatVM = koinViewModel(
         parameters = {
-            parametersOf(id.toString())
+            parametersOf(id.toString(), presetGroupId)
         }
     )
     val filesManager: FilesManager = koinInject()
@@ -291,6 +298,7 @@ private fun ChatPageContent(
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     var showFilesSheet by remember { mutableStateOf(false) }
+    var showNewChatPresetDialog by remember { mutableStateOf(false) }
     val attachmentPickerActions = rememberChatAttachmentPickerActions(
         inputState = inputState,
         setting = setting,
@@ -329,7 +337,11 @@ private fun ChatPageContent(
                     drawerState = drawerState,
                     previewMode = previewMode,
                     onNewChat = {
-                        navigateToChatPage(navController)
+                        if (assistant.presetMessageGroups.isNotEmpty()) {
+                            showNewChatPresetDialog = true
+                        } else {
+                            navigateToChatPage(navController)
+                        }
                     },
                     onClickMenu = {
                         previewMode = !previewMode
@@ -482,7 +494,51 @@ private fun ChatPageContent(
                 onDismiss = { showFilesSheet = false },
             )
         }
+
+        if (showNewChatPresetDialog) {
+            NewChatPresetDialog(
+                assistant = assistant,
+                onDismiss = { showNewChatPresetDialog = false },
+                onSelect = { groupId ->
+                    showNewChatPresetDialog = false
+                    navigateToChatPage(navController, presetGroupId = groupId)
+                },
+            )
+        }
     }
+}
+
+@Composable
+private fun NewChatPresetDialog(
+    assistant: Assistant,
+    onDismiss: () -> Unit,
+    onSelect: (Uuid?) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.chat_page_new_chat_preset_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { onSelect(null) }) {
+                    Text(stringResource(R.string.chat_page_new_chat_preset_default))
+                }
+                assistant.presetMessageGroups.forEach { group ->
+                    TextButton(onClick = { onSelect(group.id) }) {
+                        Text(
+                            group.title.ifBlank {
+                                stringResource(R.string.assistant_page_preset_group_untitled)
+                            }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
 }
 
 @Composable

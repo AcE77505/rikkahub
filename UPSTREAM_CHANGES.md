@@ -1,10 +1,11 @@
 # 相对上游的改动说明
 
-本文档记录当前工作树相对上游基线 `6304a995`（`feat(memory): 新增记忆整理模型设置`）的全部改动，便于后续维护和向上游同步。
+本文档记录当前 fork 相对 `upstream/master` 的改动，便于后续维护和向上游同步。
 
 - 远程：`origin` 是个人 fork（`AcE77505/rikkahub`），`upstream` 是原项目（`rikkahub/rikkahub`）。
-- 当前全部改动均**未提交**：34 个已跟踪文件修改（`+2338 / -417`），另有 11 个新增文件（含 6 个 SSH 命令模板 assets）。
-- `git diff --stat` 不包含未跟踪的新文件，新增文件在下面单独列出。
+- 截至 2026-11-08，`master` 已领先 `upstream/master` 60 个提交；下文的 SSH 工作区、工作区工具/提示词、记忆编辑章节是此前已经提交的历史改动。
+- 本批次（2026-11-08）：36 个已跟踪文件修改（`+976 / -189`），另有 4 个新增 Kotlin 文件和 1 个 issue 草稿；不含构建产物，详见第 5 节。
+- 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
 ---
 
@@ -19,6 +20,11 @@
 | 工作区提示词 | 单模板按声明渲染 1～2 段，设置页实时预览 | `WorkspaceReminderTransformer`、`SettingWorkspacePromptPage` |
 | 记忆文件 | 结构化条目编辑、拖动排序、多选删除、路径修改、预览性能 | `MemoryBlocks`、`MemoryFilePage`、`MemoryRepository` |
 | 兼容性 | 旧工具名别名、旧审批 key、历史消息渲染 | `LEGACY_WORKSPACE_TOOL_ALIASES`、`ToolUI`、`ChatNotificationManager` |
+| API 24 兼容 | minSdk 24、desugaring、API 26 接口替代 | `app/build.gradle.kts`、`SymlinkCompat`、`AudioFocusController`、`WorkspaceFileSystem` |
+| 助手预设 | 多组系统提示词、多组预设对话、新建对话选组 | `Assistant.kt`、`AssistantPromptPage`、`ChatPage`、`ChatService` |
+| 助手导出/导入 | 原生助手 JSON、第三方对话配置 | `AssistantSerializer`、`AssistantImporter` |
+| 助手配置工具 | AI 读写其他助手 | `AssistantConfigTools`、`LocalTools` |
+| 工作区/工具链 | shell 硬超时、su 直通 shim | `WorkspaceRepository`、`ToolchainManager` |
 
 ---
 
@@ -180,6 +186,7 @@
 7. **构建环境**
    - 本机已安装 pnpm（12.15.0）并执行过 `web-ui` 的 `pnpm install`；完整构建可直接运行 `./gradlew :app:assembleGithubRelease`。
    - 没有 pnpm 的环境仍可用 `-x :web:buildWebUi` 跳过 Web UI 构建，但这会影响内置 Web UI 静态资源。
+   - minSdk 已降到 24，构建依赖 core library desugaring；不要关闭 `isCoreLibraryDesugaringEnabled`，否则 `java.time` 在 API 24/25 上会崩。
 
 8. **SSH 密钥与命令模板**
    - 命令模板在 `workspace/src/main/assets/ssh/`：`termux_setup.sh`、`termux_start.sh`、`termux_reconnect.sh`、`linux_setup.sh`、`linux_start.sh`、`linux_reconnect.sh`。占位符为 `{{public_key}}`、`{{port}}`、`{{start_script}}`；改命令只改 assets，不触发 Kotlin 重编译。
@@ -190,9 +197,74 @@
    - 初始化/重连命令里的 `pgrep -x sshd || sshd` 不会重启已经运行的 sshd，因此多台设备可以同时连接同一个远端。
    - 工作区配置（host/port/username/root）可以通过备份恢复，但私钥不一定随备份迁移；换设备通常需要重新执行该设备的初始化命令，或手动导入同一对 `id_ed25519`。
 
+9. **API 24 下限**
+   - 新增代码不要直接使用 `java.nio.file`、`Process.waitFor(timeout, unit)`、`AudioFocusRequest` 等 API 26+ 接口；优先复用 `SymlinkCompat`、`AudioFocusController`、`exitValue()` 轮询。
+   - `WorkspaceFileSystem` 的 glob 是自实现，语义与 `PathMatcher` 接近但不完全等价（例如字符类范围、复杂转义），改匹配逻辑时要补测试。
+
+10. **助手预设**
+    - `presetMessages` 仍是没有分组时的兼容来源；新数据使用 `presetMessageGroups`。
+    - 新建对话传入的 `presetGroupId` 只影响本次创建，不写回助手的默认组。
+    - 有效系统提示词一律走 `effectiveSystemPrompt()`；没有选中预设时回退 `systemPrompt`。
+
+11. **assistant_config 工具**
+    - 只允许改其他助手；当前助手 id 在构建工具时传入并校验。
+    - `update_assistant` 的数组字段是 upsert，不是整体替换；只有 `replace_*` 才清空原列表。
+    - 长文本通过本地文件路径传递，避免 provider 的工具参数大小限制。
+
+12. **su 与工具链**
+    - `$PREFIX/su-shim/su` 是直通系统 su 的符号链接，必须排在工具链 `bin` 之前；否则 `su -c '复合命令'` 会再次命中 termex 的包装脚本。
+    - `SU_COMMAND` / `SU_ARGUMENTS` 继续注入，`su2` 依赖它们；不要把工具链 `bin/su` 移到 PATH 前面。
+
 ---
 
-## 5. 本次未包含的改动
+## 5. 2026-11-08 批次
+
+### 5.1 Android 7.0（API 24）兼容
+
+`minSdk` 从 26 降到 24（app、library convention、baselineprofile；search 从 23 升到 24），并启用 core library desugaring（`com.android.tools:desugar_jdk_libs:2.1.5`）。API 26+ 才有的接口改为兼容实现：
+
+| 文件 | 改动 |
+|---|---|
+| `app/build.gradle.kts`、`build-logic/.../AndroidLibraryConventionPlugin.kt`、`search/build.gradle.kts`、`app/baselineprofile/build.gradle.kts` | minSdk 24；打开 `isCoreLibraryDesugaringEnabled`，加 `desugar-jdk-libs` |
+| `workspace/.../SymlinkCompat.kt`（新增） | API 26+ 用 `Files.createSymbolicLink`，24/25 回退 `ln -s` |
+| `ToolchainManager.kt` | 符号链接判断/创建改用 `SymlinkCompat` |
+| `WorkspaceFileSystem.kt` | 去掉 `java.nio.file`；`walkTopDown` 不跟随符号链接；自带 glob→regex（`*`、`**`、`?`、`[abc]`、`{a,b}`、转义） |
+| `WorkspaceDocumentsProvider.kt` | 符号链接判断改用 `canonicalPath` 比较 |
+| `BackupManager.kt`、`PendingRestore.kt` | 临时目录改用 `File.createTempFile` + 删除后 `mkdirs`；移动优先 `renameTo`，失败再 copy/delete |
+| `AudioFocusController.kt`（新增） | API 26+ `AudioFocusRequest`，24/25 回退 `requestAudioFocus(listener, STREAM_VOICE_CALL, ...)`；`ASR.kt`、`VoiceMode.kt` 统一使用 |
+| `AppLogo.kt` | `AdaptiveIconDrawable` 加 API 26 判断 |
+| `WorkspaceShellRunner.kt` | 用 `exitValue()` 轮询替代 `waitFor(timeout, unit)`；`destroyForcibly` 加 API 26 判断 |
+| `RikkaHubApp.kt`、`SettingWebPage.kt` | 启动前台服务改用 `ContextCompat.startForegroundService` |
+
+### 5.2 助手提示词与对话预设
+
+- `Assistant` 新增 `systemPromptPresets` / `defaultSystemPromptPresetId` 与 `presetMessageGroups` / `defaultPresetMessageGroupId`，以及 `effectiveSystemPrompt()`、`presetMessagesFor()`、`activePresetMessages()` 等辅助函数；没有分组时继续使用旧的 `presetMessages`。
+- `ChatRequestFactory` 使用有效系统提示词；助手详情页摘要同步。
+- `AssistantPromptPage` 支持提示词预设的切换、重命名、删除、新建和内容编辑，以及预设对话组的管理。
+- 新建对话时，如果助手配置了多组预设对话，`ChatPage` 先弹出组选择；`RouteActivity`、`ChatVM`、`ViewModelModule`、`navigateToChatPage` 传递 `presetGroupId`，`ChatService.newConversation` 按组插入消息。
+- 助手列表新增导出；`AssistantSerializer` 负责原生助手 JSON 导出/解码（清理本机专属引用，保留提示词、预设、正则和生成参数）；`AssistantImporter` 优先识别原生导出，并支持第三方「对话配置」（`data.systemPresets` / `data.systemPromptPresets`）。
+- 中英文字符串同步。
+
+### 5.3 助手配置 AI 工具
+
+- 新增 `LocalToolOption.AssistantConfig`（`assistant_config`，设置页「工具」里默认关闭的开关）。
+- `AssistantConfigTools.kt` 提供 `list_assistants` / `get_assistant` / `update_assistant`：
+  - 只能读取/修改当前会话之外的助手，当前助手禁止修改；
+  - `update_assistant` 的标量字段可选，`system_prompt_presets` / `preset_message_groups` 按 id/title upsert，另有 `replace_*` / `delete_*`；
+  - 长提示词或预设对话可传绝对文件路径（`system_prompt_file` / `prompt_file` / `messages_file`），避免工具参数大小限制。
+- `LocalTools.getTools` 新增 `currentAssistantId`，`ChatToolFactory` 传入；只有开关开启且存在当前助手时才挂载。
+
+### 5.4 工作区与工具链
+
+- shell 工具的 `overtime` 改为硬超时：调用方显式传入时，到点停止并返回结果，不受全局 `shellAutoStopOnOvertime` 影响（`WorkspaceRepository` 两处）。
+- 工具链 su：
+  - 注入 `SU_COMMAND`（系统 PATH 探测到的真实 su）与 `SU_ARGUMENTS`，供 termex 的 `su2` / `sudo` 使用；
+  - 新增 `$PREFIX/su-shim/su` 直通系统 su，并置于工具链 `bin` 之前，绕过 termex `su` 脚本对含空格 `-c` 参数的字段分割缺陷；
+  - 找不到 su 时不创建 shim，行为保持原样。
+
+---
+
+## 6. 本次未包含的改动
 
 以下内容属于构建/本地环境，不进入 Git 工作树，故未列在文件清单中：
 

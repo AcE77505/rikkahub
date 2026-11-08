@@ -25,6 +25,7 @@
   <string name="assistant_extensions_page_goto_prompts">Go to Prompts</string>
   <string name="assistant_extensions_page_title">Extensions</string>
   <string name="assistant_importer_import_failed">Import failed</string>
+  <string name="assistant_importer_default_name">Imported Assistant</string>
   <string name="assistant_importer_import_tavern_json">Import Tavern Character Card (JSON)</string>
   <string name="assistant_importer_import_tavern_png">Import Tavern Character Card (PNG)</string>
   <string name="assistant_importer_importing">Importing...</string>
@@ -55,6 +56,8 @@
   <string name="assistant_page_chat_model">Chat Model</string>
   <string name="assistant_page_chat_model_desc">Set the default chat model for the assistant. If not set, the global default chat model will be used</string>
   <string name="assistant_page_clone">Clone</string>
+  <string name="assistant_page_export">Export</string>
+  <string name="assistant_page_export_failed">Export failed</string>
   <string name="assistant_page_confirm">Confirm</string>
   <string name="assistant_page_creative">Creative</string>
   <string name="assistant_page_current_assistant">Current Assistant</string>
@@ -97,6 +100,17 @@
   <string name="assistant_page_name">Assistant Name</string>
   <string name="assistant_page_preset_messages">Preset Chat Messages</string>
   <string name="assistant_page_preset_messages_desc">Set initial conversation messages</string>
+  <string name="assistant_page_preset_message_delete_confirm">Delete this preset chat message?</string>
+  <string name="assistant_page_preset_group">Dialogue Group</string>
+  <string name="assistant_page_preset_group_none">None</string>
+  <string name="assistant_page_preset_group_untitled">Untitled</string>
+  <string name="assistant_page_preset_group_default">Default</string>
+  <string name="assistant_page_preset_group_new">New Dialogue Group</string>
+  <string name="assistant_page_preset_group_name">Dialogue group name</string>
+  <string name="assistant_page_preset_group_delete_confirm">Delete this dialogue group?</string>
+  <string name="assistant_page_prompt_preset_new">New Prompt Preset</string>
+  <string name="assistant_page_prompt_preset_name">Prompt preset name</string>
+  <string name="assistant_page_prompt_preset_delete_confirm">Delete this prompt preset?</string>
   <string name="assistant_page_quick_message_content">Content</string>
   <string name="assistant_page_quick_message_title">Title</string>
   <string name="assistant_page_quick_messages">Quick Messages</string>
@@ -118,7 +132,9 @@
   <string name="assistant_page_stream_output">Stream Output</string>
   <string name="assistant_page_stream_output_desc">Whether to enable streaming output for messages</string>
   <string name="assistant_page_strict">Strict</string>
-  <string name="assistant_page_system_prompt">System Prompt</string>
+  <string name="assistant_page_system_prompt">Content</string>
+  <string name="assistant_page_system_prompt_presets">Prompt Presets</string>
+  <string name="assistant_page_system_prompt_custom">Custom</string>
   <string name="assistant_page_tab_basic">Basic Settings</string>
   <string name="assistant_page_tab_extensions">Extensions</string>
   <string name="assistant_page_tab_local_tools">Local Tools</string>
@@ -281,6 +297,8 @@
   <string name="chat_page_message_count">%d messages</string>
   <string name="chat_page_move_to_assistant">Move to Assistant</string>
   <string name="chat_page_new_chat">New Chat</string>
+  <string name="chat_page_new_chat_preset_title">Choose Dialogue Group</string>
+  <string name="chat_page_new_chat_preset_default">Use Default Group</string>
   <string name="chat_page_new_message">New message</string>
   <string name="chat_page_nickname_placeholder">Please enter nickname</string>
   <string name="chat_page_no_conversations">No conversations</string>
@@ -1193,6 +1211,8 @@
   <string name="workspace_tool_edit_file_desc">Make precise edits to existing files. Requires Read File.</string>
   <string name="workspace_tool_shell">Run Commands</string>
   <string name="workspace_tool_shell_desc">Execute shell commands in the workspace directory</string>
+  <string name="tool_assistant_config">Modify Other Assistants</string>
+  <string name="tool_assistant_config_desc">Let the AI read and edit other assistants\' names, prompts and generation settings. The current assistant cannot be modified.</string>
   <string name="workspace_page_title">Workspace</string>
   <string name="workspace_page_create">Create Workspace</string>
   <string name="workspace_page_rename">Rename Workspace</string>

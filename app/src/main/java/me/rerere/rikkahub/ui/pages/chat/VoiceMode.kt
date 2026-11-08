@@ -1,9 +1,6 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +28,7 @@ import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalASRState
 import me.rerere.rikkahub.ui.context.LocalTTSState
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.utils.AudioFocusController
 import me.rerere.rikkahub.utils.extractQuotedContentAsText
 import me.rerere.rikkahub.utils.removeBracketedContent
 import me.rerere.rikkahub.utils.stripMarkdown
@@ -138,18 +136,10 @@ private fun createVoiceAsr(context: Context, client: OkHttpClient, provider: ASR
         }
         else -> error(context.getString(R.string.chat_page_voice_no_endpointing))
     }
-    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-        )
-        .build()
+    val audioFocus = AudioFocusController(context)
     return object : ASRController by delegate {
         override fun start(onTranscriptChange: (String) -> Unit) {
-            check(audioManager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            check(audioFocus.request()) {
                 "Unable to acquire audio focus for the microphone. Try again later."
             }
             delegate.start(onTranscriptChange)
@@ -159,7 +149,7 @@ private fun createVoiceAsr(context: Context, client: OkHttpClient, provider: ASR
             try {
                 delegate.dispose()
             } finally {
-                audioManager.abandonAudioFocusRequest(focus)
+                audioFocus.abandon()
             }
         }
     }

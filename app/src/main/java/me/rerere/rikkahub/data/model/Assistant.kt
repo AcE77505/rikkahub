@@ -22,6 +22,9 @@ data class Assistant(
     val useAssistantAvatar: Boolean = false, // 使用助手头像替代模型头像
     val tags: List<Uuid> = emptyList(),
     val systemPrompt: String = "",
+    // 多组系统提示词预设；defaultSystemPromptPresetId 为空时使用上面的 systemPrompt
+    val systemPromptPresets: List<SystemPromptPreset> = emptyList(),
+    val defaultSystemPromptPresetId: Uuid? = null,
     val temperature: Float? = null,
     val topP: Float? = null,
     // 上下文消息条数上限, 超出后阶梯式截断; 0 表示不限制
@@ -33,6 +36,9 @@ data class Assistant(
     val enableRecentChatsReference: Boolean = false,
     val messageTemplate: String = "{{ message }}",
     val presetMessages: List<UIMessage> = emptyList(),
+    // 多组预设对话；defaultPresetMessageGroupId 为空表示不应用任何预设对话
+    val presetMessageGroups: List<PresetMessageGroup> = emptyList(),
+    val defaultPresetMessageGroupId: Uuid? = null,
     val quickMessageIds: Set<Uuid> = emptySet(),
     val regexes: List<AssistantRegex> = emptyList(),
     val reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
@@ -54,6 +60,44 @@ data class Assistant(
     val timeReminderIntervalMinutes: Int = 60, // 时间提醒间隔（分钟，至少 1 分钟）
     val allowConversationSystemPrompt: Boolean = false, // 允许对话单独重写 system prompt
 )
+
+@Serializable
+data class PresetMessageGroup(
+    val id: Uuid = Uuid.random(),
+    val title: String = "",
+    val messages: List<UIMessage> = emptyList(),
+)
+
+@Serializable
+data class SystemPromptPreset(
+    val id: Uuid = Uuid.random(),
+    val title: String = "",
+    val prompt: String = "",
+)
+
+/** 当前生效的预设对话组；返回 null 表示这个助手不使用预设对话 */
+fun Assistant.activePresetMessageGroup(): PresetMessageGroup? {
+    if (presetMessageGroups.isEmpty()) return null
+    return presetMessageGroups.firstOrNull { it.id == defaultPresetMessageGroupId }
+}
+
+/** 指定组的预设消息；groupId 为空时使用助手默认组。旧数据没有分组时继续使用 presetMessages */
+fun Assistant.presetMessagesFor(groupId: Uuid?): List<UIMessage> {
+    if (presetMessageGroups.isEmpty()) return presetMessages
+    val target = groupId ?: defaultPresetMessageGroupId
+    return presetMessageGroups.firstOrNull { it.id == target }?.messages.orEmpty()
+}
+
+/** 新会话开头要插入的消息 */
+fun Assistant.activePresetMessages(): List<UIMessage> = presetMessagesFor(null)
+
+/** 当前生效的系统提示词；没有选中预设时回退到 systemPrompt */
+fun Assistant.effectiveSystemPrompt(): String {
+    return systemPromptPresets
+        .firstOrNull { it.id == defaultSystemPromptPresetId }
+        ?.prompt
+        ?: systemPrompt
+}
 
 @Serializable
 data class QuickMessage(

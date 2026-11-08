@@ -25,7 +25,6 @@ import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.files.MediaCreationFiles
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.file.Files
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
@@ -44,7 +43,9 @@ class BackupManager(
     suspend fun createBackup(includeDatabase: Boolean, includeFiles: Boolean): File = withContext(Dispatchers.IO) {
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
         val archive = File.createTempFile("backup_${timestamp}_", ".zip", context.cacheDir)
-        val staging = Files.createTempDirectory(context.cacheDir.toPath(), "backup-").toFile()
+        val staging = File.createTempFile("backup-", "", context.cacheDir).apply {
+            check(delete() && mkdirs()) { "Cannot create backup staging directory" }
+        }
         try {
             val settings = settingsStore.awaitLoaded()
             ZipOutputStream(FileOutputStream(archive)).use { zip ->

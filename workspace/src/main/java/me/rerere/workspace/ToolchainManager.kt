@@ -6,7 +6,6 @@ import android.os.Build
 import android.util.Log
 import java.io.File
 import java.io.IOException
-import java.nio.file.Files
 import java.util.zip.ZipFile
 
 /** 一次工具链解析结果，供 [WorkspaceShellContext] 注入环境变量与探针描述 */
@@ -177,17 +176,17 @@ class ToolchainManager(
      * 里面的可执行文件属主是 system，直接 exec 即可，不需要复制 13 MB。
      */
     private fun linkBin(binDir: File, nativeLibraryDir: File) {
-        if (Files.isSymbolicLink(binDir.toPath())) {
-            val existing = runCatching { Files.readSymbolicLink(binDir.toPath()).toString() }.getOrNull()
+        if (SymlinkCompat.isSymbolicLink(binDir)) {
+            val existing = runCatching { binDir.canonicalPath }.getOrNull()
             if (existing == nativeLibraryDir.absolutePath) return
-            Files.delete(binDir.toPath())
+            binDir.delete()
         }
         if (binDir.exists()) {
             // 之前解压成了实体目录（旧版本行为），换成链接
             binDir.deleteRecursively()
         }
         binDir.parentFile?.mkdirs()
-        runCatching { Files.createSymbolicLink(binDir.toPath(), nativeLibraryDir.toPath()) }
+        SymlinkCompat.create(binDir, nativeLibraryDir)
             .onFailure { Log.w(TAG, "symlink bin failed, tools unavailable", it) }
     }
 
@@ -222,7 +221,7 @@ class ToolchainManager(
                         val linkFile = File(libDir, linkName)
                         linkFile.parentFile?.mkdirs()
                         if (linkFile.exists()) linkFile.delete()
-                        runCatching { Files.createSymbolicLink(linkFile.toPath(), File(target).toPath()) }
+                        SymlinkCompat.create(linkFile, File(target))
                             .onFailure { Log.w(TAG, "symlink lib failed: $linkName", it) }
                     }
 
@@ -308,6 +307,7 @@ class ToolchainManager(
     private fun buildEnvironment(prefixDir: File, binDir: File, libDir: File): ToolchainEnvironment {
         val bash = File(binDir, "bash")
         val etcDir = File(prefixDir, ETC_DIR)
+        val suPath = findSystemSu()
         val extraEnv = buildMap {
             put("PREFIX", prefixDir.absolutePath)
             put(
@@ -317,7 +317,20 @@ class ToolchainManager(
             // OpenSSL 默认已经会去 $PREFIX/etc/ssl 找证书，这里再显式指一遍，
             // 覆盖 git / python 等不读 OPENSSLDIR 的工具
             putAll(etcEnv(etcDir))
+            // bin 里的 su / su2 是 termex 的包装脚本，真正执行的 su 由 SU_COMMAND 指定，
+            // SU_ARGUMENTS 是附加参数；MT 管理器终端也是这么注入的。缺了它们时
+            // su2 会把空字符串当命令执行，报 "0: inaccessible or not found"。
+            // 必须用系统 PATH 解析，不能用工具链 PATH，否则会命中 bin/su 本身。
+            suPath?.let { su ->
+                put("SU_COMMAND", su)
+                put("SU_ARGUMENTS", "")
+            }
         }
+        // termex 的 su 脚本会把 -c 后面的参数拼进未加引号的 $cmd，参数含空格时会被
+        // word splitting 拆开，复合命令报 "id; uname -a: command not found"。
+        // 用一个只含 su 的 shim 目录直通系统 su，放在 bin 之前覆盖包装脚本；
+        // su2 仍由 termex 提供（它原样透传参数，没有这个问题）。
+        val suShimDir = suPath?.let { prepareSuShim(prefixDir, it) }
         val shellPath = bash.absolutePath.takeIf { bash.isFile }
         return ToolchainEnvironment(
             prefixDir = prefixDir,
@@ -325,9 +338,52 @@ class ToolchainManager(
             libDir = libDir,
             shellPath = shellPath,
             extraEnv = extraEnv,
-            pathPrepend = listOf(binDir.absolutePath),
+            pathPrepend = listOfNotNull(suShimDir?.absolutePath, binDir.absolutePath),
             etcDir = etcDir.takeIf { it.isDirectory },
         )
+    }
+
+    /**
+     * 在系统 PATH 里找真实的 su，供 termex 的 su / su2 包装脚本使用。
+     *
+     * Magisk 的 `/sbin/su` 是指向 magisk 的符号链接；KernelSU / APatch 通常把 su 放在
+     * `/system/bin`。这里刻意不走工具链 PATH，避免找到 bin 里 termex 自己的 su 脚本，
+     * 造成 `SU_COMMAND` 指向包装脚本自身的递归。
+     */
+    private fun findSystemSu(): String? {
+        val fromPath = System.getenv("PATH")
+            .orEmpty()
+            .split(':')
+            .filter { it.isNotBlank() }
+        return (fromPath + SYSTEM_BIN_DIRS)
+            .distinct()
+            .asSequence()
+            .map { File(it, "su") }
+            .firstOrNull { it.isFile && it.canExecute() }
+            ?.absolutePath
+    }
+
+    /**
+     * 建一个只含 su 符号链接的目录，让 su 直通系统实现。
+     *
+     * 返回 null 表示创建失败，调用方回退到只把工具链 bin 放进 PATH。
+     */
+    private fun prepareSuShim(prefixDir: File, suPath: String): File? {
+        val shimDir = File(prefixDir, SU_SHIM_DIR)
+        val link = File(shimDir, "su")
+        val target = File(suPath)
+        val unchanged = SymlinkCompat.isSymbolicLink(link) &&
+            runCatching { link.canonicalPath }.getOrNull() ==
+            runCatching { target.canonicalPath }.getOrNull()
+        if (unchanged) return shimDir
+        shimDir.deleteRecursively()
+        shimDir.mkdirs()
+        return SymlinkCompat.create(link, target)
+            .map { shimDir }
+            .getOrElse {
+                Log.w(TAG, "symlink su shim failed", it)
+                null
+            }
     }
 
     /**
@@ -375,6 +431,8 @@ class ToolchainManager(
         private const val BIN_DIR = "bin"
         private const val LIB_DIR = "lib"
         private const val ETC_DIR = "etc"
+        /** 只含 su 直通链接的 shim 目录，放在工具链 bin 之前 */
+        private const val SU_SHIM_DIR = "su-shim"
         private const val MARKER_FILE = ".prepared"
         private const val ASSETS_ETC_PREFIX = "assets/etc/"
 
@@ -393,6 +451,17 @@ class ToolchainManager(
         private const val MAX_PROBE_LINE = 120
 
         private val SUPPORTED_ABIS = setOf("arm64-v8a", "x86_64", "armeabi-v7a", "x86")
+
+        /** 系统 PATH 缺失或不全时的兜底目录，覆盖 Magisk / KernelSU / APatch 的 su 位置 */
+        private val SYSTEM_BIN_DIRS = listOf(
+            "/sbin",
+            "/system/bin",
+            "/system/xbin",
+            "/vendor/bin",
+            "/debug_ramdisk",
+            "/data/adb/ksu/bin",
+            "/data/adb/ap/bin",
+        )
 
         private val PROBES = listOf(
             ProbeSpec("bash", "bash -c 'echo \$BASH_VERSION'"),

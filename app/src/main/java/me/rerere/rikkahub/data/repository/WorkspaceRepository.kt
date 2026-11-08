@@ -423,12 +423,14 @@ class WorkspaceRepository(
         val overtimeSeconds = timeoutSecondsOverride
             ?: settings.shellOvertimeSeconds?.toLong()
             ?: UNLIMITED_OVERTIME
+        // 工具显式指定 overtime 时按硬超时处理：到点停止并回传结果，不受全局自动停止开关影响
+        val autoStopOnOvertime = timeoutSecondsOverride != null || settings.shellAutoStopOnOvertime
         return executeCommand(
             id = id,
             command = command,
             cwd = cwd,
             overtimeMillis = if (overtimeSeconds <= 0) UNLIMITED_OVERTIME else overtimeSeconds * 1_000L,
-            autoStopOnOvertime = settings.shellAutoStopOnOvertime,
+            autoStopOnOvertime = autoStopOnOvertime,
             stdin = stdin,
             overflowFileName = overflowFileName,
             onOvertime = onOvertime,
@@ -452,6 +454,8 @@ class WorkspaceRepository(
         val overtimeSeconds = timeoutSecondsOverride
             ?: settings.shellOvertimeSeconds?.toLong()
             ?: UNLIMITED_OVERTIME
+        // 工具显式指定 overtime 时按硬超时处理：到点停止并回传结果，不受全局自动停止开关影响
+        val autoStopOnOvertime = timeoutSecondsOverride != null || settings.shellAutoStopOnOvertime
         val dir = sandboxDir()
         return runInterruptible(Dispatchers.IO) {
             manager.executeCommandIn(
@@ -459,7 +463,7 @@ class WorkspaceRepository(
                 command = command,
                 cwd = cwd,
                 overtimeMillis = if (overtimeSeconds <= 0) UNLIMITED_OVERTIME else overtimeSeconds * 1_000L,
-                autoStopOnOvertime = settings.shellAutoStopOnOvertime,
+                autoStopOnOvertime = autoStopOnOvertime,
                 stdin = stdin,
                 overflowFileName = overflowFileName,
                 onOvertime = onOvertime,

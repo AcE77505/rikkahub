@@ -31,6 +31,7 @@ val viewModelModule = module {
     viewModel<ChatVM> { params ->
         ChatVM(
             id = params.get(),
+            presetGroupId = params.values.getOrNull(1) as? String,
             context = get(),
             settingsStore = get(),
             chatService = get(),

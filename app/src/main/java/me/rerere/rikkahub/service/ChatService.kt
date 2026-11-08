@@ -72,6 +72,7 @@ import me.rerere.rikkahub.data.model.getStoredAssistantOf
 import me.rerere.rikkahub.data.model.insertContextCheckpoint
 import me.rerere.rikkahub.data.model.isAwaitingToolApproval
 import me.rerere.rikkahub.data.model.localFileUrls
+import me.rerere.rikkahub.data.model.presetMessagesFor
 import me.rerere.rikkahub.data.model.replaceUserRegexes
 import me.rerere.rikkahub.data.model.selectBranch
 import me.rerere.rikkahub.data.model.toMessageNode
@@ -257,8 +258,8 @@ class ChatService(
 
     // ---- 初始化对话 ----
 
-    suspend fun initializeConversation(conversationId: Uuid) {
-        withLoadedSession(conversationId) { session ->
+    suspend fun initializeConversation(conversationId: Uuid, presetGroupId: Uuid? = null) {
+        withLoadedSession(conversationId, presetGroupId = presetGroupId) { session ->
             settingsStore.selectAssistant(session.state.value.assistantId)
         }
     }
@@ -274,26 +275,27 @@ class ChatService(
     private suspend fun <T> withLoadedSession(
         conversationId: Uuid,
         createIfMissing: Boolean = true,
+        presetGroupId: Uuid? = null,
         block: suspend (ConversationSession) -> T,
     ): T = sessionManager.withSession(conversationId) { session ->
         session.initialize(
             load = { loadConversation(conversationId) },
             create = {
                 if (!createIfMissing) throw NotFoundException("Conversation not found")
-                newConversation(conversationId)
+                newConversation(conversationId, presetGroupId)
             },
         )
         block(session)
     }
 
     // 新建对话, 并添加预设消息
-    private suspend fun newConversation(conversationId: Uuid): Conversation {
+    private suspend fun newConversation(conversationId: Uuid, presetGroupId: Uuid? = null): Conversation {
         val assistant = settingsStore.awaitLoaded().getCurrentAssistant()
         return Conversation.ofId(
             id = conversationId,
             assistantId = assistant.id,
             newConversation = true
-        ).updateCurrentMessages(assistant.presetMessages)
+        ).updateCurrentMessages(assistant.presetMessagesFor(presetGroupId))
     }
 
     // 引入会话配置之前创建的会话没有固定配置，加载时按助手当前的值补上，之后不再随助手变化。

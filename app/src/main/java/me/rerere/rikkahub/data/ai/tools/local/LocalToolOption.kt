@@ -37,6 +37,12 @@ sealed class LocalToolOption {
     @SerialName("chart_display")
     data object ChartDisplay : LocalToolOption()
 
+    // 允许 AI 读取/修改其他助手的配置（不能修改当前助手）
+
+    @Serializable
+    @SerialName("assistant_config")
+    data object AssistantConfig : LocalToolOption()
+
     // 工作区工具（全局开关，不再依赖助手绑定工作区）
 
     @Serializable

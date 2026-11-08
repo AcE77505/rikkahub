@@ -1,10 +1,10 @@
 package me.rerere.workspace
 
+import android.os.Build
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.util.concurrent.TimeUnit
 
 interface WorkspaceShellRunner {
     fun execute(context: WorkspaceShellContext): WorkspaceCommandResult
@@ -121,7 +121,7 @@ fun Process.readResult(
         val deadline = if (hasThreshold) System.currentTimeMillis() + overtimeMillis else Long.MAX_VALUE
         var notified = false
         while (true) {
-            if (waitFor(POLL_INTERVAL_MILLIS, TimeUnit.MILLISECONDS)) {
+            if (hasExited()) {
                 finished = true
                 break
             }
@@ -170,8 +170,27 @@ internal fun Process.killProcessGroup() {
             // 子进程是同 uid 的普通进程，直接按 pid 结束即可
             runCatching { android.os.Process.killProcess(pid.toInt()) }
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            destroyForcibly()
+        } else {
+            // Process.destroyForcibly 从 API 26 才有；低版本先 destroy，再按 pid 兜底
+            destroy()
+            runCatching { android.os.Process.killProcess(rootPid.toInt()) }
+        }
+    } else {
+        destroy()
     }
-    destroyForcibly()
+}
+
+/**
+ * 等待最多 [POLL_INTERVAL_MILLIS] 后判断进程是否已退出。
+ *
+ * `Process.waitFor(timeout, unit)` 从 API 26 才有，这里统一用 `exitValue()` 轮询，
+ * 避免低版本上的 NoSuchMethodError。
+ */
+private fun Process.hasExited(): Boolean {
+    Thread.sleep(POLL_INTERVAL_MILLIS)
+    return runCatching { exitValue() }.isSuccess
 }
 
 /** `Process.pid()` 不在 android.jar 的公开签名里，用反射取，取不到就只结束直接子进程 */

@@ -4,10 +4,6 @@ import java.io.File
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
-import java.nio.file.FileSystems
-import java.nio.file.Files
-import java.nio.file.Path
-import kotlin.io.path.name
 
 class WorkspaceFileSystem(
     private val config: WorkspaceConfig = WorkspaceConfig(),
@@ -106,16 +102,15 @@ class WorkspaceFileSystem(
         require(pattern.isNotBlank()) { "Glob pattern is required" }
         val start = resolvePath(root, path)
         require(start.exists()) { "Path does not exist: $path" }
-        val matcher = FileSystems.getDefault().getPathMatcher("glob:$pattern")
-        return walk(start) { paths ->
-            paths
-                .filter { Files.isRegularFile(it) || Files.isDirectory(it) }
-                .filter { !it.toFile().name.startsWith(".l2s.") }
-                .filter { matcher.matches(root.toPath().relativize(it).normalizeForMatch()) }
-                .take(config.maxListEntries)
-                .map { it.toFile().toEntry(root) }
-                .toList()
-        }
+        val matcher = globToRegex(pattern)
+        val rootCanonical = root.canonicalFile
+        return walk(start)
+            .filter { it.isFile || it.isDirectory }
+            .filter { !it.name.startsWith(".l2s.") }
+            .filter { matcher.matches(it.relativePathTo(rootCanonical)) }
+            .take(config.maxListEntries)
+            .map { it.toEntry(root) }
+            .toList()
     }
 
     fun grep(
@@ -133,43 +128,42 @@ class WorkspaceFileSystem(
         val matcher = if (regex) Regex(query, options) else Regex(Regex.escape(query), options)
         val includeMatcher = includeGlob
             ?.takeIf { it.isNotBlank() }
-            ?.let { FileSystems.getDefault().getPathMatcher("glob:$it") }
+            ?.let(::globToRegex)
+        val rootCanonical = root.canonicalFile
 
         val results = mutableListOf<WorkspaceSearchMatch>()
-        walk(start) { paths ->
-            paths
-                .filter { Files.isRegularFile(it) }
-                .filter { !it.toFile().name.startsWith(".l2s.") }
-                .forEach { path ->
-                    if (results.size >= config.maxSearchResults) return@forEach
-                    if (includeMatcher != null &&
-                        !includeMatcher.matches(root.toPath().relativize(path).normalizeForMatch())
-                    ) {
-                        return@forEach
-                    }
-                    val file = path.toFile()
-                    if (file.length() > config.maxReadBytes) return@forEach
-                    file.useLines(StandardCharsets.UTF_8) { lines ->
-                        lines.forEachIndexed { index, line ->
-                            if (results.size >= config.maxSearchResults) return@useLines
-                            if (matcher.containsMatchIn(line)) {
-                                results += WorkspaceSearchMatch(
-                                    path = file.relativePath(root),
-                                    line = index + 1,
-                                    text = line,
-                                )
-                            }
+        walk(start)
+            .filter { it.isFile }
+            .filter { !it.name.startsWith(".l2s.") }
+            .forEach { file ->
+                if (results.size >= config.maxSearchResults) return@forEach
+                if (includeMatcher != null &&
+                    !includeMatcher.matches(file.relativePathTo(rootCanonical))
+                ) {
+                    return@forEach
+                }
+                if (file.length() > config.maxReadBytes) return@forEach
+                file.useLines(StandardCharsets.UTF_8) { lines ->
+                    lines.forEachIndexed { index, line ->
+                        if (results.size >= config.maxSearchResults) return@useLines
+                        if (matcher.containsMatchIn(line)) {
+                            results += WorkspaceSearchMatch(
+                                path = file.relativePath(root),
+                                line = index + 1,
+                                text = line,
+                            )
                         }
                     }
                 }
-        }
+            }
         return results
     }
 
-    private fun <T> walk(start: File, block: (Sequence<Path>) -> T): T =
-        Files.walk(start.toPath()).use { stream ->
-            block(stream.iterator().asSequence())
-        }
+    /**
+     * 深度优先遍历，默认不跟随符号链接（与原 `Files.walk` 行为一致）。
+     */
+    private fun walk(start: File): Sequence<File> =
+        start.walkTopDown().onEnter { dir -> dir == start || !isSymbolicLink(dir) }
 
     private fun resolvePath(root: File, path: String): File {
         root.mkdirs()
@@ -206,9 +200,78 @@ class WorkspaceFileSystem(
         return File(parentCanonical, name).relativeTo(rootCanonical).path.replace(File.separatorChar, '/')
     }
 
-    private fun Path.normalizeForMatch(): Path =
-        FileSystems.getDefault().getPath(relativeToString())
+    private fun File.relativePathTo(root: File): String =
+        relativeTo(root).path.replace(File.separatorChar, '/')
+}
 
-    private fun Path.relativeToString(): String =
-        joinToString("/") { it.name }
+private fun isSymbolicLink(file: File): Boolean =
+    runCatching { file.canonicalPath != file.absolutePath }.getOrDefault(false)
+
+/**
+ * 把 glob 转成匹配 POSIX 相对路径（`/` 分隔）的正则。
+ *
+ * `java.nio.file.PathMatcher` 从 API 26 才有，而 core library desugaring 不覆盖
+ * `java.nio.file`，所以这里自己实现常用的 glob 语义：`*`、`**`、`?`、`[abc]`、
+ * `{a,b}` 与 `\` 转义。
+ */
+private fun globToRegex(glob: String): Regex {
+    val pattern = StringBuilder("^")
+    var i = 0
+    while (i < glob.length) {
+        val c = glob[i]
+        when {
+            c == '\\' && i + 1 < glob.length -> {
+                i++
+                pattern.append(Regex.escape(glob[i].toString()))
+            }
+
+            c == '*' -> {
+                if (i + 1 < glob.length && glob[i + 1] == '*') {
+                    i++
+                    if (i + 1 < glob.length && glob[i + 1] == '/') {
+                        i++
+                        // **/ 可以匹配零个目录
+                        pattern.append("(?:.*/)?")
+                    } else {
+                        pattern.append(".*")
+                    }
+                } else {
+                    pattern.append("[^/]*")
+                }
+            }
+
+            c == '?' -> pattern.append("[^/]")
+
+            c == '[' -> {
+                val end = glob.indexOf(']', i + 1)
+                if (end == -1) {
+                    pattern.append("\\[")
+                } else {
+                    val body = glob.substring(i + 1, end).let {
+                        if (it.startsWith("!")) "^" + it.substring(1) else it
+                    }
+                    pattern.append('[').append(body.replace("\\", "\\\\")).append(']')
+                    i = end
+                }
+            }
+
+            c == '{' -> {
+                val end = glob.indexOf('}', i + 1)
+                if (end == -1) {
+                    pattern.append("\\{")
+                } else {
+                    val alternatives = glob.substring(i + 1, end).split(',')
+                    pattern.append("(?:")
+                    pattern.append(alternatives.joinToString("|") { Regex.escape(it) })
+                    pattern.append(')')
+                    i = end
+                }
+            }
+
+            else -> pattern.append(Regex.escape(c.toString()))
+        }
+        i++
+    }
+    pattern.append('$')
+    return Regex(pattern.toString())
 }

@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.components.ui
 import android.graphics.Rect
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
@@ -31,7 +32,12 @@ fun rememberAppLogoLayers(): List<Drawable> {
     val context = LocalContext.current
     return remember(context) {
         val icon = ContextCompat.getDrawable(context, R.mipmap.ic_launcher)
-        if (icon is AdaptiveIconDrawable) listOfNotNull(icon.background, icon.foreground) else listOfNotNull(icon)
+        // AdaptiveIconDrawable 及其 background/foreground 都是 API 26+，低版本只会拿到普通位图图标
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && icon is AdaptiveIconDrawable) {
+            listOfNotNull(icon.background, icon.foreground)
+        } else {
+            listOfNotNull(icon)
+        }
     }
 }
 

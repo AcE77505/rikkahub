@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.stroke.Stop
@@ -109,7 +110,7 @@ fun SettingWebPage() {
             putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
             putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
         }
-        context.startForegroundService(intent)
+        ContextCompat.startForegroundService(context, intent)
         scope.launch {
             settingsStore.update { it.copy(webServerEnabled = true) }
         }

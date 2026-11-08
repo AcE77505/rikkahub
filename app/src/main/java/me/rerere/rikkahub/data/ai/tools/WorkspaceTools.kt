@@ -335,8 +335,9 @@ private fun createShellTool(
                     put("type", "integer")
                     put(
                         "description",
-                        "Optional overtime notice threshold in seconds for this call, replacing the global setting. " +
-                            "This does not stop the command unless auto-stop is enabled."
+                        "Optional timeout in seconds for this call, replacing the global setting. " +
+                            "When set, the command is stopped and its output returned once the time is up, " +
+                            "regardless of the global auto-stop setting."
                     )
                 })
             },

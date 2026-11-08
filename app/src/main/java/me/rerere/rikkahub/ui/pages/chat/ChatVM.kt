@@ -54,6 +54,7 @@ private const val TAG = "ChatVM"
 
 class ChatVM(
     id: String,
+    presetGroupId: String? = null,
     private val context: Application,
     private val settingsStore: SettingsStore,
     private val chatService: ChatService,
@@ -90,9 +91,10 @@ class ChatVM(
         // 添加对话引用
         chatService.addConversationReference(_conversationId)
 
-        // 初始化对话
+        // 初始化对话；如果是从「新建对话」入口选了预设组，只在本次创建时覆盖默认组
+        val presetGroupUuid = presetGroupId?.let { runCatching { Uuid.parse(it) }.getOrNull() }
         viewModelScope.launch {
-            chatService.initializeConversation(_conversationId)
+            chatService.initializeConversation(_conversationId, presetGroupUuid)
         }
 
         // 记住对话ID, 方便下次启动恢复

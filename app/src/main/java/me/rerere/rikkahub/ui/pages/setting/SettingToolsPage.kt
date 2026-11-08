@@ -160,6 +160,13 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         title = R.string.workspace_tool_shell,
                         description = R.string.workspace_tool_shell_desc,
                     )
+                    toolSwitch(
+                        checked = LocalToolOption.AssistantConfig in settings.localTools,
+                        onCheckedChange = { toggleTool(LocalToolOption.AssistantConfig, it) },
+                        icon = HugeIcons.Tools,
+                        title = R.string.tool_assistant_config,
+                        description = R.string.tool_assistant_config_desc,
+                    )
                 }
             }
 

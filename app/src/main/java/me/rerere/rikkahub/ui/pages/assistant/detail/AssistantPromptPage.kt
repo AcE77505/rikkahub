@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -33,6 +34,7 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -45,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.key
@@ -78,6 +81,9 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.AssistantRegex
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.PresetMessageGroup
+import me.rerere.rikkahub.data.model.SystemPromptPreset
+import me.rerere.rikkahub.data.model.effectiveSystemPrompt
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -160,18 +166,142 @@ private fun AssistantPromptContent(
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        val promptPresets = assistant.systemPromptPresets
+        val activePromptPreset = promptPresets.firstOrNull { it.id == assistant.defaultSystemPromptPresetId }
+        val newPromptPresetTitle = stringResource(R.string.assistant_page_prompt_preset_new)
+        val promptPresetNameLabel = stringResource(R.string.assistant_page_prompt_preset_name)
+
         CardGroup {
             formItem {
-                val systemPromptValue = rememberTextFieldState(
-                    initialText = assistant.systemPrompt,
-                )
-                LaunchedEffect(Unit) {
-                    snapshotFlow { systemPromptValue.text }.collect {
-                        onUpdate(
-                            assistant.copy(
-                                systemPrompt = it.toString()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.assistant_page_system_prompt_presets),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Select(
+                        options = listOf<SystemPromptPreset?>(null) + promptPresets,
+                        selectedOption = activePromptPreset,
+                        onOptionSelected = { preset ->
+                            onUpdate(
+                                assistant.copy(
+                                    defaultSystemPromptPresetId = preset?.id,
+                                    systemPrompt = preset?.prompt ?: assistant.systemPrompt,
+                                )
                             )
+                        },
+                        optionToString = { preset ->
+                            when {
+                                preset == null -> stringResource(R.string.assistant_page_system_prompt_custom)
+                                preset.title.isBlank() -> stringResource(R.string.assistant_page_preset_group_untitled)
+                                else -> preset.title
+                            }
+                        },
+                        modifier = Modifier.width(180.dp),
+                    )
+                }
+                val selectedPreset = activePromptPreset
+                if (selectedPreset != null) {
+                    var confirmDeletePreset by remember(selectedPreset.id) { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = selectedPreset.title,
+                            onValueChange = { title ->
+                                onUpdate(
+                                    assistant.copy(
+                                        systemPromptPresets = promptPresets.map {
+                                            if (it.id == selectedPreset.id) it.copy(title = title) else it
+                                        }
+                                    )
+                                )
+                            },
+                            label = { Text(promptPresetNameLabel) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
                         )
+                        IconButton(
+                            onClick = { confirmDeletePreset = true }
+                        ) {
+                            Icon(HugeIcons.Cancel01, stringResource(R.string.delete))
+                        }
+                    }
+                    if (confirmDeletePreset) {
+                        RikkaConfirmDialog(
+                            show = true,
+                            title = stringResource(R.string.delete),
+                            confirmText = stringResource(R.string.delete),
+                            dismissText = stringResource(R.string.cancel),
+                            onConfirm = {
+                                confirmDeletePreset = false
+                                val remaining = promptPresets.filterNot { it.id == selectedPreset.id }
+                                onUpdate(
+                                    assistant.copy(
+                                        systemPromptPresets = remaining,
+                                        defaultSystemPromptPresetId = remaining.firstOrNull()?.id,
+                                        systemPrompt = remaining.firstOrNull()?.prompt ?: assistant.systemPrompt,
+                                    )
+                                )
+                            },
+                            onDismiss = { confirmDeletePreset = false },
+                        ) {
+                            Text(stringResource(R.string.assistant_page_prompt_preset_delete_confirm))
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            val newPreset = SystemPromptPreset(
+                                title = newPromptPresetTitle,
+                                prompt = assistant.systemPrompt,
+                            )
+                            onUpdate(
+                                assistant.copy(
+                                    systemPromptPresets = promptPresets + newPreset,
+                                    defaultSystemPromptPresetId = newPreset.id,
+                                )
+                            )
+                        },
+                    ) {
+                        Text(newPromptPresetTitle)
+                    }
+                }
+            }
+            formItem {
+                val latestAssistant by rememberUpdatedState(assistant)
+                val systemPromptValue = rememberTextFieldState(
+                    initialText = assistant.effectiveSystemPrompt(),
+                )
+                LaunchedEffect(assistant.id, assistant.defaultSystemPromptPresetId) {
+                    val target = latestAssistant.effectiveSystemPrompt()
+                    if (systemPromptValue.text.toString() != target) {
+                        systemPromptValue.setTextAndPlaceCursorAtEnd(target)
+                    }
+                }
+                LaunchedEffect(Unit) {
+                    snapshotFlow { systemPromptValue.text }.collect { text ->
+                        val value = text.toString()
+                        val current = latestAssistant
+                        val presetId = current.defaultSystemPromptPresetId
+                        if (presetId != null) {
+                            onUpdate(
+                                current.copy(
+                                    systemPrompt = value,
+                                    systemPromptPresets = current.systemPromptPresets.map { preset ->
+                                        if (preset.id == presetId) preset.copy(prompt = value) else preset
+                                    },
+                                )
+                            )
+                        } else {
+                            onUpdate(current.copy(systemPrompt = value))
+                        }
                     }
                 }
 
@@ -358,89 +488,266 @@ private fun AssistantPromptContent(
             }
         }
 
+        val legacyPresetGroupId = remember { Uuid.parse("00000000-0000-0000-0000-000000000001") }
+        val defaultGroupTitle = stringResource(R.string.assistant_page_preset_group_default)
+        val untitledGroupTitle = stringResource(R.string.assistant_page_preset_group_untitled)
+        val noneGroupTitle = stringResource(R.string.assistant_page_preset_group_none)
+        val newGroupTitle = stringResource(R.string.assistant_page_preset_group_new)
+        val presetGroups = if (assistant.presetMessageGroups.isEmpty() && assistant.presetMessages.isNotEmpty()) {
+            listOf(
+                PresetMessageGroup(
+                    id = legacyPresetGroupId,
+                    title = defaultGroupTitle,
+                    messages = assistant.presetMessages,
+                )
+            )
+        } else {
+            assistant.presetMessageGroups
+        }
+        val selectedPresetGroupId = if (assistant.presetMessageGroups.isEmpty()) {
+            legacyPresetGroupId.takeIf { assistant.presetMessages.isNotEmpty() }
+        } else {
+            assistant.defaultPresetMessageGroupId
+        }
+        val selectedPresetGroup = presetGroups.firstOrNull { it.id == selectedPresetGroupId }
+
+        fun updatePresetGroups(groups: List<PresetMessageGroup>, selectedId: Uuid?) {
+            onUpdate(
+                assistant.copy(
+                    presetMessageGroups = groups,
+                    defaultPresetMessageGroupId = selectedId,
+                    presetMessages = emptyList(),
+                )
+            )
+        }
+
         SectionHeader(
             title = stringResource(R.string.assistant_page_preset_messages),
             description = stringResource(R.string.assistant_page_preset_messages_desc),
             action = {
                 SectionAddButton(
                     onClick = {
-                        val lastRole = assistant.presetMessages.lastOrNull()?.role ?: MessageRole.ASSISTANT
-                        val nextRole = when (lastRole) {
-                            MessageRole.USER -> MessageRole.ASSISTANT
-                            MessageRole.ASSISTANT -> MessageRole.USER
-                            else -> MessageRole.USER
-                        }
-                        onUpdate(
-                            assistant.copy(
-                                presetMessages = assistant.presetMessages + UIMessage(
-                                    role = nextRole,
-                                    parts = listOf(UIMessagePart.Text(""))
-                                )
+                        val group = selectedPresetGroup
+                        if (group == null) {
+                            val newGroup = PresetMessageGroup(
+                                title = newGroupTitle,
+                                messages = listOf(UIMessage.assistant("")),
                             )
-                        )
+                            updatePresetGroups(presetGroups + newGroup, newGroup.id)
+                        } else {
+                            val lastRole = group.messages.lastOrNull()?.role ?: MessageRole.ASSISTANT
+                            val nextRole = when (lastRole) {
+                                MessageRole.USER -> MessageRole.ASSISTANT
+                                MessageRole.ASSISTANT -> MessageRole.USER
+                                else -> MessageRole.USER
+                            }
+                            updatePresetGroups(
+                                presetGroups.map {
+                                    if (it.id == group.id) {
+                                        it.copy(
+                                            messages = group.messages + UIMessage(
+                                                role = nextRole,
+                                                parts = listOf(UIMessagePart.Text(""))
+                                            )
+                                        )
+                                    } else {
+                                        it
+                                    }
+                                },
+                                group.id,
+                            )
+                        }
                     }
                 )
             },
         )
         CardGroup {
-            assistant.presetMessages.fastForEachIndexed { index, presetMessage ->
-                formItem {
+            formItem {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.assistant_page_preset_group),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Select(
+                        options = listOf<PresetMessageGroup?>(null) + presetGroups,
+                        selectedOption = selectedPresetGroup,
+                        onOptionSelected = { group ->
+                            if (group == null) {
+                                onUpdate(
+                                    assistant.copy(
+                                        presetMessageGroups = presetGroups,
+                                        defaultPresetMessageGroupId = null,
+                                        presetMessages = emptyList(),
+                                    )
+                                )
+                            } else {
+                                updatePresetGroups(presetGroups, group.id)
+                            }
+                        },
+                        optionToString = { group ->
+                            group?.title?.takeIf { it.isNotBlank() }
+                                ?: if (group == null) noneGroupTitle else untitledGroupTitle
+                        },
+                        modifier = Modifier.width(180.dp),
+                    )
+                }
+                val activeGroup = selectedPresetGroup
+                if (activeGroup != null) {
+                    var confirmDeleteGroup by remember(activeGroup.id) { mutableStateOf(false) }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Select(
-                            options = listOf(MessageRole.USER, MessageRole.ASSISTANT),
-                            selectedOption = presetMessage.role,
-                            onOptionSelected = { role ->
-                                onUpdate(
-                                    assistant.copy(
-                                        presetMessages = assistant.presetMessages.mapIndexed { i, msg ->
-                                            if (i == index) {
-                                                msg.copy(role = role)
-                                            } else {
-                                                msg
-                                            }
-                                        }
-                                    )
+                        OutlinedTextField(
+                            value = activeGroup.title,
+                            onValueChange = { title ->
+                                updatePresetGroups(
+                                    presetGroups.map {
+                                        if (it.id == activeGroup.id) it.copy(title = title) else it
+                                    },
+                                    activeGroup.id,
                                 )
                             },
-                            modifier = Modifier.width(180.dp)
+                            label = { Text(stringResource(R.string.assistant_page_preset_group_name)) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
                         )
-                        Spacer(modifier = Modifier.weight(1f))
                         IconButton(
-                            onClick = {
-                                onUpdate(
-                                    assistant.copy(
-                                        presetMessages = assistant.presetMessages.filterIndexed { i, _ ->
-                                            i != index
-                                        }
-                                    )
-                                )
-                            }
+                            onClick = { confirmDeleteGroup = true }
                         ) {
                             Icon(HugeIcons.Cancel01, stringResource(R.string.delete))
                         }
                     }
-                    OutlinedTextField(
-                        value = presetMessage.toText(),
-                        onValueChange = { text ->
-                            onUpdate(
-                                assistant.copy(
-                                    presetMessages = assistant.presetMessages.mapIndexed { i, msg ->
-                                        if (i == index) {
-                                            msg.copy(parts = listOf(UIMessagePart.Text(text)))
-                                        } else {
-                                            msg
-                                        }
-                                    }
-                                )
+                    if (confirmDeleteGroup) {
+                        RikkaConfirmDialog(
+                            show = true,
+                            title = stringResource(R.string.delete),
+                            confirmText = stringResource(R.string.delete),
+                            dismissText = stringResource(R.string.cancel),
+                            onConfirm = {
+                                confirmDeleteGroup = false
+                                val remaining = presetGroups.filterNot { it.id == activeGroup.id }
+                                updatePresetGroups(remaining, remaining.firstOrNull()?.id)
+                            },
+                            onDismiss = { confirmDeleteGroup = false },
+                        ) {
+                            Text(stringResource(R.string.assistant_page_preset_group_delete_confirm))
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            val newGroup = PresetMessageGroup(
+                                title = newGroupTitle,
+                                messages = listOf(UIMessage.assistant("")),
                             )
+                            updatePresetGroups(presetGroups + newGroup, newGroup.id)
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 6
-                    )
+                    ) {
+                        Text(newGroupTitle)
+                    }
+                }
+            }
+        }
+        val activePresetGroup = selectedPresetGroup
+        if (activePresetGroup != null) {
+            CardGroup {
+                activePresetGroup.messages.fastForEachIndexed { index, presetMessage ->
+                        formItem {
+                            var confirmDelete by remember(presetMessage.id) { mutableStateOf(false) }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Select(
+                                    options = listOf(MessageRole.USER, MessageRole.ASSISTANT),
+                                    selectedOption = presetMessage.role,
+                                    onOptionSelected = { role ->
+                                        updatePresetGroups(
+                                            presetGroups.map {
+                                                if (it.id == activePresetGroup.id) {
+                                                    it.copy(
+                                                        messages = it.messages.mapIndexed { i, msg ->
+                                                            if (i == index) msg.copy(role = role) else msg
+                                                        }
+                                                    )
+                                                } else {
+                                                    it
+                                                }
+                                            },
+                                            activePresetGroup.id,
+                                        )
+                                    },
+                                    modifier = Modifier.width(180.dp)
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                IconButton(
+                                    onClick = { confirmDelete = true }
+                                ) {
+                                    Icon(HugeIcons.Cancel01, stringResource(R.string.delete))
+                                }
+                            }
+                            OutlinedTextField(
+                                value = presetMessage.toText(),
+                                onValueChange = { text ->
+                                    updatePresetGroups(
+                                        presetGroups.map {
+                                            if (it.id == activePresetGroup.id) {
+                                                it.copy(
+                                                    messages = it.messages.mapIndexed { i, msg ->
+                                                        if (i == index) {
+                                                            msg.copy(parts = listOf(UIMessagePart.Text(text)))
+                                                        } else {
+                                                            msg
+                                                        }
+                                                    }
+                                                )
+                                            } else {
+                                                it
+                                            }
+                                        },
+                                        activePresetGroup.id,
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                maxLines = 6
+                            )
+                            if (confirmDelete) {
+                                RikkaConfirmDialog(
+                                    show = true,
+                                    title = stringResource(R.string.delete),
+                                    confirmText = stringResource(R.string.delete),
+                                    dismissText = stringResource(R.string.cancel),
+                                    onConfirm = {
+                                        confirmDelete = false
+                                        updatePresetGroups(
+                                            presetGroups.map { group ->
+                                                if (group.id == activePresetGroup.id) {
+                                                    group.copy(
+                                                        messages = group.messages.filterNot {
+                                                            it.id == presetMessage.id
+                                                        }
+                                                    )
+                                                } else {
+                                                    group
+                                                }
+                                            },
+                                            activePresetGroup.id,
+                                        )
+                                    },
+                                    onDismiss = { confirmDelete = false },
+                                ) {
+                                    Text(stringResource(R.string.assistant_page_preset_message_delete_confirm))
+                                }
+                            }
+                        }
                 }
             }
         }

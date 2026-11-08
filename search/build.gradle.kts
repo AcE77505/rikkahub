@@ -9,7 +9,7 @@ android {
     namespace = "me.rerere.search"
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 24
     }
     tasks.withType<KotlinCompile>().configureEach {
         compilerOptions.optIn.add("androidx.compose.material3.ExperimentalMaterial3Api")

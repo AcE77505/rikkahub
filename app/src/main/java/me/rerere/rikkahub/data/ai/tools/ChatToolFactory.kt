@@ -72,7 +72,7 @@ class ChatToolFactory(
             if (shouldUseExternalWebSearch(assistant, model)) {
                 addAll(createSearchTools(settings))
             }
-            addAll(localTools.getTools(settings.localTools, workspaceCwd))
+            addAll(localTools.getTools(settings.localTools, workspaceCwd, assistant.id))
             if (assistant.enableRecentChatsReference) {
                 addAll(createConversationTools(conversationRepository, assistant.id))
             }

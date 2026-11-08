@@ -54,6 +54,7 @@ import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.effectiveSystemPrompt
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
@@ -234,9 +235,10 @@ private fun AssistantHeader(
             }
         }
 
-        if (assistant.systemPrompt.isNotBlank()) {
+        val effectiveSystemPrompt = assistant.effectiveSystemPrompt()
+        if (effectiveSystemPrompt.isNotBlank()) {
             Text(
-                text = assistant.systemPrompt.take(100),
+                text = effectiveSystemPrompt.take(100),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

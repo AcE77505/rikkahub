@@ -25,6 +25,7 @@
   <string name="assistant_extensions_page_goto_prompts">前往提示词管理</string>
   <string name="assistant_extensions_page_title">扩展管理</string>
   <string name="assistant_importer_import_failed">导入失败</string>
+  <string name="assistant_importer_default_name">导入的助手</string>
   <string name="assistant_importer_import_tavern_json">导入酒馆角色卡 (JSON)</string>
   <string name="assistant_importer_import_tavern_png">导入酒馆角色卡 (PNG)</string>
   <string name="assistant_importer_importing">导入中...</string>
@@ -55,6 +56,8 @@
   <string name="assistant_page_chat_model">聊天模型</string>
   <string name="assistant_page_chat_model_desc">设置助手的默认聊天模型，如果不设置，则使用全局默认聊天模型</string>
   <string name="assistant_page_clone">复制</string>
+  <string name="assistant_page_export">导出</string>
+  <string name="assistant_page_export_failed">导出失败</string>
   <string name="assistant_page_confirm">确定</string>
   <string name="assistant_page_creative">创造</string>
   <string name="assistant_page_current_assistant">当前助手</string>
@@ -97,6 +100,17 @@
   <string name="assistant_page_name">助手名称</string>
   <string name="assistant_page_preset_messages">预设聊天消息</string>
   <string name="assistant_page_preset_messages_desc">设置对话初始消息</string>
+  <string name="assistant_page_preset_message_delete_confirm">确定删除这条预设聊天消息吗？</string>
+  <string name="assistant_page_preset_group">对话组</string>
+  <string name="assistant_page_preset_group_none">无</string>
+  <string name="assistant_page_preset_group_untitled">未命名</string>
+  <string name="assistant_page_preset_group_default">默认</string>
+  <string name="assistant_page_preset_group_new">新建对话组</string>
+  <string name="assistant_page_preset_group_name">对话组名称</string>
+  <string name="assistant_page_preset_group_delete_confirm">确定删除这个对话组吗？</string>
+  <string name="assistant_page_prompt_preset_new">新建提示词预设</string>
+  <string name="assistant_page_prompt_preset_name">提示词预设名称</string>
+  <string name="assistant_page_prompt_preset_delete_confirm">确定删除这个提示词预设吗？</string>
   <string name="assistant_page_quick_message_content">内容</string>
   <string name="assistant_page_quick_message_title">标题</string>
   <string name="assistant_page_quick_messages">快捷消息</string>
@@ -118,7 +132,9 @@
   <string name="assistant_page_stream_output">流式输出</string>
   <string name="assistant_page_stream_output_desc">是否启用消息的流式输出</string>
   <string name="assistant_page_strict">严谨</string>
-  <string name="assistant_page_system_prompt">系统提示词</string>
+  <string name="assistant_page_system_prompt">内容</string>
+  <string name="assistant_page_system_prompt_presets">提示词预设</string>
+  <string name="assistant_page_system_prompt_custom">自定义</string>
   <string name="assistant_page_tab_basic">基础设定</string>
   <string name="assistant_page_tab_extensions">扩展管理</string>
   <string name="assistant_page_tab_local_tools">本地工具</string>
@@ -281,6 +297,8 @@
   <string name="chat_page_message_count">%d 条消息</string>
   <string name="chat_page_move_to_assistant">移至助手</string>
   <string name="chat_page_new_chat">新聊天</string>
+  <string name="chat_page_new_chat_preset_title">选择对话组</string>
+  <string name="chat_page_new_chat_preset_default">使用默认对话组</string>
   <string name="chat_page_new_message">新消息</string>
   <string name="chat_page_nickname_placeholder">请输入昵称</string>
   <string name="chat_page_no_conversations">没有对话记录</string>
@@ -1699,6 +1717,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="workspace_tool_edit_file_desc">修改现有文件。需先开启「读取文件」。</string>
   <string name="workspace_tool_shell">执行命令</string>
   <string name="workspace_tool_shell_desc">执行 shell 命令</string>
+  <string name="tool_assistant_config">修改其他助手</string>
+  <string name="tool_assistant_config_desc">允许 AI 读取并修改其他助手的名称、提示词和生成参数；当前助手不能被修改</string>
   <string name="workspace_page_declare">向 AI 声明</string>
   <string name="workspace_page_declared">已声明</string>
   <string name="workspace_page_not_declared">未声明</string>

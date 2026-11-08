@@ -4,9 +4,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.util.UUID
 
 /**
@@ -23,7 +20,9 @@ internal class PendingRestore(
     fun createStagingDirectory(): File {
         check(!pending.exists()) { "A backup restore is already pending. Restart the app first." }
         check(root.isDirectory || root.mkdirs()) { "Cannot create backup staging directory" }
-        return Files.createTempDirectory(root.toPath(), "preparing-").toFile()
+        return File.createTempFile("preparing-", "", root).apply {
+            check(delete() && mkdirs()) { "Cannot create backup staging directory" }
+        }
     }
 
     fun publish(staging: File) {
@@ -159,7 +158,15 @@ internal class PendingRestore(
         private fun move(source: File, target: File) {
             val parent = requireNotNull(target.parentFile)
             check(parent.isDirectory || parent.mkdirs()) { "Cannot create restore directory" }
-            Files.move(source.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+            // 同一文件系统内 rename 是原子的，并会覆盖已存在的目标
+            if (source.renameTo(target)) return
+            if (target.exists()) {
+                check(target.deleteRecursively()) { "Cannot replace restore target: $target" }
+            }
+            check(source.copyRecursively(target, overwrite = true)) {
+                "Cannot move $source to $target"
+            }
+            check(source.deleteRecursively()) { "Cannot remove restore source: $source" }
         }
     }
 }

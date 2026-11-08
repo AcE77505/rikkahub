@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "me.rerere.rikkahub"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 37
         versionCode = 194
         versionName = "3.1.1"
@@ -107,6 +107,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // minSdk 24 需要脱糖才能在低版本上使用 java.time（API 26+）
+        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         compose = true
@@ -194,6 +196,7 @@ configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configu
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.quickjs)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

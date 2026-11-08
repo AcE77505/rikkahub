@@ -1,9 +1,6 @@
 package me.rerere.rikkahub.ui.hooks
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -22,6 +19,7 @@ import me.rerere.asr.providers.StepASRController
 import me.rerere.asr.providers.VolcengineASRController
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
+import me.rerere.rikkahub.utils.AudioFocusController
 import okhttp3.OkHttpClient
 import org.koin.compose.koinInject
 
@@ -64,16 +62,7 @@ private class CustomAsrStateImpl(
     private var controller: ASRController? = null
     private val idleState = MutableStateFlow(ASRState())
 
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-        )
-        .setAcceptsDelayedFocusGain(false)
-        .build()
+    private val audioFocus = AudioFocusController(context)
 
     override val state: StateFlow<ASRState>
         get() = controller?.state ?: idleState
@@ -87,21 +76,20 @@ private class CustomAsrStateImpl(
     }
 
     override fun start(onTranscriptChange: (String) -> Unit) {
-        val result = audioManager.requestAudioFocus(audioFocusRequest)
-        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+        if (audioFocus.request()) {
             controller?.start(onTranscriptChange)
         }
     }
 
     override fun stop() {
         controller?.stop()
-        audioManager.abandonAudioFocusRequest(audioFocusRequest)
+        audioFocus.abandon()
     }
 
     override fun cleanup() {
         controller?.dispose()
         controller = null
-        audioManager.abandonAudioFocusRequest(audioFocusRequest)
+        audioFocus.abandon()
     }
 
     private fun createController(provider: ASRProviderSetting): ASRController? {

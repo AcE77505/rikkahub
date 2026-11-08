@@ -259,7 +259,7 @@ class RikkaHubApp : Application() {
                         putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
                         putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
                     }
-                    startForegroundService(intent)
+                    ContextCompat.startForegroundService(this@RikkaHubApp, intent)
                 }
             }.onFailure {
                 Log.e(TAG, "startWebServerIfEnabled failed", it)

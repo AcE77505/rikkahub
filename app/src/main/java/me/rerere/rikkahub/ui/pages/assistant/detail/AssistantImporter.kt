@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.pages.assistant.detail
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,12 +32,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.export.AssistantSerializer
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.PresetMessageGroup
+import me.rerere.rikkahub.data.model.SystemPromptPreset
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -235,11 +243,86 @@ private val TAVERN_PARSERS: Map<String, TavernCardParser> = listOf(
     CharaCardV3Parser()
 ).associateBy { it.specName }
 
+/**
+ * 第三方客户端导出的「对话配置」：没有 spec 字段，data 下直接给出
+ * systemPresets（多组对话）和 systemPromptPresets（多组系统提示词）。
+ */
+private object DialogueConfigParser {
+    fun parse(
+        context: Context,
+        json: JsonObject,
+        background: String?,
+        fallbackName: String?,
+    ): Assistant {
+        val data = json["data"]?.jsonObject
+            ?: error(context.getString(R.string.assistant_importer_missing_data_field))
+
+        val groups = data["systemPresets"]?.jsonArray.orEmpty().mapNotNull { element ->
+            val preset = element.jsonObject
+            val title = preset["title"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+            val messages = preset["dialogue"]?.jsonArray.orEmpty().mapNotNull { messageElement ->
+                val message = messageElement.jsonObject
+                val content = message["content"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                val role = when (message["role"]?.jsonPrimitiveOrNull?.contentOrNull?.lowercase()) {
+                    "user" -> MessageRole.USER
+                    else -> MessageRole.ASSISTANT
+                }
+                UIMessage(role = role, parts = listOf(UIMessagePart.Text(content)))
+            }
+            if (messages.isEmpty()) null else PresetMessageGroup(title = title, messages = messages)
+        }
+
+        val promptPresets = data["systemPromptPresets"]?.jsonArray.orEmpty().mapNotNull { element ->
+            val preset = element.jsonObject
+            val prompt = preset["prompt"]?.jsonPrimitiveOrNull?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            SystemPromptPreset(
+                title = preset["title"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
+                prompt = prompt,
+            )
+        }
+
+        val name = data["name"]?.jsonPrimitiveOrNull?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+            ?: fallbackName?.takeIf { it.isNotBlank() }
+            ?: context.getString(R.string.assistant_importer_default_name)
+
+        return Assistant(
+            name = name,
+            presetMessageGroups = groups,
+            defaultPresetMessageGroupId = groups.firstOrNull()?.id,
+            systemPromptPresets = promptPresets,
+            defaultSystemPromptPresetId = promptPresets.firstOrNull()?.id,
+            systemPrompt = promptPresets.firstOrNull()?.prompt.orEmpty(),
+            background = background,
+        )
+    }
+}
+
+private fun isDialogueConfig(json: JsonObject): Boolean {
+    val data = json["data"]?.jsonObject ?: return false
+    return data["systemPresets"] is JsonArray || data["systemPromptPresets"] is JsonArray
+}
+
 private fun parseAssistantFromJson(
     context: Context,
     json: JsonObject,
     background: String?,
+    fallbackName: String?,
 ): Assistant {
+    // RikkaHub 原生助手导出优先识别；不是该格式时返回 null
+    AssistantSerializer.decodeFromJson(json.toString())?.let { return it }
+    if (isDialogueConfig(json)) {
+        return DialogueConfigParser.parse(
+            context = context,
+            json = json,
+            background = background,
+            fallbackName = fallbackName,
+        )
+    }
     val spec = json["spec"]?.jsonPrimitive?.contentOrNull
         ?: error(context.getString(R.string.assistant_importer_missing_spec_field))
     val parser = TAVERN_PARSERS[spec] ?: error(context.getString(R.string.assistant_importer_unsupported_spec, spec))
@@ -247,6 +330,13 @@ private fun parseAssistantFromJson(
 }
 
 // endregion
+
+private fun queryDisplayName(context: Context, uri: Uri): String? =
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0) cursor.getString(index) else null
+    }
 
 private suspend fun importAssistantFromUri(
     context: Context,
@@ -257,6 +347,10 @@ private suspend fun importAssistantFromUri(
 ) {
     try {
         val mime = withContext(Dispatchers.IO) { filesManager.getFileMimeType(uri) }
+        val fallbackName = withContext(Dispatchers.IO) {
+            runCatching { queryDisplayName(context, uri) }.getOrNull()
+                ?.removeSuffix(".json")
+        }
         val (jsonString, backgroundStr) = withContext(Dispatchers.IO) {
             when (mime) {
                 "image/png" -> {
@@ -279,7 +373,12 @@ private suspend fun importAssistantFromUri(
             }
         }
         val json = Json.parseToJsonElement(jsonString).jsonObject
-        val assistant = parseAssistantFromJson(context = context, json = json, background = backgroundStr)
+        val assistant = parseAssistantFromJson(
+            context = context,
+            json = json,
+            background = backgroundStr,
+            fallbackName = fallbackName,
+        )
         onImport(assistant)
     } catch (exception: Exception) {
         exception.printStackTrace()

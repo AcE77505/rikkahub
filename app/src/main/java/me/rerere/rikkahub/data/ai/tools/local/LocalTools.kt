@@ -11,6 +11,7 @@ import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.tts.provider.TTSManager
 import me.rerere.workspace.SshRunner
+import kotlin.uuid.Uuid
 
 class LocalTools(
     private val context: Context,
@@ -44,7 +45,11 @@ class LocalTools(
      * 工作区工具的目标是「被声明的工作区」（[WorkspaceRepository.getDeclared]）；没有工作区被声明时
      * 即使开关开着也不会挂载，避免模型拿到一个没有目录可用的工具。
      */
-    suspend fun getTools(options: List<LocalToolOption>, workspaceCwd: String? = null): List<Tool> {
+    suspend fun getTools(
+        options: List<LocalToolOption>,
+        workspaceCwd: String? = null,
+        currentAssistantId: Uuid? = null,
+    ): List<Tool> {
         val tools = mutableListOf<Tool>()
         if (options.contains(LocalToolOption.JavascriptEngine)) {
             tools.add(javascriptTool)
@@ -70,6 +75,9 @@ class LocalTools(
         }
         if (options.contains(LocalToolOption.ChartDisplay)) {
             tools.add(chartDisplayTool)
+        }
+        if (options.contains(LocalToolOption.AssistantConfig) && currentAssistantId != null) {
+            tools.addAll(buildAssistantConfigTools(settingsStore, currentAssistantId))
         }
         tools.addAll(buildWorkspaceTools(options, workspaceCwd))
         return tools

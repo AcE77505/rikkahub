@@ -40,6 +40,7 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MemoryFile
+import me.rerere.rikkahub.data.model.effectiveSystemPrompt
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
 import me.rerere.rikkahub.data.repository.MemoryRepository
@@ -210,7 +211,7 @@ class ChatRequestFactory(
                     if (assistant.allowConversationSystemPrompt && !turn.conversationSystemPrompt.isNullOrBlank()) {
                         turn.conversationSystemPrompt
                     } else {
-                        assistant.systemPrompt
+                        assistant.effectiveSystemPrompt()
                     }
                 if (effectiveSystemPrompt.isNotBlank()) {
                     append(effectiveSystemPrompt)

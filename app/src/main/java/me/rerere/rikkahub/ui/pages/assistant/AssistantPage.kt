@@ -2,11 +2,14 @@ package me.rerere.rikkahub.ui.pages.assistant
 
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Copy01
+import me.rerere.hugeicons.stroke.FileExport
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Tick01
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,21 +52,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.DEFAULT_ASSISTANTS_IDS
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.export.AssistantSerializer
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryFile
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -94,6 +103,33 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
     }
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exportTarget by remember { mutableStateOf<Assistant?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val target = exportTarget
+        exportTarget = null
+        if (uri != null && target != null) {
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { output ->
+                            output.write(AssistantSerializer.exportToJson(target).toByteArray())
+                        } ?: error("Unable to open export file")
+                    }
+                }.onFailure {
+                    android.widget.Toast.makeText(
+                        context,
+                        it.message ?: context.getString(R.string.assistant_page_export_failed),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
 
     // 搜索关键词状态
     var searchQuery by remember { mutableStateOf("") }
@@ -228,6 +264,10 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
                                 } else {
                                     vm.copyAssistant(assistant)
                                 }
+                            },
+                            onExport = {
+                                exportTarget = assistant
+                                exportLauncher.launch(AssistantSerializer.getExportFileName(assistant))
                             },
                             onDelete = {
                                 deleteTarget = assistant
@@ -420,6 +460,7 @@ private fun AssistantItem(
     memories: List<MemoryFile>,
     onEdit: () -> Unit,
     onCopy: () -> Unit,
+    onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -499,6 +540,11 @@ private fun AssistantItem(
                         text = stringResource(R.string.assistant_page_clone),
                         icon = HugeIcons.Copy01,
                         onClick = onCopy,
+                    ),
+                    ItemAction(
+                        text = stringResource(R.string.assistant_page_export),
+                        icon = HugeIcons.FileExport,
+                        onClick = onExport,
                     ),
                     ItemAction(
                         text = stringResource(R.string.assistant_page_delete),
