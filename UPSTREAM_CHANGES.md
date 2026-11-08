@@ -3,7 +3,7 @@
 本文档记录当前 fork 相对 `upstream/master` 的改动，便于后续维护和向上游同步。
 
 - 远程：`origin` 是个人 fork（`AcE77505/rikkahub`），`upstream` 是原项目（`rikkahub/rikkahub`）。
-- 截至 2026-11-08，`master` 已领先 `upstream/master` 60 个提交；下文的 SSH 工作区、工作区工具/提示词、记忆编辑章节是此前已经提交的历史改动。
+- 2026-11-08 已合并 `upstream/master`（3.1.2）；合并前 `master` 领先上游 60 个提交。下文的 SSH 工作区、工作区工具/提示词、记忆编辑章节是此前已经提交的历史改动，第 7 节是本次上游同步的取舍记录。
 - 本批次（2026-11-08）：36 个已跟踪文件修改（`+976 / -189`），另有 4 个新增 Kotlin 文件和 1 个 issue 草稿；不含构建产物，详见第 5 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
@@ -272,3 +272,44 @@
 - `app/build/outputs/apk/...` 下的 APK 产物。
 
 如果后续把这些改动提交或拆分成多个 commit，建议按「SSH 工作区」「工作区工具与提示词」「记忆结构化编辑」三组拆分，便于向上游提交 PR。
+
+---
+
+## 7. 上游 3.1.2 同步（2026-11-08）
+
+合并 `upstream/master`（`fe5a28f9 chore: bump version to 3.1.2`，共 82 个上游提交），解决 60 个冲突文件。版本号更新为 `3.1.2` / `195`。
+
+### 7.1 已合并的上游改动
+
+- Markdown 渲染迁移到 BetterText：删除 `ui/markdown/MarkdownParser`、`LatexText`、`highlight` 模块，`Markdown.kt` / `MarkdownUtils.kt` 改用 `me.rerere.bettertext.*`。
+- 会话消息队列重构为 `ConversationInbox`（`session.inbox`）：`ChatService`、`ConversationSession`、`ConversationSessionManager`、`ChatVM` 改用 inbox；复用上游的后台生成与消息队列逻辑。
+- 浮动窗：采用上游 `ChatFloatingContent`、`ChatFloatingWindows`、`ChatFloatingTracker` 与 `FloatingChatUiStateTest`。
+- 对话菜单与导出保存文件、历史删除同步收藏、消息概览左滑、顶栏浮动胶囊等 UI 改动。
+- 压缩上下文保留消息数恢复为手动输入（上游 e85c1d90）。
+- 记忆整理模型设置、媒体提供商独立详情页、联网搜索入口、图片裁剪 Compose、扫码 CameraX + zxing、德语、APK 瘦身、技能目录修复等上游提交随合并进入。
+- `terminal` 模块、`material-color-utilities` 源码、`ModelsDevUpdater` 4 小时刷新、`TinyfishSearchService` 的 `purpose` 参数、推荐提供商 STA1N 等。
+
+### 7.2 保留的 fork 定制
+
+- 工作区仍使用 fork 的「Android 原生 + termex 工具链」架构（`WorkspaceManager` / `ToolchainManager` / `SshRunner`），保留 `declared` / `directory` / `toolchainEnabled` 与 `sshHost` / `sshPort` / `sshUsername` / `sshRoot` 字段，数据库版本 33。
+- `minSdk 24`、core library desugaring、`SymlinkCompat`、`AudioFocusController`、`WorkspaceFileSystem` 的自有 glob 实现。
+- 助手多组提示词 / 预设对话、`assistant_config` 工具、`AssistantSerializer` 导出导入。
+- `SU_COMMAND` + `$PREFIX/su-shim` 的 su 修复；shell 显式 `overtime` 硬超时。
+
+### 7.3 未合并的上游工作区架构
+
+上游 3.1.2 的工作区是 `WorkspaceBackend` + `RootfsInstaller` + `SshWorkspaceBackend` / `SshConnectionPool`（含跳板机）架构，与 fork 已重构掉的 proot/rootfs 方案不兼容。以下内容**未合并并已删除**，fork 继续使用自己的 `SshRunner` 与本机工作区实现：
+
+- `workspace/.../WorkspaceBackend.kt`、`LocalWorkspaceBackend.kt`、`RootfsInstaller.kt`、`ProotTermination.kt`、`WorkspaceBackgroundCommand.kt`
+- `workspace/.../ssh/*`（`SshConfig`、`SshConnection`、`SshConnectionPool`、`SshShell`、`SshWorkspaceBackend`）及对应测试
+- `app/.../data/model/SshWorkspaceSettings.kt`、`WorkspaceSshEditorPage.kt` / `WorkspaceSshEditorVM.kt`、`SshTerminalTransport.kt`、`SecretCipher.kt`
+- 后台 shell：`BackgroundShellManager` / `BackgroundShellForegroundService` / `BackgroundTasksSheet`、`BackgroundShellLogTailTest`（依赖上游 `WorkspaceBackgroundCommand`）
+
+因此上游的「SSH 跳板机」「后台运行 shell」能力在本 fork 中**暂不可用**，后续如需支持应基于 fork 的 `SshRunner` / `WorkspaceShellRunner` 单独适配。
+
+### 7.4 合并后验证
+
+- `./gradlew assembleGithubRelease --no-daemon`：**BUILD SUCCESSFUL**（3m 15s），产物为 3.1.2 的 arm64 / x86_64 / universal APK。
+- `./gradlew test --no-daemon`：510 个测试，7 个失败，全部是 `androidx.datastore` 在 Windows 临时目录执行 `atomicMoveTo` 失败（`FileStorage.kt:118` / `FileMoves.android.kt:33`），属本机 Windows 测试环境问题，与合并逻辑无关。
+- lint：合并后语言资源出现 114 个 `ExtraTranslation`（上游 rootfs 相关 key 在默认 values 被 fork 删除），已从上游默认 values / values-zh 补齐 19 个 key 后消除。
+- `.gitignore` 增加 `**/build/`，避免模块构建产物被误提交。

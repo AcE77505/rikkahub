@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -136,6 +137,12 @@ internal fun FilesPicker(
     val boundWorkspace = declaredWorkspaces.firstOrNull { !it.isSsh }
         ?: declaredWorkspaces.firstOrNull()
     val scope = rememberCoroutineScope()
+    var cwdWorkspaceDir by remember(boundWorkspace?.id) { mutableStateOf("") }
+    LaunchedEffect(boundWorkspace?.id) {
+        cwdWorkspaceDir = boundWorkspace?.let {
+            runCatching { workspaceRepository.workingDirectory(it.id).absolutePath }.getOrDefault("")
+        } ?: ""
+    }
     // 声明按类型互斥：选一个就把同类型的其他工作区取消声明；选「不声明」只清该类型
     val declareWorkspace: (String?, String?) -> Unit = { id, type ->
         scope.launch {
@@ -379,6 +386,7 @@ internal fun FilesPicker(
     if (showCwdSheet && boundWorkspace != null) {
         WorkspaceCwdPickerSheet(
             workspaceId = boundWorkspace.id,
+            workspaceDir = cwdWorkspaceDir,
             currentCwd = conversation.workspaceCwd,
             onSelectCwd = { newCwd ->
                 onUpdateWorkspaceCwd(newCwd)

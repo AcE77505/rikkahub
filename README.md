@@ -23,60 +23,21 @@ Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqx
 > [!WARNING]
 > There are many forked versions of RikkaHub. Issues with forks are unrelated to RikkaHub, so please use forks with caution to avoid privacy leaks or excessive permission requests.
 
-## 🍴 This fork vs. upstream
-
-This fork is based on [RikkaHub](https://github.com/rikkahub/rikkahub). If you already know upstream, start here; everything not listed below keeps upstream behavior.
-
-### Workspace: native shell + SSH, no proot rootfs
-
-- Upstream ships a proot-based Linux workspace. This fork removes proot/rootfs and runs commands in the native Android shell (`/system/bin/sh` + toybox).
-- Optional Termux/Linux toolchain support can provide bash and extra tools.
-- Workspaces can be local or SSH remote. SSH supports password/key authentication and host fingerprint confirmation.
-- File tools are now `read_file`, `write_file`, `edit_file`, and `shell`. Old `workspace_*` names in existing conversations still resolve through aliases.
-
-### Subagents
-
-- New `task` tool: the main assistant can dispatch a focused sub-agent for independent work such as code changes, investigation, or review.
-- `fleet` supports `id` / `depends_on`: dependent tasks start after their dependencies, whose reports are appended to the prompt.
-- `task` supports `adopt_ref` to reuse an existing `sa_...` result without running a sub-agent.
-- Sub-agent progress is streamed by default: `task` / `fleet` cards show the phase, elapsed time, and recent activity.
-- Sub-agents end with `complete_subtask`; completed or cancelled runs can be continued with `continue_from`.
-- The sub-agent runs in an isolated context and returns only its final report, so its working context does not pollute the parent conversation.
-- Configure sub-agents under **Settings → Tools → Sub-agents**: chat model, thinking budget, temperature, read-only mode, tool allow-list, approval, max steps, and timeout.
-- Results are persisted as `sa_...` transcripts and can be read back with `read_subagent_result`, including cancelled partial output.
-- Sub-agents cannot dispatch another sub-agent.
-- Definitions are shared globally and enabled per assistant.
-
-### Tool approval
-
-- Tool approval is controlled by the global per-tool switches under **Settings → Tools → Tool approval**.
-- Editing or writing outside the workspace no longer adds a hidden approval requirement that bypasses those switches.
-- A sub-agent can remember one approval for the current conversation; this is a separate switch below “requires approval”.
-
-### Other fork changes
-
-- Memory entries support structured editing, drag sorting, and faster previews.
-- Workspace tool names and old conversations are migrated; MCP enable-state and workspace prompt/terminal entries are fixed.
-
-> Core areas not listed above, including providers, chat UI, MCP, skills, web access, media generation, and translation, remain upstream-compatible.
-
-> Sub-agent design details: [SUBAGENT_PLAN.md](SUBAGENT_PLAN.md)
-
 ## 💖 Sponsors
 
 | Sponsor | Description |
 |:---:|:---|
-| <img src="docs/sponsors/aihubmix.png" alt="Aihubmix" width="50" /><br /><b>Aihubmix</b> | Thanks to <a href="https://aihubmix.com?aff=pG7r">aihubmix.com</a> for their financial support. We recommend using aihubmix as a one-stop shop for mainstream models worldwide. (OpenAI, Claude, Google Gemini, DeepSeek, Qwen, and hundreds more). |
+| <img src="docs/sponsors/sta1n.png" alt="STA1N API" width="50" /><br /><b><a href="https://sta1n.ai">STA1N API🍪</a></b> | 感谢<a href="https://sta1n.ai">STA1N API</a>对本项目的赞助！STA1N API 是一家专注于 RP（角色扮演）的 API 提供商。 |
 | <img src="docs/sponsors/api-mart.png" alt="APIMart" width="50" /><br /><b><a href="https://go.apimart.ai/gh-rikkahub">APIMart</a></b> | Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-rikkahub">sign up here</a> to get started. |
 | <img src="docs/sponsors/suixiang.jpg" alt="随想AI中转" width="50" /><br /><b><a href="https://sui-xiang.com">随想AI中转</a></b> | 感谢<a href="https://sui-xiang.com">随想AI中转</a>对本项目的赞助！随想AI中转 是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。99.9% 可用性，关键调用从不掉队。 |
 | <img src="docs/sponsors/ztest.png" alt="真测 ztest.ai" width="50" /><br /><b><a href="https://ztest.ai">真测 ztest.ai</a></b> | 感谢<a href="https://ztest.ai">真测 ztest.ai</a>对本项目的赞助！真测 ztest.ai 是一个 AI 中转站模型检测平台，检测结果数据全公开，23 项探针覆盖协议、身份、能力、内容完整性、安全性、性能六大维度，交叉印证识别伪造与降级。作为独立第三方验证平台，实时监测 AI 中转站的模型真实性、响应质量与服务可用性。 |
 | <img src="docs/sponsors/maru.png" alt="MaruCode" width="50" /><br /><b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> | <b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，<a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">新用户注册送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a> |
-| <img src="docs/sponsors/naapi.png" alt="NaAPI 钠API" width="50" /><br /><b><a href="https://naapi.cc/register?aff=rikkahub">NaAPI 钠API</a></b> | Thanks to <a href="https://naapi.cc/register?aff=rikkahub">NaAPI</a> (naapi.cc) for sponsoring this project! NaAPI is an OpenAI-compatible LLM gateway that reliably serves 300+ models from OpenAI, Anthropic, Google and others at discounted pricing. One base URL and one key is all you need: multi-line redundancy with automatic failover keeps long SSE streams alive, and pricing is strictly pay-as-you-go with a 1:1 top-up ratio — no subscription, no hidden markup. |
+| <img src="docs/sponsors/naapi.png" alt="NaAPI 钠API" width="50" /><br /><b><a href="https://naapi.cc/register?aff=rikkahub">NaAPI 钠API</a></b> | 感谢<a href="https://naapi.cc/register?aff=rikkahub">NaAPI</a>（naapi.cc）对本项目的赞助！NaAPI 是一个兼容 OpenAI 的 LLM 网关，以优惠价格稳定提供 OpenAI、Anthropic、Google 等厂商的 300+ 款模型。只需一个 Base URL 和一个 Key 即可接入；多线路冗余、自动故障切换，长链路 SSE 不中断；严格按量付费，充值 1:1，无需订阅，无隐藏加价。 |
 
 ## ✨ Features
 
 - 🎨 Material 3 Expressive design and 🌙 Dark mode
-- 📦 Workspace: native Android shell with optional Termux/Linux toolchain; local and SSH remote workspaces
+- 📦 Workspace: a proot-based Linux agent environment
 - 🎬 Media generation (image and video)
 - 🔄 Multiple AI Provider Support: custom API / URL / models (all OpenAI, Google, Anthropic compatible api)
 - 🖼️ Multimodal input support (Image, Text Documentation, PDF, Docx)
@@ -87,7 +48,6 @@ This fork is based on [RikkaHub](https://github.com/rikkahub/rikkahub). If you a
 - 🧩 Prompt variables (model name, time, etc.)
 - 🤳 QR code export and import for providers
 - 🤖 Agent customization
-- 🧑‍💻 Sub-agents: isolated task dispatch with persisted reports
 - 🧠 File-based memory
 - 📝 AI Translation
 - 🌐 Custom HTTP request headers and request bodies
