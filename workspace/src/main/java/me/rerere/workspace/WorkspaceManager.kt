@@ -252,6 +252,78 @@ class WorkspaceManager(
         )
     }
 
+    /**
+     * 启动后台命令。返回的命令对象持有进程与日志文件，调用方负责读取输出和终止。
+     *
+     * 环境与前台命令一致（termex 工具链的 PATH / LD_LIBRARY_PATH），日志写在工作区 TMPDIR。
+     */
+    fun startBackgroundCommand(
+        root: String,
+        command: String,
+        cwd: String = "",
+        directory: String? = null,
+        toolchain: ToolchainEnvironment? = null,
+        id: String,
+    ): WorkspaceBackgroundCommand {
+        require(command.isNotBlank()) { "Command is required" }
+        val workspaceDir = targetDir(root, directory).also { it.mkdirs() }
+        val workingDir = fileSystem.resolve(workspaceDir, cwd)
+        require(workingDir.exists()) { "Working directory does not exist: $cwd" }
+        require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
+        val tempDir = tempDir(root).also { it.mkdirs() }
+        return shellRunner.startBackground(
+            WorkspaceShellContext(
+                root = root,
+                command = backgroundCommand(command, toolchain),
+                cwd = cwd,
+                workingDir = workingDir,
+                homeDir = homeDir(root),
+                tempDir = tempDir,
+                overtimeMillis = 0,
+                extraEnv = toolchain?.extraEnv.orEmpty(),
+                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+            ),
+            id,
+        )
+    }
+
+    /** 在任意目录（沙箱）启动后台命令，目录与环境约定同 [executeCommandIn] */
+    fun startBackgroundCommandIn(
+        dir: File,
+        command: String,
+        cwd: String = "",
+        toolchain: ToolchainEnvironment? = null,
+        id: String,
+    ): WorkspaceBackgroundCommand {
+        require(command.isNotBlank()) { "Command is required" }
+        val base = dir.apply { mkdirs() }
+        val workingDir = fileSystem.resolve(base, cwd)
+        require(workingDir.exists()) { "Working directory does not exist: $cwd" }
+        require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
+        val tempDir = File(base, ".tmp").apply { mkdirs() }
+        return shellRunner.startBackground(
+            WorkspaceShellContext(
+                root = "",
+                command = backgroundCommand(command, toolchain),
+                cwd = cwd,
+                workingDir = workingDir,
+                homeDir = base,
+                tempDir = tempDir,
+                overtimeMillis = 0,
+                extraEnv = toolchain?.extraEnv.orEmpty(),
+                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+            ),
+            id,
+        )
+    }
+
+    private fun backgroundCommand(command: String, toolchain: ToolchainEnvironment?): String =
+        if (toolchain?.shellPath != null) {
+            "${toolchain.shellPath.shellQuote()} -lc ${command.shellQuote()}"
+        } else {
+            command
+        }
+
     /** 清理所有工作区下可安全删除的临时内容（不触碰 linux/ 旧 rootfs，也不触碰 home/） */
     fun cleanupAllTempDirs() {
         val roots = baseDir.listFiles()?.filter { it.isDirectory } ?: return

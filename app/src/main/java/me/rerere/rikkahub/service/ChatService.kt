@@ -124,6 +124,7 @@ class ChatService(
     private val folderRepository: FolderRepository,
     private val subAgentStore: SubAgentStore? = null,
     private val subAgentApprovalRegistry: SubAgentApprovalRegistry? = null,
+    private val backgroundShellManager: BackgroundShellManager,
 ) {
     /** 一轮生成的结果 */
     private sealed interface TurnResult {
@@ -194,6 +195,18 @@ class ChatService(
     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
 
     fun cleanup() = runCatching { sessionManager.cleanup() }
+
+    init {
+        appScope.launch {
+            backgroundShellManager.noticeEvents.collect { event ->
+                when (event) {
+                    is BackgroundShellNoticeEvent.Posted -> postNotice(event.conversationId, event.key, event.notice)
+                    is BackgroundShellNoticeEvent.Withdrawn ->
+                        sessionManager.get(event.conversationId)?.inbox?.withdraw(event.key)
+                }
+            }
+        }
+    }
 
     private fun onSessionGenerationFinished(session: ConversationSession, cause: Throwable?) {
         // 取消只来自停止（已自行暂停）或删除，这里再暂停会盖掉停止后用户发送时恢复的队列
@@ -1243,6 +1256,7 @@ class ChatService(
         }
         sessionManager.removeIfIdle(session)
         // 后台命令随会话一起终止, 撤销删除也不会恢复; 终止要等宽限期, 不阻塞删除
+        appScope.launch { backgroundShellManager.killConversation(conversationId) }
     }
 
     suspend fun deleteConversationsOfAssistant(assistantId: Uuid) {

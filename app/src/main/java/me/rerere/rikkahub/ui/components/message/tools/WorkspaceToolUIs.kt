@@ -40,6 +40,7 @@ import me.rerere.rikkahub.ui.components.richtext.CodeHighlightText
 import androidx.compose.ui.res.stringResource
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ComputerTerminal01
+import me.rerere.hugeicons.stroke.StopCircle
 import me.rerere.hugeicons.stroke.FileAdd
 import me.rerere.hugeicons.stroke.FileEdit
 import me.rerere.hugeicons.stroke.FileView
@@ -308,7 +309,10 @@ object ShellToolUI : ToolUIRenderer {
         val command = context.arguments.getStringContent("command") ?: return stringResource(R.string.tool_ui_shell_default)
         val preview = command.replace("\n", " ").trim()
         val truncated = if (preview.length > TITLE_MAX_CHARS) preview.take(TITLE_MAX_CHARS) + "…" else preview
-        return stringResource(R.string.tool_ui_shell, truncated)
+        return stringResource(
+            if (isBackgroundShell(context)) R.string.tool_ui_shell_background else R.string.tool_ui_shell,
+            truncated,
+        )
     }
 
     override fun hasSummary(context: ToolUIContext): Boolean = context.content != null
@@ -316,6 +320,10 @@ object ShellToolUI : ToolUIRenderer {
     @Composable
     override fun Summary(context: ToolUIContext) {
         val content = context.content ?: return
+        if (isBackgroundShell(context)) {
+            BackgroundShellStatusLine(content)
+            return
+        }
         val combined = remember(content) {
             listOf(content.getStringContent("stdout"), content.getStringContent("stderr"))
                 .filterNot { it.isNullOrBlank() }
@@ -352,6 +360,10 @@ object ShellToolUI : ToolUIRenderer {
         val content = context.content
         if (content == null) {
             DefaultToolPreview(context = context)
+            return
+        }
+        if (isBackgroundShell(context)) {
+            BackgroundShellPreview(context, content)
             return
         }
         val command = context.arguments.getStringContent("command").orEmpty()
@@ -404,6 +416,212 @@ object ShellToolUI : ToolUIRenderer {
             }
         }
     }
+}
+
+/** 工具结果是后台任务，或本次调用请求了 run_in_background */
+private fun isBackgroundShell(context: ToolUIContext): Boolean =
+    context.content?.boolean("background") == true ||
+        context.arguments.getStringContent("run_in_background") == "true"
+
+@Composable
+private fun BackgroundShellStatusLine(content: JsonElement) {
+    val taskId = content.getStringContent("taskId") ?: "?"
+    val status = content.getStringContent("status") ?: "RUNNING"
+    Text(
+        text = stringResource(R.string.tool_ui_shell_background_status, taskId, status),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.tertiary,
+    )
+    content.getStringContent("logPath")?.let { path ->
+        Text(
+            text = stringResource(R.string.tool_ui_shell_log_path, path),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun BackgroundShellPreview(context: ToolUIContext, content: JsonElement) {
+    val command = context.arguments.getStringContent("command").orEmpty()
+    val taskId = content.getStringContent("taskId") ?: "?"
+    val status = content.getStringContent("status") ?: "RUNNING"
+    val logPath = content.getStringContent("logPath")
+    Column(
+        modifier = Modifier
+            .fillMaxHeight(0.8f)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.tool_ui_shell_background, command.replace("\n", " ").take(80)),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = stringResource(R.string.tool_ui_shell_background_status, taskId, status),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.tertiary,
+        )
+        HighlightCodeBlock(code = command, language = "bash", modifier = Modifier.fillMaxWidth())
+        logPath?.let {
+            Text(
+                text = stringResource(R.string.tool_ui_shell_log_path, it),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 后台任务输出：摘要显示输出尾部，详情显示完整输出 */
+object ShellOutputToolUI : ToolUIRenderer {
+    private const val SUMMARY_MAX_LINES = 10
+
+    override val toolName: String = "shell_output"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.ComputerTerminal01
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val taskId = context.arguments.getStringContent("task_id")
+            ?: context.content?.getStringContent("taskId")
+            ?: return stringResource(R.string.tool_ui_shell_output_default)
+        return stringResource(R.string.tool_ui_shell_output, taskId)
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean = context.content != null
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val content = context.content ?: return
+        val output = content.getStringContent("output").orEmpty()
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ShellTaskStatus(content)
+            if (output.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        text = output.lineSequence().take(SUMMARY_MAX_LINES).joinToString("\n"),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = SUMMARY_MAX_LINES,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        val content = context.content ?: return DefaultToolPreview(context = context)
+        val output = content.getStringContent("output").orEmpty()
+        val taskId = content.getStringContent("taskId") ?: "?"
+        Column(
+            modifier = Modifier
+                .fillMaxHeight(0.8f)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.tool_ui_shell_output, taskId),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                ShellTaskStatus(content)
+            }
+            if (output.isBlank()) {
+                Text(
+                    text = stringResource(R.string.background_tasks_no_output),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                HighlightCodeBlock(code = output, language = "plaintext", modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+/** 停止后台任务：摘要显示终止结果，详情显示任务信息 */
+object ShellKillToolUI : ToolUIRenderer {
+    override val toolName: String = "shell_kill"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.StopCircle
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val taskId = context.arguments.getStringContent("task_id")
+            ?: context.content?.getStringContent("taskId")
+            ?: return stringResource(R.string.tool_ui_shell_kill_default)
+        return stringResource(R.string.tool_ui_shell_kill, taskId)
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean = context.content != null
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val content = context.content ?: return
+        ShellTaskStatus(content)
+    }
+
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        val content = context.content ?: return DefaultToolPreview(context = context)
+        val taskId = content.getStringContent("taskId") ?: "?"
+        Column(
+            modifier = Modifier
+                .fillMaxHeight(0.8f)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.tool_ui_shell_kill, taskId),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            ShellTaskStatus(content)
+            content.getStringContent("logPath")?.let {
+                Text(
+                    text = stringResource(R.string.tool_ui_shell_log_path, it),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShellTaskStatus(content: JsonElement) {
+    val status = content.getStringContent("status")
+    val exitCode = content.int("exitCode")
+    val label = when (status) {
+        "RUNNING" -> stringResource(R.string.tool_ui_shell_running)
+        "KILLED" -> stringResource(R.string.tool_ui_shell_stopped)
+        else -> exitCode?.let { stringResource(R.string.tool_ui_shell_exit, it.toString()) }
+            ?: stringResource(R.string.tool_ui_shell_running)
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /**

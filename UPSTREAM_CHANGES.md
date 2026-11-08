@@ -313,3 +313,42 @@
 - `./gradlew test --no-daemon`：510 个测试，7 个失败，全部是 `androidx.datastore` 在 Windows 临时目录执行 `atomicMoveTo` 失败（`FileStorage.kt:118` / `FileMoves.android.kt:33`），属本机 Windows 测试环境问题，与合并逻辑无关。
 - lint：合并后语言资源出现 114 个 `ExtraTranslation`（上游 rootfs 相关 key 在默认 values 被 fork 删除），已从上游默认 values / values-zh 补齐 19 个 key 后消除。
 - `.gitignore` 增加 `**/build/`，避免模块构建产物被误提交。
+
+---
+
+## 8. 后台 Shell（2026-11-08）
+
+上游 3.1.2 的后台命令能力依赖其 `WorkspaceBackend`/`WorkspaceBackgroundCommand` 架构，合并时未直接引入。本次按 fork 的「Android 原生 + termex 工具链」重新实现，行为与上游保持一致（仅本地工作区/沙箱支持，SSH 工作区仍前台执行）。
+
+### 8.1 执行层
+
+- `workspace/.../WorkspaceBackgroundCommand.kt`（新增）：后台命令接口与本地实现；stdout/stderr 合并写入工作区 TMPDIR 的日志文件。
+- `HostShellRunner.startBackground`：复用前台命令的环境（termex 的 `PATH` / `LD_LIBRARY_PATH` / `PREFIX` / `HOME` / `TMPDIR`）与 shell；`kill()` 复用 `killProcessGroup`，连同孙进程一起结束。
+- `WorkspaceManager.startBackgroundCommand` / `startBackgroundCommandIn`、`WorkspaceRepository.startBackgroundCommand` / `startSandboxBackgroundCommand`：本地工作区与沙箱支持；SSH 工作区返回 null。
+
+### 8.2 任务管理
+
+- `BackgroundShellManager`：内存任务表、每会话并发上限、输出增量读取、日志尾部、停止/终止、完成通知事件（Posted / Withdrawn）。
+- `BackgroundShellForegroundService`：有任务运行时保持进程在前台，通知栏显示运行数量。
+- `ChatService`：监听通知事件并写入/撤回会话 inbox；删除会话时终止该会话的后台任务。
+- `ChatVM`：暴露 `backgroundTasks` 与 `stopBackgroundTask`。
+
+### 8.3 工具与界面
+
+- `shell` 新增 `run_in_background` 参数（仅本地且设置开启时暴露）；新增 `shell_output`、`shell_kill` 工具。
+- `ShellToolUI` 增加后台态标题/摘要/详情；新增 `ShellOutputToolUI`、`ShellKillToolUI` 并注册到 `ToolUIRegistry`。
+- 输入栏恢复后台任务按钮（角标显示运行数量），`BackgroundTasksSheet` 提供任务列表、日志详情和停止操作。
+
+### 8.4 设置项
+
+- `Settings` 新增 `shellBackgroundEnabled`（默认开）、`shellBackgroundMaxRunning`（默认 5）、`shellBackgroundNotify`（默认开）。
+- 设置 → 工具 → 「后台命令」卡片（仅 shell 开关开启时显示）：
+  - 允许后台运行；
+  - 每对话并发上限（1 / 2 / 3 / 5 / 10，行尾显示当前值，点击弹窗选择）；
+  - 完成后插入对话提示。
+
+### 8.5 边界
+
+- 后台任务只属于当前会话；删除会话会终止任务。
+- 应用进程退出后任务表丢失（内存态）；前台服务降低被系统回收的概率。
+- 日志为 stdout/stderr 合并文件，放在工作区 TMPDIR；AI 用 `shell_output` 读取，用户可在任务面板查看末尾。

@@ -9,6 +9,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.service.BackgroundShellManager
 import me.rerere.tts.provider.TTSManager
 import me.rerere.workspace.SshRunner
 import kotlin.uuid.Uuid
@@ -20,6 +21,7 @@ class LocalTools(
     private val settingsStore: SettingsStore,
     private val workspaceRepository: WorkspaceRepository,
     private val sshRunner: SshRunner,
+    private val backgroundShellManager: BackgroundShellManager,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 
@@ -49,6 +51,7 @@ class LocalTools(
         options: List<LocalToolOption>,
         workspaceCwd: String? = null,
         currentAssistantId: Uuid? = null,
+        conversationId: Uuid? = null,
     ): List<Tool> {
         val tools = mutableListOf<Tool>()
         if (options.contains(LocalToolOption.JavascriptEngine)) {
@@ -79,14 +82,16 @@ class LocalTools(
         if (options.contains(LocalToolOption.AssistantConfig) && currentAssistantId != null) {
             tools.addAll(buildAssistantConfigTools(settingsStore, currentAssistantId))
         }
-        tools.addAll(buildWorkspaceTools(options, workspaceCwd))
+        tools.addAll(buildWorkspaceTools(options, workspaceCwd, conversationId))
         return tools
     }
 
     private suspend fun buildWorkspaceTools(
         options: List<LocalToolOption>,
         workspaceCwd: String?,
+        conversationId: Uuid?,
     ): List<Tool> {
+        val settings = settingsStore.awaitLoaded()
         // 「写入 / 编辑文件」依赖「读取文件」，即使数据脏了也不会单独挂载
         val readEnabled = LocalToolOption.WorkspaceReadFile in options
         val enabledTools = buildSet {
@@ -95,11 +100,16 @@ class LocalTools(
                 if (LocalToolOption.WorkspaceWriteFile in options) add("write_file")
                 if (LocalToolOption.WorkspaceEditFile in options) add("edit_file")
             }
-            if (LocalToolOption.WorkspaceShell in options) add("shell")
+            if (LocalToolOption.WorkspaceShell in options) {
+                add("shell")
+                if (settings.shellBackgroundEnabled) {
+                    add("shell_output")
+                    add("shell_kill")
+                }
+            }
         }
         if (enabledTools.isEmpty()) return emptyList()
 
-        val settings = settingsStore.awaitLoaded()
         val sandbox = workspaceRepository.sandboxDir()
         val defaultCwd = workspaceCwd?.removePrefix("/workspace/")?.removePrefix("/workspace")
 
@@ -126,6 +136,8 @@ class LocalTools(
                         overtimeSeconds = settings.shellOvertimeSeconds,
                         autoStopOnOvertime = settings.shellAutoStopOnOvertime,
                         enabledTools = enabledTools,
+                        backgroundShellManager = backgroundShellManager.takeIf { settings.shellBackgroundEnabled },
+                        conversationId = conversationId,
                     ),
                     workspaceRepository = workspaceRepository,
                 )

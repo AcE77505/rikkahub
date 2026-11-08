@@ -99,6 +99,12 @@ data class Settings(
     val shellOvertimeSeconds: Int? = DEFAULT_SHELL_OVERTIME_SECONDS,
     // 超过阈值后是否自动停止命令；关闭时只提示、命令继续执行
     val shellAutoStopOnOvertime: Boolean = false,
+    // 允许 AI 把长命令放到后台运行
+    val shellBackgroundEnabled: Boolean = true,
+    // 每个会话同时运行的后台命令上限
+    val shellBackgroundMaxRunning: Int = 5,
+    // 后台命令结束/被用户停止时是否在对话里插入提示
+    val shellBackgroundNotify: Boolean = true,
     // 工作区提示词模板；只在有工作区被声明时才会发出去
     val workspacePrompt: String = DEFAULT_WORKSPACE_PROMPT,
     val webServerEnabled: Boolean = false,

@@ -145,6 +145,8 @@ fun ChatInput(
     onStartVoiceMode: (() -> Unit)? = null,
     voiceState: VoiceSessionState = VoiceSessionState(),
     onStopVoiceMode: () -> Unit = {},
+    runningBackgroundTasks: Int = 0,
+    onShowBackgroundTasks: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
     val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -310,6 +312,13 @@ fun ChatInput(
                                             onUpdateAssistant(assistant.copy(reasoningLevel = it))
                                         },
                                         onlyIcon = true,
+                                    )
+                                }
+
+                                if (runningBackgroundTasks > 0) {
+                                    BackgroundTasksButton(
+                                        running = runningBackgroundTasks,
+                                        onClick = onShowBackgroundTasks,
                                     )
                                 }
                             }

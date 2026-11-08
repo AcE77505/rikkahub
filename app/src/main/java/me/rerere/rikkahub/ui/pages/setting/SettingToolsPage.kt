@@ -84,6 +84,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var approvalDialogVisible by rememberSaveable { mutableStateOf(false) }
     var overtimeDialogVisible by rememberSaveable { mutableStateOf(false) }
+    var backgroundLimitDialogVisible by rememberSaveable { mutableStateOf(false) }
 
     fun toggleTool(option: LocalToolOption, enabled: Boolean) {
         val tools = if (enabled) settings.localTools + option else settings.localTools - option
@@ -193,6 +194,44 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                 }
             }
 
+            if (LocalToolOption.WorkspaceShell in settings.localTools) {
+                item("background") {
+                    CardGroup(title = { Text(stringResource(R.string.setting_tools_shell_background)) }) {
+                        switchItem(
+                            checked = settings.shellBackgroundEnabled,
+                            onCheckedChange = { checked ->
+                                vm.updateSettings { it.copy(shellBackgroundEnabled = checked) }
+                            },
+                            supportingContent = {
+                                Text(stringResource(R.string.setting_tools_shell_background_enabled_desc))
+                            },
+                            headlineContent = { Text(stringResource(R.string.setting_tools_shell_background_enabled)) },
+                        )
+                        if (settings.shellBackgroundEnabled) {
+                            item(
+                                onClick = { backgroundLimitDialogVisible = true },
+                                leadingContent = { CardGroupIcon(HugeIcons.ComputerTerminal01) },
+                                supportingContent = {
+                                    Text(stringResource(R.string.setting_tools_shell_background_limit_desc))
+                                },
+                                headlineContent = { Text(stringResource(R.string.setting_tools_shell_background_limit)) },
+                                trailingContent = { Text(settings.shellBackgroundMaxRunning.toString()) },
+                            )
+                            switchItem(
+                                checked = settings.shellBackgroundNotify,
+                                onCheckedChange = { checked ->
+                                    vm.updateSettings { it.copy(shellBackgroundNotify = checked) }
+                                },
+                                supportingContent = {
+                                    Text(stringResource(R.string.setting_tools_shell_background_notify_desc))
+                                },
+                                headlineContent = { Text(stringResource(R.string.setting_tools_shell_background_notify)) },
+                            )
+                        }
+                    }
+                }
+            }
+
             item("approval") {
                 CardGroup {
                     item(
@@ -244,6 +283,16 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                 vm.updateSettings { it.copy(shellOvertimeSeconds = seconds) }
             },
             onDismiss = { overtimeDialogVisible = false },
+        )
+    }
+
+    if (backgroundLimitDialogVisible) {
+        BackgroundLimitDialog(
+            selected = settings.shellBackgroundMaxRunning,
+            onSelect = { limit ->
+                vm.updateSettings { it.copy(shellBackgroundMaxRunning = limit) }
+            },
+            onDismiss = { backgroundLimitDialogVisible = false },
         )
     }
 
@@ -414,6 +463,55 @@ private fun OvertimeThresholdDialog(
                                 )
                             },
                             // 点整行选中，单选圈自己不接收点击
+                            leadingContent = { RadioButton(selected = isSelected, onClick = null) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
+}
+
+/** 每个对话同时运行的后台命令数上限；与设置页的行尾值保持一致 */
+private val BACKGROUND_LIMIT_OPTIONS = listOf(1, 2, 3, 5, 10)
+
+@Composable
+private fun BackgroundLimitDialog(
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.setting_tools_shell_background_limit)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.setting_tools_shell_background_limit_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                CardGroup(modifier = Modifier.selectableGroup()) {
+                    BACKGROUND_LIMIT_OPTIONS.forEach { limit ->
+                        val isSelected = selected == limit
+                        item(
+                            onClick = {
+                                onSelect(limit)
+                                onDismiss()
+                            },
+                            modifier = Modifier.semantics {
+                                role = Role.RadioButton
+                                this.selected = isSelected
+                            },
+                            headlineContent = { Text(limit.toString()) },
                             leadingContent = { RadioButton(selected = isSelected, onClick = null) },
                         )
                     }

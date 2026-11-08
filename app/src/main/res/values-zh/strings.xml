@@ -2066,4 +2066,19 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="workspace_detail_extracting">提取 %1$d 个项目%2$s</string>
   <string name="workspace_detail_install_complete">安装完成</string>
   <string name="workspace_terminal_not_installed">请先安装 Rootfs</string>
+  <string name="setting_tools_shell_background">后台命令</string>
+  <string name="setting_tools_shell_background_enabled">允许后台运行</string>
+  <string name="setting_tools_shell_background_enabled_desc">允许 AI 把开发服务器、监听任务、长构建等放到后台运行，命令结束后再通知。</string>
+  <string name="setting_tools_shell_background_limit">每对话并发上限</string>
+  <string name="setting_tools_shell_background_limit_desc">同一对话同时运行的后台命令数量上限。</string>
+  <string name="setting_tools_shell_background_notify">完成后插入提示</string>
+  <string name="setting_tools_shell_background_notify_desc">后台命令结束或被停止时，在对话里插入一条提示，AI 可据此继续。</string>
+  <string name="tool_ui_shell_background_status">任务 %1$s · %2$s</string>
+  <string name="tool_ui_shell_log_path">日志：%1$s</string>
+  <string name="tool_ui_shell_output">后台输出 · %1$s</string>
+  <string name="tool_ui_shell_output_default">后台输出</string>
+  <string name="tool_ui_shell_kill">停止后台任务 · %1$s</string>
+  <string name="tool_ui_shell_kill_default">停止后台任务</string>
+  <string name="tool_ui_shell_running">运行中</string>
+  <string name="tool_ui_shell_stopped">已停止</string>
 </resources>

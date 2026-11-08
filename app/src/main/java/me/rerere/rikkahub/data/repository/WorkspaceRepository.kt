@@ -15,6 +15,7 @@ import me.rerere.workspace.SshRunner
 import me.rerere.workspace.SshTarget
 import me.rerere.workspace.ToolchainEnvironment
 import me.rerere.workspace.ToolchainManager
+import me.rerere.workspace.WorkspaceBackgroundCommand
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
@@ -468,6 +469,43 @@ class WorkspaceRepository(
                 overflowFileName = overflowFileName,
                 onOvertime = onOvertime,
             )
+        }
+    }
+
+    /**
+     * 启动一个后台命令。仅本地工作区支持；SSH 工作区返回 null。
+     */
+    suspend fun startBackgroundCommand(
+        id: String,
+        command: String,
+        cwd: String,
+        taskId: String,
+    ): WorkspaceBackgroundCommand? {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        if (workspace.isSsh) return null
+        val toolchain = toolchainEnvironment(id)
+        return withContext(Dispatchers.IO) {
+            manager.ensureWorkspace(workspace.root)
+            manager.startBackgroundCommand(
+                root = workspace.root,
+                command = command,
+                cwd = cwd,
+                directory = workspace.directory,
+                toolchain = toolchain,
+                id = taskId,
+            )
+        }
+    }
+
+    /** 没有声明工作区时，在沙箱里启动后台命令 */
+    suspend fun startSandboxBackgroundCommand(
+        command: String,
+        cwd: String,
+        taskId: String,
+    ): WorkspaceBackgroundCommand {
+        val dir = sandboxDir()
+        return withContext(Dispatchers.IO) {
+            manager.startBackgroundCommandIn(dir, command, cwd, null, taskId)
         }
     }
 

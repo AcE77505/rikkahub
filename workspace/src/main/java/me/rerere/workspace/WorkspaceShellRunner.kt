@@ -8,6 +8,13 @@ import java.io.OutputStream
 
 interface WorkspaceShellRunner {
     fun execute(context: WorkspaceShellContext): WorkspaceCommandResult
+
+    /**
+     * 启动后台命令，stdout/stderr 合并写入日志文件。
+     *
+     * 只为本地工作区实现；远程工作区由调用方直接拒绝。
+     */
+    fun startBackground(context: WorkspaceShellContext, id: String): WorkspaceBackgroundCommand
 }
 
 /**
@@ -62,6 +69,30 @@ class HostShellRunner : WorkspaceShellRunner {
             .apply { environment().putAll(context.environment()) }
             .start()
         return process.readResult(context)
+    }
+
+    override fun startBackground(context: WorkspaceShellContext, id: String): WorkspaceBackgroundCommand {
+        context.workingDir.mkdirs()
+        context.homeDir.mkdirs()
+        context.tempDir.mkdirs()
+        val logFile = File(context.tempDir, "background-$id.log").apply { delete() }
+        val process = ProcessBuilder(defaultShell(), "-c", context.command)
+            .directory(context.workingDir)
+            .redirectErrorStream(true)
+            .apply { environment().putAll(context.environment()) }
+            .start()
+        // 合并后的输出持续写入日志；进程结束时读取端自然关闭
+        Thread {
+            runCatching {
+                process.inputStream.use { input ->
+                    logFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+        return LocalBackgroundCommand(process, logFile, logFile.absolutePath)
     }
 
     private fun defaultShell(): String =

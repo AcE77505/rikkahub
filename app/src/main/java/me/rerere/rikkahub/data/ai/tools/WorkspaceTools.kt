@@ -3,11 +3,15 @@ package me.rerere.rikkahub.data.ai.tools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import me.rerere.rikkahub.service.BackgroundShellManager
+import kotlin.uuid.Uuid
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.DiffMetadata
@@ -86,6 +90,10 @@ data class WorkspaceToolContext(
     val sshTarget: SshTarget? = null,
     /** 工具名前缀；远程组用 [SSH_TOOL_PREFIX]，本地组为空 */
     val toolPrefix: String = "",
+    /** 后台命令管理器；为空表示当前工具组不支持后台运行（如 SSH） */
+    val backgroundShellManager: BackgroundShellManager? = null,
+    /** 后台命令所属会话 */
+    val conversationId: Uuid? = null,
 ) {
     /** 是否走远程；两个字段必须成对出现，缺一个就按本地处理 */
     val isRemote: Boolean get() = sshRunner != null && sshTarget != null
@@ -122,6 +130,11 @@ fun createWorkspaceTools(
     add(createEditFileTool(context, workspaceRepository))
     // 没有声明任何工作区时 shell 仍然可用，目标目录回落到沙箱
     add(createShellTool(context, workspaceRepository))
+    // 后台命令只在本地工作区支持；SSH 工作区沿用前台执行
+    if (context.backgroundShellManager != null && context.conversationId != null && !context.isRemote) {
+        add(createShellOutputTool(context))
+        add(createShellKillTool(context))
+    }
 }.filter { context.isEnabled(it.name) }
 
 private val IMAGE_EXTENSIONS = setOf(
@@ -312,6 +325,12 @@ private fun createShellTool(
             append("Defaults to '${context.defaultCwd}'. ")
         }
         append(overtimeDescription(context.overtimeSeconds, context.autoStopOnOvertime))
+        if (context.backgroundShellManager != null && context.conversationId != null && !context.isRemote) {
+            append(
+                " Set run_in_background for long-running commands such as dev servers, watchers or long builds; " +
+                    "processes left running with `&` are killed when the command returns. "
+            )
+        }
     },
     parameters = {
         InputSchema.Obj(
@@ -340,6 +359,17 @@ private fun createShellTool(
                             "regardless of the global auto-stop setting."
                     )
                 })
+                if (context.backgroundShellManager != null && context.conversationId != null && !context.isRemote) {
+                    put("run_in_background", buildJsonObject {
+                        put("type", "boolean")
+                        put(
+                            "description",
+                            "Start the command in the background and return a task id immediately instead of waiting for it. " +
+                                "You will be notified with its exit code and the last lines of its output when it finishes, so do not poll it. " +
+                                "Use shell_output to check on it earlier and shell_kill to stop it. Defaults to false."
+                        )
+                    })
+                }
             },
             required = listOf("command"),
         )
@@ -350,6 +380,26 @@ private fun createShellTool(
         val command = params.string("command") ?: error("command is required")
         val cwd = (params.string("cwd") ?: context.defaultCwd.orEmpty())
             .removePrefix("/workspace/").removePrefix("/workspace")
+        val runInBackground = params["run_in_background"]?.jsonPrimitive?.booleanOrNull ?: false
+        if (runInBackground) {
+            val manager = context.backgroundShellManager
+            val conversationId = context.conversationId
+            if (manager == null || conversationId == null || context.isRemote) {
+                error("Background commands are not supported in this workspace")
+            }
+            val task = manager.start(conversationId, context.workspaceId, command, cwd)
+            return@Tool listOf(
+                UIMessagePart.Text(
+                    buildJsonObject {
+                        put("background", true)
+                        put("taskId", task.id)
+                        put("status", task.status.name)
+                        put("logPath", task.logPath)
+                        put("command", command)
+                    }.toString()
+                )
+            )
+        }
         val overtimeOverride = params.string("overtime")?.toLongOrNull()?.takeIf { it > 0 }
         val overflowFileName = "shell-${System.currentTimeMillis()}.log"
         val workspaceId = context.workspaceId
@@ -388,6 +438,88 @@ private fun createShellTool(
                             )
                         }
                     }
+                }.toString()
+            )
+        )
+    },
+)
+
+/** 读取后台命令在本次调用之前尚未读过的输出；命令结束后会自动收到通知，通常不需要轮询 */
+private fun createShellOutputTool(context: WorkspaceToolContext) = Tool(
+    name = context.toolName("shell_output"),
+    description = "Read the output of a background command started by shell with run_in_background. " +
+        "Returns output written since the previous call, plus the exit code once it has finished. " +
+        "You are notified automatically when a background command finishes, so only use this when you " +
+        "need its output before then, such as checking that a server started.",
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("task_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Task id returned by shell when run_in_background was true")
+                })
+                put("wait_seconds", buildJsonObject {
+                    put("type", "integer")
+                    put(
+                        "description",
+                        "Wait up to this many seconds for the command to finish before reading. Defaults to 0."
+                    )
+                })
+            },
+            required = listOf("task_id"),
+        )
+    },
+    execute = {
+        val manager = context.backgroundShellManager ?: error("Background commands are not available")
+        val conversationId = context.conversationId ?: error("Background commands are not available")
+        val taskId = it.jsonObject["task_id"]?.jsonPrimitive?.contentOrNull?.trim()
+        require(!taskId.isNullOrEmpty()) { "task_id is required" }
+        val waitSeconds = it.jsonObject["wait_seconds"]?.jsonPrimitive?.intOrNull?.coerceIn(0, 120) ?: 0
+        val result = manager.readOutput(conversationId, taskId, waitSeconds * 1_000L)
+        listOf(
+            UIMessagePart.Text(
+                buildJsonObject {
+                    put("taskId", result.task.id)
+                    put("status", result.task.status.name)
+                    result.task.exitCode?.let { code -> put("exitCode", code) }
+                    put("output", result.output)
+                    if (result.skippedBytes > 0) put("skippedBytes", result.skippedBytes)
+                    put("logPath", result.task.logPath)
+                }.toString()
+            )
+        )
+    },
+)
+
+/** 终止后台命令及其派生的进程 */
+private fun createShellKillTool(context: WorkspaceToolContext) = Tool(
+    name = context.toolName("shell_kill"),
+    description = "Stop a background command started by shell with run_in_background. " +
+        "The process and its descendants are terminated; output written so far stays in the log file.",
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("task_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Task id returned by shell when run_in_background was true")
+                })
+            },
+            required = listOf("task_id"),
+        )
+    },
+    execute = {
+        val manager = context.backgroundShellManager ?: error("Background commands are not available")
+        val conversationId = context.conversationId ?: error("Background commands are not available")
+        val taskId = it.jsonObject["task_id"]?.jsonPrimitive?.contentOrNull?.trim()
+        require(!taskId.isNullOrEmpty()) { "task_id is required" }
+        val task = manager.kill(conversationId, taskId)
+        listOf(
+            UIMessagePart.Text(
+                buildJsonObject {
+                    put("taskId", task.id)
+                    put("status", task.status.name)
+                    task.exitCode?.let { code -> put("exitCode", code) }
+                    put("logPath", task.logPath)
                 }.toString()
             )
         )

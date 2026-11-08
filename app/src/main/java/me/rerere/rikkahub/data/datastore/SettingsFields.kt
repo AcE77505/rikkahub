@@ -188,6 +188,9 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
             decode = { if (it < 0) null else it },
         ),
         plain(SHELL_AUTO_STOP_ON_OVERTIME, Settings::shellAutoStopOnOvertime) { copy(shellAutoStopOnOvertime = it) },
+        plain(SHELL_BACKGROUND_ENABLED, Settings::shellBackgroundEnabled) { copy(shellBackgroundEnabled = it) },
+        plain(SHELL_BACKGROUND_MAX_RUNNING, Settings::shellBackgroundMaxRunning) { copy(shellBackgroundMaxRunning = it) },
+        plain(SHELL_BACKGROUND_NOTIFY, Settings::shellBackgroundNotify) { copy(shellBackgroundNotify = it) },
         plain(WORKSPACE_PROMPT, Settings::workspacePrompt) { copy(workspacePrompt = it) },
 
         // 备份提醒

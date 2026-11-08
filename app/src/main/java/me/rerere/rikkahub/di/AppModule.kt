@@ -10,6 +10,7 @@ import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.service.BackgroundShellManager
 import me.rerere.rikkahub.service.ChatFloatingTracker
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
@@ -33,7 +34,7 @@ val appModule = module {
     }
 
     single {
-        LocalTools(get(), get(), get(), get(), get(), get())
+        LocalTools(get(), get(), get(), get(), get(), get(), get())
     }
 
     single {
@@ -142,6 +143,14 @@ val appModule = module {
     }
 
     single {
+        BackgroundShellManager(
+            context = get(),
+            workspaceRepository = get(),
+            settingsStore = get(),
+        )
+    }
+
+    single {
         ChatService(
             context = get(),
             appScope = get(),
@@ -157,6 +166,7 @@ val appModule = module {
             folderRepository = get(),
             subAgentStore = get(),
             subAgentApprovalRegistry = get(),
+            backgroundShellManager = get(),
         )
     }
 

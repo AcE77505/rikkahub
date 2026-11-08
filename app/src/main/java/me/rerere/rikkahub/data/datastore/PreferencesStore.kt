@@ -185,6 +185,9 @@ class SettingsStore internal constructor(
         val SUBAGENT_MAX_CONCURRENCY = intPreferencesKey("subagent_max_concurrency")
         val SHELL_OVERTIME_SECONDS = intPreferencesKey("shell_overtime_seconds")
         val SHELL_AUTO_STOP_ON_OVERTIME = booleanPreferencesKey("shell_auto_stop_on_overtime")
+        val SHELL_BACKGROUND_ENABLED = booleanPreferencesKey("shell_background_enabled")
+        val SHELL_BACKGROUND_MAX_RUNNING = intPreferencesKey("shell_background_max_running")
+        val SHELL_BACKGROUND_NOTIFY = booleanPreferencesKey("shell_background_notify")
         val WORKSPACE_PROMPT = stringPreferencesKey("workspace_prompt")
 
         // 备份提醒

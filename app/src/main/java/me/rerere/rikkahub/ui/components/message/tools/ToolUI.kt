@@ -111,6 +111,8 @@ object ToolUIRegistry {
         ReadFileToolUI,
         WriteFileToolUI,
         ShellToolUI,
+        ShellOutputToolUI,
+        ShellKillToolUI,
         SubAgentTaskToolUI(),
         SubAgentFleetToolUI(),
         SubAgentReadToolUI(),

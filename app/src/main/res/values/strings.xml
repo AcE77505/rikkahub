@@ -2067,4 +2067,19 @@
   <string name="workspace_detail_extracting">Extracting %1$d items%2$s</string>
   <string name="workspace_detail_install_complete">Installation complete</string>
   <string name="workspace_terminal_not_installed">Please install Rootfs first</string>
+  <string name="setting_tools_shell_background">Background commands</string>
+  <string name="setting_tools_shell_background_enabled">Allow background commands</string>
+  <string name="setting_tools_shell_background_enabled_desc">Let the AI move long-running commands (dev servers, watchers, builds) to the background and keep chatting. You will be notified when they finish.</string>
+  <string name="setting_tools_shell_background_limit">Concurrent limit</string>
+  <string name="setting_tools_shell_background_limit_desc">Maximum background commands running at the same time in one conversation.</string>
+  <string name="setting_tools_shell_background_notify">Notify when finished</string>
+  <string name="setting_tools_shell_background_notify_desc">Insert a message into the conversation when a background command exits or is stopped, so the AI can continue.</string>
+  <string name="tool_ui_shell_background_status">Task %1$s · %2$s</string>
+  <string name="tool_ui_shell_log_path">Log: %1$s</string>
+  <string name="tool_ui_shell_output">Background output · %1$s</string>
+  <string name="tool_ui_shell_output_default">Background output</string>
+  <string name="tool_ui_shell_kill">Stop background task · %1$s</string>
+  <string name="tool_ui_shell_kill_default">Stop background task</string>
+  <string name="tool_ui_shell_running">Running</string>
+  <string name="tool_ui_shell_stopped">Stopped</string>
 </resources>
