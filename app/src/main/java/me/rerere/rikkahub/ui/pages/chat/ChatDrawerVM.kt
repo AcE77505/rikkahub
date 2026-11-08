@@ -41,7 +41,7 @@ import kotlin.uuid.Uuid
 class ChatDrawerVM(
     private val context: Application,
     private val settingsStore: SettingsStore,
-    conversationRepo: ConversationRepository,
+    private val conversationRepo: ConversationRepository,
     private val folderRepo: FolderRepository,
     private val chatService: ChatService,
     private val memoryConsolidationScheduler: MemoryConsolidationScheduler,
@@ -128,6 +128,9 @@ class ChatDrawerVM(
             }
         }
     }
+
+    /** 导出前从数据库重新读取完整会话，避免列表分页只拿到摘要 */
+    suspend fun loadConversationForExport(id: Uuid): Conversation? = conversationRepo.getConversationById(id)
 
     fun saveScrollPosition(index: Int, offset: Int) {
         savedStateHandle["scrollIndex"] = index

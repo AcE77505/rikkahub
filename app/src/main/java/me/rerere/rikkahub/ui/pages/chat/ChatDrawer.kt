@@ -157,6 +157,9 @@ fun ChatDrawerContent(
     var conversationToMove by remember { mutableStateOf<Conversation?>(null) }
     val bottomSheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
 
+    // 长按会话导出的目标；导出始终使用完整会话
+    var exportTarget by remember { mutableStateOf<Conversation?>(null) }
+
     // 文件夹相关状态
     var showMoveToFolderSheet by remember { mutableStateOf(false) }
     var conversationToMoveFolder by remember { mutableStateOf<Conversation?>(null) }
@@ -342,6 +345,11 @@ fun ChatDrawerContent(
                 onMoveToFolder = {
                     conversationToMoveFolder = it
                     showMoveToFolderSheet = true
+                },
+                onExport = { conversation ->
+                    scope.launch {
+                        exportTarget = drawerVm.loadConversationForExport(conversation.id) ?: conversation
+                    }
                 }
             )
 
@@ -733,6 +741,15 @@ fun ChatDrawerContent(
                 }
             }
         }
+    }
+
+    exportTarget?.let { conversation ->
+        ChatExportSheet(
+            visible = true,
+            onDismissRequest = { exportTarget = null },
+            conversation = conversation,
+            selectedMessages = conversation.messageNodes.map { it.currentMessage },
+        )
     }
 }
 

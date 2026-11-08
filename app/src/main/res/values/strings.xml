@@ -2082,4 +2082,5 @@
   <string name="tool_ui_shell_kill_default">Stop background task</string>
   <string name="tool_ui_shell_running">Running</string>
   <string name="tool_ui_shell_stopped">Stopped</string>
+  <string name="chat_page_export">Export</string>
 </resources>

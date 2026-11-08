@@ -2081,4 +2081,5 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="tool_ui_shell_kill_default">停止后台任务</string>
   <string name="tool_ui_shell_running">运行中</string>
   <string name="tool_ui_shell_stopped">已停止</string>
+  <string name="chat_page_export">导出</string>
 </resources>

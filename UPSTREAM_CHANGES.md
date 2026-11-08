@@ -366,3 +366,11 @@
   - 地图根节点加不透明背景，避免与普通列表的工具栏叠加。
 - `ChatList` 将同一个 `ChatSelectionState` 传给两个视图；`ChatPage` 的「对话地图」入口不再清空 `selectionState.selecting`，切换界面保留选择。
 - 两个界面共用 `selectedItems`（节点 id）：普通列表单独选中的节点会让地图对应轮次显示半选；在地图选中整轮会同步到普通列表。
+
+---
+
+## 10. 长按会话导出（2026-11-08）
+
+- 会话列表长按菜单新增「导出」：`ConversationList` / `ConversationItem` 增加 `onExport` 回调，`ChatDrawer` 维护 `exportTarget`。
+- 导出目标从 `ConversationRepository.getConversationById` 重新读取，确保拿到完整会话；`ChatExportSheet` 的 `selectedMessages` 直接传全部 `currentMessage`，不经过多选。
+- 导出沿用现有格式面板（Markdown / 图片、包含/展开思考），保存和分享走 SAF（`CreateDocument`）。
