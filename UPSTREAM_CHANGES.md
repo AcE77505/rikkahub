@@ -448,3 +448,18 @@
 - 新增：`data/datastore/BackupItem.kt`、`data/datastore/BackupFields.kt`、`data/sync/DatabaseBackupTables.kt`
 - 修改：`data/datastore/PreferencesStore.kt`、`data/datastore/Settings.kt`、`data/sync/BackupManager.kt`、`data/sync/DatabaseBackup.kt`、`data/sync/S3Sync.kt`、`data/sync/s3/S3Config.kt`、`data/sync/webdav/WebDavSync.kt`、`ui/components/ui/ConnectedChoiceButtons.kt`、`ui/pages/backup/BackupVM.kt`、`ui/pages/backup/components/BackupComponents.kt`、`ui/pages/backup/tabs/{ImportExportTab,WebDavTab,S3Tab}.kt`、`ui/.../toast/Toaster.kt`、`app/src/androidTest/.../BackupManagerTest.kt`
 - 字符串：`app` 与 `ui` 模块共 9 种语言的 `values*/strings.xml`
+
+---
+
+## 12. 渐变背景动画跟随生命周期（2026-11-08）
+
+原先 `MeshGradientBackground` 用 `rememberInfiniteTransition` 驱动四个光斑，没有显式的生命周期控制。
+
+- 改用 4 个 `Animatable` + `LaunchedEffect(resumed)`，`rememberAppLifecycleState()` 到达 `RESUMED` 才推进；
+  切到后台或失去焦点时 effect 取消，动画停在当前位置，回前台从该位置继续，不会跳变。
+- 每个相位的单圈跨度取 `2π` 的整数倍（p1 20 圈 / 110 秒、p3 10 圈 / 85 秒、p4 10 圈 / 62 秒），
+  保证 `sin` / `cos` 在循环衔接处连续。
+- 视觉效果与原来一致，只是驱动方式改变。
+
+收益边界：Compose 默认在 Activity `STOPPED` 时会暂停 recomposer 帧；这里用 `RESUMED` 更严格，
+进入最近任务、分屏失焦等场景就能停，且行为与 OEM 实现无关。改动只在一个文件，可随时回退。
