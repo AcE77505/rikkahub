@@ -377,7 +377,7 @@ private fun ChatPageContent(
                         }
                     },
                     onShowOverview = {
-                        selectionState.selecting = false
+                        // 多选状态跨界面保留：切到概览后仍能继续勾选
                         previewMode = true
                     },
                     onExport = {

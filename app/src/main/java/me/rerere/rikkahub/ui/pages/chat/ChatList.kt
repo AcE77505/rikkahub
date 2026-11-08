@@ -182,6 +182,7 @@ fun ChatList(
                     listState = previewListState,
                     settings = settings,
                     hazeState = hazeState,
+                    selectionState = selectionState,
                     onJumpToMessage = onJumpToMessage,
                 )
             }

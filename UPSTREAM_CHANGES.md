@@ -352,3 +352,17 @@
 - 后台任务只属于当前会话；删除会话会终止任务。
 - 应用进程退出后任务表丢失（内存态）；前台服务降低被系统回收的概率。
 - 日志为 stdout/stderr 合并文件，放在工作区 TMPDIR；AI 用 `shell_output` 读取，用户可在任务面板查看末尾。
+
+---
+
+## 9. 对话地图多选（2026-11-08）
+
+上游的对话导出多选只在普通消息列表里实现，概览（对话地图）没有选择状态；顶栏「对话地图」入口还会显式清空多选，导致切换视图后选择丢失。
+
+- `ChatListPreview` 接收 `ChatSelectionState`：
+  - 每轮卡片按 `messageNodes` 的 `firstIndex..lastIndex` 映射到节点 id；
+  - 多选状态下显示 `TriStateCheckbox`（全选 / 半选 / 未选），点击卡片切换该轮，长按进入多选；
+  - 地图底部复用 `ChatSelectionToolbar`，确认后打开 `ChatExportSheet`；
+  - 地图根节点加不透明背景，避免与普通列表的工具栏叠加。
+- `ChatList` 将同一个 `ChatSelectionState` 传给两个视图；`ChatPage` 的「对话地图」入口不再清空 `selectionState.selecting`，切换界面保留选择。
+- 两个界面共用 `selectedItems`（节点 id）：普通列表单独选中的节点会让地图对应轮次显示半选；在地图选中整轮会同步到普通列表。

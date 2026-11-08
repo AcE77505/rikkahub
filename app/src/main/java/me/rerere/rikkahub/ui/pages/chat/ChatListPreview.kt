@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -124,8 +128,10 @@ internal fun ChatListPreview(
     listState: LazyListState,
     settings: Settings,
     hazeState: HazeState,
+    selectionState: ChatSelectionState,
     onJumpToMessage: (Int) -> Unit,
 ) {
+    var showExportSheet by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val query = searchQuery.trim()
 
@@ -153,6 +159,11 @@ internal fun ChatListPreview(
     }
 
     // 和聊天列表一样：顶部留白放进 contentPadding，内容能滚到透明标题栏下面并渐隐
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(horizontal = 16.dp) + PaddingValues(
@@ -201,16 +212,68 @@ internal fun ChatListPreview(
 
         items(items = filtered, key = { conversation.messageNodes[it.firstIndex].id }) { round ->
             val reply = round.reply
+            val roundIds = remember(round, conversation.messageNodes) {
+                conversation.messageNodes.subList(round.firstIndex, round.lastIndex + 1).map { it.id }
+            }
+            val allSelected = roundIds.isNotEmpty() && roundIds.all { it in selectionState.selectedItems }
+            val partiallySelected = !allSelected && roundIds.any { it in selectionState.selectedItems }
+            val toggle: () -> Unit = {
+                if (allSelected) {
+                    selectionState.selectedItems.removeAll(roundIds.toSet())
+                } else {
+                    roundIds.forEach { id ->
+                        if (id !in selectionState.selectedItems) selectionState.selectedItems.add(id)
+                    }
+                }
+                Unit
+            }
             PreviewRoundCard(
                 round = round,
                 query = query,
                 assistant = assistant,
                 model = reply?.let { it.modelId?.let(modelById::get) ?: it.snapshotModel() },
                 isCurrent = currentIndex in round.firstIndex..round.lastIndex,
-                onClick = { onJumpToMessage(round.firstIndex) },
+                selecting = selectionState.selecting,
+                selected = allSelected,
+                partiallySelected = partiallySelected,
+                onSelectToggle = toggle,
+                onClick = {
+                    if (selectionState.selecting) toggle() else onJumpToMessage(round.firstIndex)
+                },
+                onLongClick = {
+                    if (!selectionState.selecting) selectionState.start(roundIds)
+                },
                 modifier = Modifier.animateItem(),
             )
         }
+        }
+
+        ChatSelectionToolbar(
+            state = selectionState,
+            allIds = conversation.messageNodes.map { it.id },
+            onConfirm = {
+                selectionState.selecting = false
+                if (conversation.messageNodes.any { it.id in selectionState.selectedItems }) {
+                    showExportSheet = true
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = innerPadding.calculateBottomPadding() + 48.dp),
+        )
+
+        ChatExportSheet(
+            visible = showExportSheet,
+            onDismissRequest = {
+                showExportSheet = false
+                selectionState.selectedItems.clear()
+            },
+            conversation = conversation,
+            selectedMessages = conversation.messageNodes
+                .filter { it.id in selectionState.selectedItems }
+                .map { it.currentMessage },
+        )
     }
 }
 
@@ -292,21 +355,43 @@ private fun PreviewRoundCard(
     assistant: Assistant?,
     model: Model?,
     isCurrent: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
+    partiallySelected: Boolean,
+    onSelectToggle: () -> Unit,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = MaterialTheme.shapes.large,
-        color = colors.surfaceContainer,
-        border = if (isCurrent) BorderStroke(1.5.dp, colors.primary) else null,
+        color = if (selected) colors.secondaryContainer else colors.surfaceContainer,
+        border = if (isCurrent || selected) BorderStroke(1.5.dp, colors.primary) else null,
     ) {
-        Column(
+        Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
         ) {
+            if (selecting) {
+                TriStateCheckbox(
+                    state = when {
+                        selected -> ToggleableState.On
+                        partiallySelected -> ToggleableState.Indeterminate
+                        else -> ToggleableState.Off
+                    },
+                    onClick = onSelectToggle,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
             // 用户消息：一行
             val user = round.user
             if (user != null) {
@@ -365,6 +450,7 @@ private fun PreviewRoundCard(
                     }
                 }
             }
+        }
         }
     }
 }
