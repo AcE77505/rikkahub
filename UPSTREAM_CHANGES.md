@@ -206,6 +206,7 @@
 9. **API 24 下限**
    - 新增代码不要直接使用 `java.nio.file`、`Process.waitFor(timeout, unit)`、`AudioFocusRequest` 等 API 26+ 接口；优先复用 `SymlinkCompat`、`AudioFocusController`、`exitValue()` 轮询。
    - `WorkspaceFileSystem` 的 glob 是自实现，语义与 `PathMatcher` 接近但不完全等价（例如字符类范围、复杂转义），改匹配逻辑时要补测试。
+   - 上游 `terminal` 模块的 `LocalPtyTransport` 读 `/proc/<pid>/stat` 用的是 `Files.readAllBytes` + `File.toPath`（API 26），已改成 `FileInputStream`；同步 `terminal` 时注意不要被上游版本覆盖回去。
 
 10. **助手预设**
     - `presetMessages` 仍是没有分组时的兼容来源；新数据使用 `presetMessageGroups`。

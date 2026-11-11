@@ -6,6 +6,7 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -13,7 +14,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -139,7 +139,15 @@ public final class LocalPtyTransport implements TerminalTransport {
             if (entry.isEmpty() || !Character.isDigit(entry.charAt(0))) continue;
             String stat;
             try {
-                byte[] bytes = Files.readAllBytes(new File("/proc/" + entry + "/stat").toPath());
+                // API 24/25 没有 java.nio.file，直接读文件
+                byte[] bytes;
+                try (InputStream in = new FileInputStream(new File("/proc/" + entry + "/stat"))) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream(256);
+                    byte[] buffer = new byte[1024];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
+                    bytes = out.toByteArray();
+                }
                 stat = new String(bytes, StandardCharsets.UTF_8);
             } catch (IOException | SecurityException e) {
                 // Exited meanwhile, or not ours to see.
