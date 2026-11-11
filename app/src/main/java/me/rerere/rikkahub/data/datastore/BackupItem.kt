@@ -141,6 +141,7 @@ internal object BackupSettingsFields {
             "memoryModelReasoningLevel", "enableAutoTitle", "titlePrompt",
             "translateModeId", "translatePrompt", "translateThinkingBudget", "translateTargetLanguage",
             "enableSuggestion", "suggestionPrompt", "ocrModelId", "ocrPrompt", "providers",
+            "enableAutoCompress", "autoCompressThreshold",
             "webDavConfig", "s3Config", "uploadS3Config", "localTools", "toolApprovals",
             "shellOvertimeSeconds", "shellAutoStopOnOvertime", "shellBackgroundEnabled",
             "shellBackgroundMaxRunning", "shellBackgroundNotify", "workspacePrompt", "webServerEnabled",

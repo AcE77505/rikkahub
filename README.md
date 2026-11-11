@@ -38,6 +38,7 @@ Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqx
 
 - 🎨 Material 3 Expressive design and 🌙 Dark mode
 - 📦 Workspace: a proot-based Linux agent environment
+- 📱 Phone Use: let the AI operate your phone
 - 🎬 Media generation (image and video)
 - 🔄 Multiple AI Provider Support: custom API / URL / models (all OpenAI, Google, Anthropic compatible api)
 - 🖼️ Multimodal input support (Image, Text Documentation, PDF, Docx)

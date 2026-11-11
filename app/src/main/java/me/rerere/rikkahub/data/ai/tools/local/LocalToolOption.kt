@@ -37,6 +37,10 @@ sealed class LocalToolOption {
     @SerialName("chart_display")
     data object ChartDisplay : LocalToolOption()
 
+    @Serializable
+    @SerialName("phone_use")
+    data object PhoneUse : LocalToolOption()
+
     // 允许 AI 读取/修改其他助手的配置（不能修改当前助手）
 
     @Serializable

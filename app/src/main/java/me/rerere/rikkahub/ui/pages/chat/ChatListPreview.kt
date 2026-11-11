@@ -28,9 +28,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +49,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.toJavaLocalDateTime
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
@@ -73,12 +80,15 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.uuid.Uuid
 
 /**
  * 概览里的一张卡片：一轮对话 = 一条用户消息 + 后面跟着的助手回复（工具调用会拆成多个节点，这里合并）。
  * 对话开头没有用户消息时（如开场白），[user] 为空。
  */
 private data class PreviewRound(
+    // 这一轮第一个节点的 id，用作列表 key
+    val id: Uuid,
     // 点击跳转的目标，取这一轮第一个节点
     val firstIndex: Int,
     val lastIndex: Int,
@@ -104,6 +114,7 @@ private fun List<MessageNode>.toPreviewRounds(): List<PreviewRound> {
         val user = group.first().value.currentMessage.takeIf { it.role == MessageRole.USER }
         val replies = group.map { it.value.currentMessage }.filter { it.role != MessageRole.USER }
         PreviewRound(
+            id = group.first().value.id,
             firstIndex = group.first().index,
             lastIndex = group.last().index,
             user = user,
@@ -135,7 +146,15 @@ internal fun ChatListPreview(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val query = searchQuery.trim()
 
-    val rounds = remember(conversation.messageNodes) { conversation.messageNodes.toPreviewRounds() }
+    // 长对话里逐条做正则清洗很慢，放到后台算；没算完时为 null。
+    // 生成中节点每个 chunk 都在变，conflate 掉中间状态，只算最新的
+    val nodes by rememberUpdatedState(conversation.messageNodes)
+    val loadedRounds by produceState<List<PreviewRound>?>(initialValue = null) {
+        snapshotFlow { nodes }
+            .conflate()
+            .collect { value = withContext(Dispatchers.Default) { it.toPreviewRounds() } }
+    }
+    val rounds = loadedRounds.orEmpty()
     val filtered = remember(rounds, query) {
         if (query.isEmpty()) rounds else rounds.filter { it.matches(query) }
     }
@@ -149,16 +168,22 @@ internal fun ChatListPreview(
 
     // 打开时的阅读位置；概览期间聊天列表不动，记一次就够
     val currentIndex = remember { chatListState.firstVisibleItemIndex }
-    val currentRound = remember(rounds) {
-        rounds.indexOfFirst { currentIndex in it.firstIndex..it.lastIndex }
+    // listState 由外部持有（顶栏胶囊要读它），每次打开都重新定位：停在当前轮的前一轮，让上面露出一点上下文。
+    // 要等卡片算出来、列表里有内容之后才能滚
+    val loaded = loadedRounds != null
+    LaunchedEffect(loaded) {
+        if (!loaded) return@LaunchedEffect
+        val currentRound = rounds.indexOfFirst { currentIndex in it.firstIndex..it.lastIndex }
+        listState.scrollToItem((currentRound - 1).coerceAtLeast(0))
     }
-    // listState 由外部持有（顶栏胶囊要读它），每次打开都重新定位：
-    // 第 0 项是搜索框，第 r 轮在第 r + 1 项，停在它前一项让上面露出一点上下文
-    LaunchedEffect(Unit) {
-        listState.scrollToItem(currentRound.coerceAtLeast(0))
+    // 搜索框固定在列表外，滚到中间时改搜索词，结果要从头看
+    LaunchedEffect(listState) {
+        snapshotFlow { searchQuery.trim() }.drop(1).collect { listState.scrollToItem(0) }
     }
 
-    // 和聊天列表一样：顶部留白放进 contentPadding，内容能滚到透明标题栏下面并渐隐
+    // 搜索框浮在列表上方固定不动；列表顶部留白放进 contentPadding，内容能滚到搜索框和透明标题栏下面并渐隐
+    val searchBarTop = innerPadding.calculateTopPadding() + 8.dp
+    val listTop = searchBarTop + PreviewSearchBarHeight + 12.dp
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -167,26 +192,16 @@ internal fun ChatListPreview(
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(horizontal = 16.dp) + PaddingValues(
-            top = innerPadding.calculateTopPadding() + 8.dp,
+            top = listTop,
             bottom = 32.dp + innerPadding.calculateBottomPadding(),
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxSize()
-            .topFadingEdge(innerPadding.calculateTopPadding() + 24.dp)
+            .topFadingEdge(listTop)
             .hazeSource(state = hazeState),
     ) {
-        item(key = PreviewSearchBarKey) {
-            PreviewSearchBar(
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                resultCount = filtered.size,
-                totalCount = rounds.size,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-        }
-
-        if (filtered.isEmpty()) {
+        if (loaded && filtered.isEmpty()) {
             item(key = PreviewEmptyKey) {
                 Column(
                     modifier = Modifier
@@ -210,7 +225,7 @@ internal fun ChatListPreview(
             }
         }
 
-        items(items = filtered, key = { conversation.messageNodes[it.firstIndex].id }) { round ->
+        items(items = filtered, key = { it.id }) { round ->
             val reply = round.reply
             val roundIds = remember(round, conversation.messageNodes) {
                 conversation.messageNodes.subList(round.firstIndex, round.lastIndex + 1).map { it.id }
@@ -248,6 +263,14 @@ internal fun ChatListPreview(
         }
         }
 
+        PreviewSearchBar(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            resultCount = filtered.size,
+            totalCount = rounds.size,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = searchBarTop),
+        )
+
         ChatSelectionToolbar(
             state = selectionState,
             allIds = conversation.messageNodes.map { it.id },
@@ -277,7 +300,7 @@ internal fun ChatListPreview(
     }
 }
 
-private const val PreviewSearchBarKey = "PreviewSearchBar"
+private val PreviewSearchBarHeight = 52.dp
 private const val PreviewEmptyKey = "PreviewEmpty"
 
 @Composable
@@ -291,7 +314,7 @@ private fun PreviewSearchBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp),
+            .height(PreviewSearchBarHeight),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {

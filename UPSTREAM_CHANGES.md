@@ -657,3 +657,44 @@
 - 没有新增 `LocalToolOption`，沿用「修改其他助手」开关；关闭该开关时这些记忆工具也不会挂载。
 - 工具只操作记忆库（Markdown 文件），不暴露模型、MCP、工作区等本机配置。
 - 文件路径读取沿用提示词工具的做法，仅限 App 进程可读的绝对路径；Android 分区限制仍然存在。
+
+---
+
+## 15. 上游 3.2.0 同步（2026-11-11）
+
+合并 `upstream/3.2.0`（`90269e39`，22 个提交、83 个文件 `+3623 / -364`），17 个文件冲突。3.2.0 没有数据库改动（Room 仍为 34），也没有工作区架构改动。
+
+### 15.1 直接合入
+
+- `ai`：Claude thinking 块签名 / redacted 回传、Mistral 推理模型多轮 422、`AgentHooks.shouldPause` 与 `Paused` 结束原因。
+- 网络：新增 `network_security_config.xml`，在系统 CA 之外信任用户安装的 CA。
+- 提供商：内置 STA1N、默认提供商全部开启、可用模型面板手动刷新。
+- 设置页通知权限卡片（`LocalNetworkPermissionCard.kt` 重命名为 `PermissionCards.kt`，旧函数名保留）。
+- 快捷消息短按追加 / 长按替换、Web 端 token 统计、调试页 500k token 对话、README 与翻译补全。
+- 后台 shell 前台服务类型 `dataSync` → `specialUse`（fork 的 `BackgroundShellForegroundService` 与上游同源，直接命中）。
+
+### 15.2 Phone Use（新功能）
+
+- 工具（`PhoneUseTool`）、`PhoneUseManager`、工具 UI 在 `main` 源集；无障碍服务与手势指示器放在新增的 `app/src/github` 源集，Play 版不声明该服务。
+- `LocalToolOption.PhoneUse`；`LocalTools` 构造新增 `PhoneUseManager`、`FilesManager`，`AppModule` 同步注入。
+- 助手本地工具页：fork 的本地工具是全局 `Settings.localTools`，上游写的 `assistant.localTools` 改为 `enabledTools`。
+- 开启 Switch 前要求悬浮窗；无障碍服务未开时跳到系统设置，开关照常打开。运行时由 `PhoneUseManager.isSupported`（`!IS_PLAY_STORE && SDK >= 30`）拦截。
+
+### 15.3 自动压缩
+
+- 设置字段 `enableAutoCompress` / `autoCompressThreshold` 已归类到 `BackupSettingsFields` 的 `SETTINGS` 资源，保证 `BackupSettingsFieldsTest` 的字段覆盖。
+- `ChatService` 合入 `ReplyTarget`、`launchAutoCompressIfNeeded`、`compressMidTurn`、`insertCompressionCheckpoint`，保留 fork 的 shell 硬超时、子代理免审批、`ConversationInbox`。
+- `AgentLoop`：fork 的 terminal 工具立即 `Completed` 与上游的 `toolsExecuted` / `shouldPause` 并存。
+- `ChatVM` 同时保留 `backgroundTasks` 与 `sessionActivity`；`ChatList` 保留 `pathOpenEnabled` 并新增 `compressing`。
+
+### 15.4 对话地图
+
+`ChatListPreview` 手工合并：保留 fork 的多选 / 导出 / 背景，采用上游的固定搜索栏布局与 `produceState` + `conflate` 的后台计算，列表 key 改用 `PreviewRound.id`。
+
+### 15.5 文档
+
+README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续使用 fork 的工作区描述，不采用上游的 proot 说法。
+
+### 15.6 验证
+
+按当次要求未执行编译与测试，合入后需要重新构建并跑 `./gradlew test`。

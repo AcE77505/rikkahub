@@ -76,6 +76,7 @@
 
 - 🎨 現代化安卓APP設計（Material 3 Expressive / 預測性返回）和 🌙 暗色模式
 - 📦 工作區：Android 原生 shell，可選 Termux/Linux 工具鏈，支援本地和 SSH 遠端工作區
+- 📱 Phone Use：讓 AI 操控手機
 - 🎬 媒體生成（圖片、影片）
 - 🖥️ Web多端訪問支持
 - 🛠️ MCP 與 Skills 支持
