@@ -7,6 +7,7 @@
 - 本批次（2026-11-08）：36 个已跟踪文件修改（`+976 / -189`），另有 4 个新增 Kotlin 文件和 1 个 issue 草稿；不含构建产物，详见第 5 节。
 - 本批次（2026-11-10）：新增 DeepSeek 官方导出导入（含变动识别与独立预览页）、备份时间按渠道拆分、助手列表「当前使用」标识；数据库版本 33 → 34。详见第 13 节。
 - 本批次（2026-11-11）：在「修改其他助手」工具组新增记忆管理（列出/读取/写入/删除/按文件或目录导入），复用原有开关，不新增设置项。详见第 14 节。
+- 维护策略（2026-11-12）：**Phone Use（AI 操作屏幕）永远不会纳入修改范围，除了从上游按例同步的情况。** 功能兼容性（支持的 Android 版本、渠道、动作集合）完全由上游项目决定，本 fork 不主动改造。详见第 4 节第 13 条与第 15.2 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
 ---
@@ -219,6 +220,12 @@
 12. **su 与工具链**
     - `$PREFIX/su-shim/su` 是直通系统 su 的符号链接，必须排在工具链 `bin` 之前；否则 `su -c '复合命令'` 会再次命中 termex 的包装脚本。
     - `SU_COMMAND` / `SU_ARGUMENTS` 继续注入，`su2` 依赖它们；不要把工具链 `bin/su` 移到 PATH 前面。
+
+13. **Phone Use（AI 操作屏幕）**
+    - **该功能永远不会纳入修改范围，除了从上游按例同步的情况。** 不要为了 fork 的 `minSdk 24`、渠道差异或本地需求单独改造它。
+    - 兼容性完全由上游项目决定。当前上游实现只支持 github 渠道、Android 11+（`PhoneUseManager.isSupported = !IS_PLAY_STORE && SDK_INT >= R`），并依赖 API 30 的 `takeScreenshot` 与 `ACTION_IME_ENTER`；低版本的截图/回车降级不在本 fork 的计划内。
+    - 同步上游时整块接受其实现（工具、无障碍服务、UI、字符串、`app/src/github` 源集）；与本地代码冲突时按上游语义合并，不保留 fork 特有分支。
+    - 唯一允许的本地改动是「为合并通过而必需的机械修改」（例如把上游引用的 `assistant.localTools` 改成 fork 的 `enabledTools`、补 import），不改行为。
 
 ---
 
@@ -674,6 +681,8 @@
 - 后台 shell 前台服务类型 `dataSync` → `specialUse`（fork 的 `BackgroundShellForegroundService` 与上游同源，直接命中）。
 
 ### 15.2 Phone Use（新功能）
+
+> 该功能永远不会纳入修改范围，除了从上游按例同步的情况。兼容性完全由上游决定；本节的记录只是说明本次同步合入了什么，不代表 fork 会在此之上做适配。
 
 - 工具（`PhoneUseTool`）、`PhoneUseManager`、工具 UI 在 `main` 源集；无障碍服务与手势指示器放在新增的 `app/src/github` 源集，Play 版不声明该服务。
 - `LocalToolOption.PhoneUse`；`LocalTools` 构造新增 `PhoneUseManager`、`FilesManager`，`AppModule` 同步注入。
