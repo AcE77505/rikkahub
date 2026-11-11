@@ -34,4 +34,7 @@ data class ConversationEntity(
     val folderId: String = "",
     @ColumnInfo("config", defaultValue = "")
     val config: String = "",
+    /** 上次导入时的来源更新时间；本地编辑不会改它 */
+    @ColumnInfo("source_updated_at")
+    val sourceUpdatedAt: Long? = null,
 )

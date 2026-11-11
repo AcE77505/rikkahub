@@ -90,6 +90,7 @@ import me.rerere.rikkahub.ui.components.ui.Favicon
 import me.rerere.rikkahub.ui.components.ui.FaviconRow
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.modifier.shimmer
+import me.rerere.rikkahub.ui.components.path.rememberPathOpenHandler
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalWorkspaceId
 import me.rerere.rikkahub.ui.theme.LocalChatFontFamily
@@ -123,6 +124,8 @@ fun ChatMessage(
     onClearTranslation: (UIMessage) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    // 对话正在生成时路径不可点，避免点到还没写完的内容
+    pathOpenEnabled: Boolean = true,
 ) {
     val message = node.messages[node.selectIndex]
     if (message.isContextCheckpoint) {
@@ -188,6 +191,7 @@ fun ChatMessage(
             LocalTextStyle provides textStyle,
             LocalWorkspaceId provides assistant?.workspaceId?.toString(),
         ) {
+            val openPath = rememberPathOpenHandler(pathOpenEnabled)
             MessagePartsBlock(
                 assistant = assistant,
                 role = message.role,
@@ -198,6 +202,7 @@ fun ChatMessage(
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
                 onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
+                onOpenPath = openPath,
             )
 
             message.translation?.let { translation ->
@@ -308,6 +313,7 @@ private fun MessagePartsBlock(
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onUserMessageClick: (() -> Unit)? = null,
+    onOpenPath: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // 消息输出HapticFeedback
@@ -388,6 +394,7 @@ private fun MessagePartsBlock(
                                         assistant = assistant,
                                         onToolApproval = onToolApproval,
                                         onToolAnswer = onToolAnswer,
+                                        onOpenPath = onOpenPath,
                                     )
                                 }
                             }
@@ -431,7 +438,8 @@ private fun MessagePartsBlock(
                                             scope = AssistantAffectScope.USER,
                                             visual = true,
                                         ),
-                                        onClickCitation = handleClickCitation
+                                        onClickCitation = handleClickCitation,
+                                        onOpenPath = onOpenPath,
                                     )
                                 }
                             } else {
@@ -449,6 +457,7 @@ private fun MessagePartsBlock(
                                             ),
                                             streaming = streamingText,
                                             onClickCitation = handleClickCitation,
+                                            onOpenPath = onOpenPath,
                                         )
                                     }
                                 } else {
@@ -460,6 +469,7 @@ private fun MessagePartsBlock(
                                         ),
                                         streaming = streamingText,
                                         onClickCitation = handleClickCitation,
+                                        onOpenPath = onOpenPath,
                                         modifier = Modifier
                                             .animateContentSize()
                                     )

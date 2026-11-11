@@ -63,6 +63,9 @@ import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalWorkspaceId
 import me.rerere.rikkahub.ui.modifier.onClick
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
+import me.rerere.rikkahub.utils.decodePathLink
+import me.rerere.rikkahub.utils.isPathLink
+import me.rerere.rikkahub.utils.linkifyPaths
 import me.rerere.bettertext.latex.LatexInline
 import me.rerere.bettertext.markdown.InlineDecoration
 import me.rerere.bettertext.markdown.MarkdownBlock
@@ -141,7 +144,8 @@ fun MarkdownBlock(
     modifier: Modifier = Modifier,
     style: TextStyle = LocalTextStyle.current,
     streaming: Boolean = false,
-    onClickCitation: (String) -> Unit = {}
+    onClickCitation: (String) -> Unit = {},
+    onOpenPath: ((String) -> Unit)? = null,
 ) {
     val enableLatexRendering = LocalSettings.current.displaySetting.enableLatexRendering
     val enableQuoteHighlight = LocalSettings.current.displaySetting.enableQuoteHighlight
@@ -162,6 +166,11 @@ fun MarkdownBlock(
     }
 
     val currentOnClickCitation by rememberUpdatedState(onClickCitation)
+    val currentOnOpenPath by rememberUpdatedState(onOpenPath)
+    // 只有能打开时才把路径转成链接，否则保持原样
+    val renderedContent = remember(content, onOpenPath != null) {
+        if (onOpenPath == null) content else linkifyPaths(content)
+    }
     val components = remember(enableLatexRendering) {
         MarkdownComponents(
             codeBlock = { block ->
@@ -195,7 +204,10 @@ fun MarkdownBlock(
             } else {
                 null
             },
-            inlineLink = { link -> citationWidget(link) { currentOnClickCitation(it) } },
+            inlineLink = { link ->
+                citationWidget(link) { currentOnClickCitation(it) }
+                    ?: pathLinkWidget(link) { path -> currentOnOpenPath?.invoke(path) }
+            },
             inlineCodePrefix = { code -> parseColorCode(code)?.let(::ColorSwatch) },
             textDecorations = { text ->
                 TEXT_COLOR.findAll(text).mapNotNull { match ->
@@ -206,7 +218,7 @@ fun MarkdownBlock(
     }
 
     MaterialMarkdown(
-        content = content,
+        content = renderedContent,
         modifier = modifier.padding(horizontal = 4.dp),
         style = style,
         theme = theme,
@@ -232,6 +244,25 @@ private fun rememberWorkspaceImageUrl(url: String): String? {
             .getOrDefault(url)
     }
     return resolved
+}
+
+// linkifyPaths 生成的可点击路径，样式贴近行内代码
+private fun pathLinkWidget(link: MarkdownInline.Link, onClick: (String) -> Unit): BetterInline? {
+    if (!isPathLink(link.destination)) return null
+    val path = decodePathLink(link.destination)
+    return ComposableInline(align = InlineAlign.Center) {
+        Text(
+            text = link.children.plainText(),
+            style = LocalTextStyle.current.copy(
+                fontFamily = JetbrainsMono,
+                color = MaterialTheme.colorScheme.primary,
+            ),
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onClick(path) }
+                .padding(horizontal = 2.dp, vertical = 1.dp),
+        )
+    }
 }
 
 // 搜索引用在正文里写作 [citation,域名](引用id)，渲染成可点击的角标

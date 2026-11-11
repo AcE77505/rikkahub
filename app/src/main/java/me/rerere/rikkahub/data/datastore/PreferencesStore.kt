@@ -203,6 +203,10 @@ class SettingsStore internal constructor(
         // 赞助提醒
         val SPONSOR_ALERT_DISMISSED_AT = intPreferencesKey("sponsor_alert_dismissed_at")
 
+        // 点击路径的打开方式
+        val PATH_OPEN_PREFERENCE = stringPreferencesKey("path_open_preference")
+        val PATH_OPEN_MT_PACKAGE = stringPreferencesKey("path_open_mt_package")
+
         // Uses the same DataStore singleton without starting settings flows or requiring Koin.
         internal suspend fun restoreBeforeInitialization(context: Context, settings: Settings, launchCount: Int) {
             require(!settings.init) { "Cannot restore uninitialized settings" }

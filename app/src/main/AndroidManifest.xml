@@ -40,6 +40,9 @@
   <queries>
     <!-- MT 终端扩展包：Linux 工具链（bash / openssl / curl / ssh）的唯一来源 -->
     <package android:name="bin.mt.termex" />
+    <!-- 打开消息里的路径时优先使用 MT 管理器；不声明的话 Android 11+ 会当成未安装 -->
+    <package android:name="bin.mt.plus" />
+    <package android:name="bin.mt.plus.canary" />
     <intent>
       <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>
@@ -74,6 +77,12 @@
       android:name=".ui.activity.SafeModeActivity"
       android:exported="false"
       android:label="@string/title_activity_safe_mode"
+      android:theme="@style/Theme.Rikkahub" />
+    <activity
+      android:name=".ui.activity.DeepSeekImportPreviewActivity"
+      android:configChanges="keyboardHidden|orientation|screenSize"
+      android:exported="false"
+      android:label="@string/backup_page_deepseek_preview_title"
       android:theme="@style/Theme.Rikkahub" />
     <activity
       android:name=".RouteActivity"

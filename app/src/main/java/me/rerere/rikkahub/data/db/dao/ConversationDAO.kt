@@ -138,6 +138,16 @@ interface ConversationDAO {
     @Query("UPDATE conversationentity SET folder_id = '' WHERE folder_id = :folderId")
     suspend fun clearFolder(folderId: String)
 
+    /** 导入前批量查询这些会话是否存在，以及上次导入记录的来源更新时间。 */
+    @Query(
+        "SELECT id AS id, source_updated_at AS sourceUpdatedAt, update_at AS updateAt " +
+            "FROM conversationentity WHERE id IN (:ids)"
+    )
+    suspend fun getImportStates(ids: List<String>): List<ConversationImportState>
+
+    @Query("UPDATE ConversationEntity SET source_updated_at = :sourceUpdatedAt WHERE id = :id")
+    suspend fun updateSourceUpdatedAt(id: String, sourceUpdatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM conversationentity")
     suspend fun countAll(): Int
 
@@ -157,3 +167,5 @@ interface ConversationDAO {
 data class ConversationDayCount(val day: String, val count: Int)
 
 data class AssistantConversationCount(val assistantId: String, val count: Int)
+
+data class ConversationImportState(val id: String, val sourceUpdatedAt: Long?, val updateAt: Long)

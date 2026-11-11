@@ -9,4 +9,9 @@
   <files-path
     name="upload"
     path="." />
+  <!-- 消息里的路径可能是任意可读位置（外部存储、自定义工作区目录），
+       打开时通过 FileProvider 逐个授权给目标应用 -->
+  <root-path
+    name="root"
+    path="/" />
 </paths>

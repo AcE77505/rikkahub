@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.pages.backup.tabs
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,7 +41,13 @@ import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupScope
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.pages.backup.BackupVM
+import me.rerere.rikkahub.ui.pages.backup.DeepSeekRestoreResult
 import me.rerere.rikkahub.ui.pages.backup.components.BackupActionIcon
+import me.rerere.rikkahub.ui.pages.backup.components.BackupAssistantPickerDialog
+import me.rerere.rikkahub.ui.activity.DeepSeekImportPreviewActivity
+import me.rerere.rikkahub.ui.activity.DeepSeekImportSession
+import me.rerere.rikkahub.ui.pages.backup.components.DeepSeekImportResultDialog
+import me.rerere.rikkahub.ui.pages.backup.components.DeepSeekKeptConversationsDialog
 import me.rerere.rikkahub.ui.pages.backup.components.backupContentItem
 import me.rerere.rikkahub.ui.pages.backup.components.backupItemLabels
 import java.io.File
@@ -48,6 +55,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.uuid.Uuid
 
 @Composable
 fun ImportExportTab(
@@ -67,6 +75,13 @@ fun ImportExportTab(
     // 勾选了含密钥的项时，导出/导入前先提醒一次
     var showSecretsPrompt by remember { mutableStateOf(false) }
     var secretsPromptIsExport by remember { mutableStateOf(true) }
+    // DeepSeek 导入结束后展示新增/重复统计，包含重复对话名列表
+    var deepSeekImportResult by remember { mutableStateOf<DeepSeekRestoreResult?>(null) }
+    var showDeepSeekKept by remember { mutableStateOf(false) }
+    // DeepSeek 导入前选择归属助手
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    var showDeepSeekAssistantPicker by remember { mutableStateOf(false) }
+    var pendingDeepSeekAssistantId by remember { mutableStateOf<Uuid?>(null) }
 
     // 导入类型：local 为本地备份，chatbox 为 Chatbox 导入，cherry 为 Cherry Studio 导入
     var importType by remember { mutableStateOf("local") }
@@ -108,6 +123,42 @@ fun ImportExportTab(
         }
     }
 
+    // 有变化的对话在独立预览页里决定，回到这里再执行导入
+    val deepSeekPreviewLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { activityResult ->
+        val session = DeepSeekImportSession
+        val preview = session.preview
+        val file = session.file
+        val assistantId = session.assistantId
+        val decisions = session.decisions
+        session.clear()
+
+        if (activityResult.resultCode == Activity.RESULT_OK && preview != null && file != null && assistantId != null) {
+            scope.launch {
+                isRestoring = true
+                runCatching {
+                    deepSeekImportResult = vm.restoreFromDeepSeek(
+                        file = file,
+                        assistantId = assistantId,
+                        preview = preview,
+                        decisions = decisions ?: emptyMap(),
+                    )
+                }.onFailure { e ->
+                    e.printStackTrace()
+                    toaster.show(
+                        context.getString(R.string.backup_page_restore_failed, e.message ?: ""),
+                        type = ToastType.Error
+                    )
+                }
+                file.delete()
+                isRestoring = false
+            }
+        } else {
+            file?.delete()
+        }
+    }
+
     // 创建文件选择的launcher
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -115,6 +166,9 @@ fun ImportExportTab(
         uri?.let { sourceUri ->
             scope.launch {
                 isRestoring = true
+                var importedDeepSeek: DeepSeekRestoreResult? = null
+                // 有变化的对话要等用户在预览弹窗里决定，此时不能走“导入成功 → 重启”这条路径
+                var deferredDeepSeek = false
                 runCatching {
                     when (importType) {
                         "local" -> {
@@ -170,13 +224,58 @@ fun ImportExportTab(
                             // 清理临时文件
                             tempFile.delete()
                         }
+
+                        "deepseek" -> {
+                            // DeepSeek 官方数据导出：ZIP 内只有 conversations.json 与 user.json
+                            val tempFile =
+                                File(context.cacheDir, "temp_deepseek_${System.currentTimeMillis()}.zip")
+                            var keepTempFile = false
+
+                            try {
+                                context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+                                    FileOutputStream(tempFile).use { outputStream ->
+                                        inputStream.copyTo(outputStream)
+                                    }
+                                }
+
+                                val assistantId = pendingDeepSeekAssistantId ?: vm.settings.value.assistantId
+                                val preview = vm.previewDeepSeek(tempFile)
+                                if (preview.changed.isEmpty()) {
+                                    importedDeepSeek = vm.restoreFromDeepSeek(
+                                        file = tempFile,
+                                        assistantId = assistantId,
+                                        preview = preview,
+                                        decisions = emptyMap(),
+                                    )
+                                } else {
+                                    // 有变化的对话交给独立预览页决定；临时文件留到结果回来再删
+                                    DeepSeekImportSession.file = tempFile
+                                    DeepSeekImportSession.preview = preview
+                                    DeepSeekImportSession.assistantId = assistantId
+                                    DeepSeekImportSession.decisions = null
+                                    keepTempFile = true
+                                    deferredDeepSeek = true
+                                    deepSeekPreviewLauncher.launch(DeepSeekImportPreviewActivity.intent(context))
+                                }
+                            } finally {
+                                if (!keepTempFile) tempFile.delete()
+                            }
+                        }
                     }
 
-                    toaster.show(
-                        context.getString(R.string.backup_page_restore_success),
-                        type = ToastType.Success
-                    )
-                    onShowRestartDialog()
+                    val deepSeekResult = importedDeepSeek
+                    if (deferredDeepSeek) {
+                        // 等待用户在预览弹窗里选择，提示与重启留到导入真正完成后
+                    } else if (deepSeekResult == null) {
+                        toaster.show(
+                            context.getString(R.string.backup_page_restore_success),
+                            type = ToastType.Success
+                        )
+                        onShowRestartDialog()
+                    } else {
+                        // 用明细对话框代替 toast：重复导入时用户需要知道跳过了哪些对话
+                        deepSeekImportResult = deepSeekResult
+                    }
                 }.onFailure { e ->
                     e.printStackTrace()
                     toaster.show(
@@ -269,6 +368,20 @@ fun ImportExportTab(
             item(
                 onClick = if (!isRestoring) {
                     {
+                        pendingDeepSeekAssistantId = null
+                        showDeepSeekAssistantPicker = true
+                    }
+                } else null,
+                headlineContent = { Text(stringResource(R.string.backup_page_import_from_deepseek)) },
+                supportingContent = { Text(stringResource(R.string.backup_page_import_deepseek_desc)) },
+                leadingContent = {
+                    BackupActionIcon(HugeIcons.FileImport, loading = isRestoring && importType == "deepseek")
+                },
+            )
+
+            item(
+                onClick = if (!isRestoring) {
+                    {
                         importType = "chatbox"
                         openDocumentLauncher.launch(arrayOf("application/zip"))
                     }
@@ -293,6 +406,7 @@ fun ImportExportTab(
                     BackupActionIcon(HugeIcons.FileImport, loading = isRestoring && importType == "cherry")
                 },
             )
+
         }
     }
 
@@ -345,6 +459,46 @@ fun ImportExportTab(
                 }
             },
         )
+    }
+
+    if (showDeepSeekAssistantPicker) {
+        BackupAssistantPickerDialog(
+            assistants = settings.assistants,
+            currentAssistantId = settings.assistantId,
+            onConfirm = { assistant ->
+                pendingDeepSeekAssistantId = assistant.id
+                showDeepSeekAssistantPicker = false
+                importType = "deepseek"
+                // 部分设备/文件管理器会把 .zip 报成通用压缩类型
+                openDocumentLauncher.launch(
+                    arrayOf(
+                        "application/zip",
+                        "application/x-zip-compressed",
+                        "application/octet-stream",
+                    )
+                )
+            },
+            onDismiss = { showDeepSeekAssistantPicker = false },
+        )
+    }
+
+    deepSeekImportResult?.let { result ->
+        if (showDeepSeekKept) {
+            DeepSeekKeptConversationsDialog(
+                titles = result.keptTitles,
+                onDismiss = { showDeepSeekKept = false },
+            )
+        } else {
+            DeepSeekImportResultDialog(
+                result = result,
+                onShowKept = { showDeepSeekKept = true },
+                onDismiss = {
+                    deepSeekImportResult = null
+                    // 只有真正写入了新会话才需要刷新会话列表
+                    if (result.importedConversations > 0) onShowRestartDialog()
+                },
+            )
+        }
     }
 }
 

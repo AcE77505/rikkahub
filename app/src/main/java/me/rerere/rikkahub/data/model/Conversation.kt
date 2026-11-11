@@ -36,6 +36,8 @@ data class Conversation(
     val workspaceCwd: String? = null,
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
+    // 上次导入时来源（如 DeepSeek 导出）记录的更新时间，用于识别来源内容是否变化
+    val sourceUpdatedAt: Long? = null,
     @Transient
     val newConversation: Boolean = false
 ) {

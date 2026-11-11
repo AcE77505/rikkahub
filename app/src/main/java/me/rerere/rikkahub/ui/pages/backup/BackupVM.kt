@@ -24,10 +24,15 @@ import me.rerere.rikkahub.data.sync.S3BackupItem
 import me.rerere.rikkahub.data.sync.S3Sync
 import me.rerere.rikkahub.data.sync.importer.ChatboxImporter
 import me.rerere.rikkahub.data.sync.importer.CherryStudioProviderImporter
+import me.rerere.rikkahub.data.sync.importer.DeepSeekImportAction
+import me.rerere.rikkahub.data.sync.importer.DeepSeekImportDecision
+import me.rerere.rikkahub.data.sync.importer.DeepSeekImportResult
+import me.rerere.rikkahub.data.sync.importer.DeepSeekImporter
 import me.rerere.rikkahub.data.sync.webdav.WebDavBackupItem
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.rikkahub.utils.UiState
 import java.io.File
+import kotlin.uuid.Uuid
 
 private const val TAG = "BackupVM"
 
@@ -96,7 +101,7 @@ class BackupVM(
 
     suspend fun backup() {
         webDavSync.backup(settings.value.webDavConfig)
-        recordBackupTime()
+        recordBackupTime(BackupChannel.WEBDAV)
     }
 
     suspend fun restore(item: WebDavBackupItem) {
@@ -112,7 +117,7 @@ class BackupVM(
         val file = webDavSync.prepareBackupFile(
             settings.value.webDavConfig.copy(items = localBackupSelection.value.items.toList())
         )
-        recordBackupTime()
+        recordBackupTime(BackupChannel.LOCAL)
         return file
     }
 
@@ -203,6 +208,114 @@ class BackupVM(
         }
     }
 
+    /**
+     * 导入前先扫描导出文件，和本地记录比较，找出新增、无变化和有变化的对话。
+     * 有变化的对话交给用户决定（覆盖 / 保留 / 并存）。
+     */
+    suspend fun previewDeepSeek(file: File): DeepSeekImportPreview = withContext(Dispatchers.IO) {
+        val summaries = DeepSeekImporter.scan(file)
+        val states = conversationRepository.getImportStates(summaries.map { it.conversationId })
+        val newConversations = mutableListOf<DeepSeekPreviewItem>()
+        val unchangedConversations = mutableListOf<DeepSeekPreviewItem>()
+        val changed = mutableListOf<DeepSeekChangedConversation>()
+        val backfill = mutableMapOf<Uuid, Long>()
+        var legacyCount = 0
+        summaries.forEach { summary ->
+            val state = states[summary.conversationId]
+            if (state == null) {
+                newConversations += DeepSeekPreviewItem(summary.conversationId, summary.title)
+                return@forEach
+            }
+            // 有来源时间就精确比较；旧数据没有来源时间时，退回比较本地更新时间，
+            // 这样「导入后没再动过」的对话不会被误判成有变化
+            if (state.sourceUpdatedAt == null) legacyCount++
+            val baseline = state.sourceUpdatedAt ?: state.updateAt
+            val exportedAt = summary.updatedAt
+            if (exportedAt != null && baseline == exportedAt) {
+                unchangedConversations += DeepSeekPreviewItem(summary.conversationId, summary.title)
+                if (state.sourceUpdatedAt == null) {
+                    // 顺手补写来源时间，下次导入就能精确判断
+                    backfill[summary.conversationId] = exportedAt
+                }
+            } else {
+                changed += DeepSeekChangedConversation(
+                    conversationId = summary.conversationId,
+                    title = summary.title,
+                    previousUpdatedAt = state.sourceUpdatedAt ?: state.updateAt,
+                    updatedAt = exportedAt,
+                )
+            }
+        }
+        Log.i(
+            TAG,
+            "previewDeepSeek: new=${newConversations.size} unchanged=${unchangedConversations.size} " +
+                "changed=${changed.size} legacyWithoutSource=$legacyCount"
+        )
+        DeepSeekImportPreview(
+            newConversations = newConversations,
+            unchangedConversations = unchangedConversations,
+            changed = changed,
+            existingIds = states.keys,
+            backfillSourceTimes = backfill,
+        )
+    }
+
+    /**
+     * 导入 DeepSeek 官方数据导出（设置 → 数据管理 → 导出数据）里的聊天记录。
+     * 导出包不含任何供应商配置，因此只落会话；[assistantId] 决定这些会话归到哪个助手。
+     */
+    suspend fun restoreFromDeepSeek(
+        file: File,
+        assistantId: Uuid = settings.value.assistantId,
+        preview: DeepSeekImportPreview,
+        decisions: Map<Uuid, DeepSeekImportDecision>,
+    ): DeepSeekRestoreResult = withContext(Dispatchers.IO) {
+        var importedConversations = 0
+        val result = DeepSeekImporter.importStreaming(
+            file = file,
+            assistantId = assistantId,
+            decisions = decisions,
+            existingIds = preview.existingIds,
+            onConversation = { conversation, action ->
+                // 覆盖：先删掉本地会话（节点、收藏、FTS 一并清理），再写入导出内容
+                if (action == DeepSeekImportAction.OVERWRITE) {
+                    conversationRepository.deleteConversation(conversation)
+                }
+                conversationRepository.insertConversation(conversation)
+                importedConversations++
+            },
+        )
+
+        conversationRepository.backfillSourceUpdatedAt(preview.backfillSourceTimes)
+
+        val keptTitles = preview.changed
+            .filter { changed ->
+                val decision = decisions[changed.conversationId]
+                decision == null || decision == DeepSeekImportDecision.KEEP
+            }
+            .map { it.title }
+
+        Log.i(
+            TAG,
+            "restoreFromDeepSeek: import $importedConversations conversations " +
+                "(new ${result.newConversations}, overwrite ${result.overwrittenConversations}, " +
+                "copy ${result.copiedConversations}), keep ${keptTitles.size}, " +
+                "unchanged ${preview.unchangedCount}, " +
+                "${result.reasoningParts} reasoning parts, ${result.searchParts} search parts, " +
+                "${result.attachmentParts} attachment notices, ${result.emptyMessages} empty messages, " +
+                "${result.branchMessages} branch messages, ${result.alternativeReplies} alternative replies, " +
+                "drop ${result.skippedToolParts} tool steps / ${result.skippedTipParts} tips / " +
+                "${result.unknownFragments} unknown fragments, " +
+                "skip ${result.skippedConversations} unreadable conversations"
+        )
+        DeepSeekRestoreResult(
+            result = result,
+            importedConversations = importedConversations,
+            keptTitles = keptTitles,
+            unchangedConversations = preview.unchangedConversations.size,
+        )
+    }
+
     // S3 Backup methods
     fun loadS3BackupFileItems() {
         viewModelScope.launch {
@@ -227,7 +340,7 @@ class BackupVM(
 
     suspend fun backupToS3() {
         s3Sync.backupToS3(settings.value.s3Config)
-        recordBackupTime()
+        recordBackupTime(BackupChannel.S3)
     }
 
     suspend fun restoreFromS3(item: S3BackupItem) {
@@ -239,15 +352,25 @@ class BackupVM(
         s3Sync.deleteS3BackupFile(settings.value.s3Config, item)
     }
 
-    private suspend fun recordBackupTime() {
+    /**
+     * 记下一次成功备份。`lastBackupTime` 取任意渠道的最近一次，用于到期提醒；
+     * WebDAV / S3 还各自记录一份，页面上只显示本渠道的时间。
+     */
+    private suspend fun recordBackupTime(channel: BackupChannel) {
+        val now = System.currentTimeMillis()
         settingsStore.update { settings ->
+            val config = settings.backupReminderConfig
             settings.copy(
-                backupReminderConfig = settings.backupReminderConfig.copy(
-                    lastBackupTime = System.currentTimeMillis()
+                backupReminderConfig = config.copy(
+                    lastBackupTime = now,
+                    lastWebDavBackupTime = if (channel == BackupChannel.WEBDAV) now else config.lastWebDavBackupTime,
+                    lastS3BackupTime = if (channel == BackupChannel.S3) now else config.lastS3BackupTime,
                 )
             )
         }
     }
+
+    private enum class BackupChannel { LOCAL, WEBDAV, S3 }
 }
 
 data class ChatboxRestoreResult(
@@ -259,4 +382,40 @@ data class ChatboxRestoreResult(
     val skippedEmptyMessages: Int,
     val skippedForkMessages: Int,
     val skippedSessions: Int,
+)
+
+data class DeepSeekRestoreResult(
+    val result: DeepSeekImportResult,
+    val importedConversations: Int,
+    /** 有变化但用户选择保留的对话标题，按导出里的顺序 */
+    val keptTitles: List<String>,
+    /** 来源时间与导入记录一致、直接跳过的对话数 */
+    val unchangedConversations: Int,
+)
+
+/** 导入前的扫描结果，按新增 / 有变化 / 无变化分类。 */
+data class DeepSeekImportPreview(
+    val newConversations: List<DeepSeekPreviewItem>,
+    val unchangedConversations: List<DeepSeekPreviewItem>,
+    val changed: List<DeepSeekChangedConversation>,
+    val existingIds: Set<Uuid>,
+    /** 旧数据与导出内容一致时补写的来源时间，导入完成后落库 */
+    val backfillSourceTimes: Map<Uuid, Long> = emptyMap(),
+) {
+    val newCount: Int get() = newConversations.size
+    val unchangedCount: Int get() = unchangedConversations.size
+}
+
+/** 预览列表里只需要展示标题的对话（新增 / 无变化）。 */
+data class DeepSeekPreviewItem(
+    val conversationId: Uuid,
+    val title: String,
+)
+
+/** 本地已存在、但来源时间与导出不一致（或没有来源时间）的对话。 */
+data class DeepSeekChangedConversation(
+    val conversationId: Uuid,
+    val title: String,
+    val previousUpdatedAt: Long?,
+    val updatedAt: Long?,
 )

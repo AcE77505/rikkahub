@@ -5,6 +5,8 @@
 - 远程：`origin` 是个人 fork（`AcE77505/rikkahub`），`upstream` 是原项目（`rikkahub/rikkahub`）。
 - 2026-11-08 已合并 `upstream/master`（3.1.2）；合并前 `master` 领先上游 60 个提交。下文的 SSH 工作区、工作区工具/提示词、记忆编辑章节是此前已经提交的历史改动，第 7 节是本次上游同步的取舍记录。
 - 本批次（2026-11-08）：36 个已跟踪文件修改（`+976 / -189`），另有 4 个新增 Kotlin 文件和 1 个 issue 草稿；不含构建产物，详见第 5 节。
+- 本批次（2026-11-10）：新增 DeepSeek 官方导出导入（含变动识别与独立预览页）、备份时间按渠道拆分、助手列表「当前使用」标识；数据库版本 33 → 34。详见第 13 节。
+- 本批次（2026-11-11）：在「修改其他助手」工具组新增记忆管理（列出/读取/写入/删除/按文件或目录导入），复用原有开关，不新增设置项。详见第 14 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
 ---
@@ -26,6 +28,8 @@
 | 助手配置工具 | AI 读写其他助手 | `AssistantConfigTools`、`LocalTools` |
 | 工作区/工具链 | shell 硬超时、su 直通 shim | `WorkspaceRepository`、`ToolchainManager` |
 | 数据备份分项 | 聊天记录 / MCP / 助手 / 所有可备份内容，逐项合并或覆盖，兼容旧版归档 | `BackupItem`、`BackupFields`、`BackupManager`、`DatabaseBackupTables` |
+| DeepSeek 导入 | 官方导出 ZIP 解析、变动识别、覆盖/保留/并存、独立预览页 | `DeepSeekImporter`、`DeepSeekImportPreviewActivity`、`BackupVM` |
+| 其他助手记忆工具 | 列出/读取/写入/删除其他助手的记忆文件，支持按本地路径导入 | `AssistantConfigTools`、`LocalTools`、`MemoryRepository` |
 
 ---
 
@@ -463,3 +467,193 @@
 
 收益边界：Compose 默认在 Activity `STOPPED` 时会暂停 recomposer 帧；这里用 `RESUMED` 更严格，
 进入最近任务、分屏失焦等场景就能停，且行为与 OEM 实现无关。改动只在一个文件，可随时回退。
+
+---
+
+## 13. DeepSeek 官方导出导入（2026-11-10）
+
+新增「从 DeepSeek 导入」：读取 DeepSeek 网页版 *设置 → 数据管理 → 导出数据* 得到的 ZIP，
+把其中 `conversations.json` 的对话树还原为 RikkaHub 会话。支持重复导入时识别有变化的对话，
+并由用户逐个决定覆盖 / 保留 / 并存。
+
+### 13.1 支持的导出格式
+
+| 条目 | 说明 |
+|---|---|
+| 文件 | ZIP 内的 `conversations.json`；同包的 `user.json` 只含账号身份，忽略 |
+| 会话 | `{ id, title, inserted_at, updated_at, mapping }`，时间为带偏移的 RFC 3339 字符串 |
+| 消息树 | `mapping: { nodeKey -> { id, parent, children[], message } }`；`parent`/`children` 引用的是 **key** |
+| 消息 | `{ model, inserted_at, fragments[] }`，**没有 `role` 字段**，角色由 fragment 类型推导 |
+| 片段 | `REQUEST` / `RESPONSE` / `THINK` / `SEARCH` / `TOOL_SEARCH` / `FILE` / `TOOL_OPEN` / `TOOL_FIND` / `TEMPLATE_RESPONSE` / `TIP` |
+| 实测规模 | 10 MB ZIP、解压 42 MB、1946 个会话、15549 个节点；完整解析约 1.1 秒 |
+
+### 13.2 片段映射
+
+| fragment | 归属 | 转换结果 |
+|---|---|---|
+| `REQUEST` | 用户 | `UIMessagePart.Text` |
+| `FILE` | 用户 | `Text("[Attachment] 文件名, N KB (导出包不含文件本体)")` |
+| `RESPONSE` / `TEMPLATE_RESPONSE` | 助手 | `Text`；`[citation:N]` 改写为 `[citation,域名](N)` |
+| `THINK` | 助手 | `Reasoning`，统一排在正文前 |
+| `SEARCH` / `TOOL_SEARCH` | 助手 | `Tool("search_web")`，`output.items = [{id,index,title,url,text:""}]`，可点击引用 |
+| `TIP` / `TOOL_OPEN` / `TOOL_FIND` | 助手 | 丢弃并计数：导出没有留下可还原的内容 |
+
+- 一个消息内多个搜索引擎片段的结果按书写顺序合并编号，正文 `[citation:N]` 指向合并后的第 N 条；
+  超出范围时保留原文。
+- 角色的判定：出现任意助手片段即为 `ASSISTANT`，否则 `USER`。实测不存在同一消息混合用户与助手片段。
+
+### 13.3 分支与时间
+
+- 主链取根节点 `children` 的第一条，沿单子节点一路向下。
+- 同一提问下有多条助手回复（用户点过「重新生成」）→ 合并成一个只装回答节点的候选列表，
+  可在 App 内左右切换；统计为 `alternativeReplies`。
+- 其它分支（编辑提问、某轮之后另起）→ 按链展开后追加到会话末尾，避免静默丢消息；
+  统计为 `branchMessages`。RikkaHub 没有通用的分支树结构，只能这样保留内容。
+- `Conversation.createAt/updateAt` 取会话的 `inserted_at` / `updated_at`，缺失时回落到节点时间。
+
+### 13.4 变动识别与决策
+
+数据库新增 `conversationentity.source_updated_at`，记录**上次导入时导出文件里该对话的 `updated_at`**。
+
+| 本地 | `source_updated_at` | 判定 |
+|---|---|---|
+| 不存在 | — | 新增，直接导入 |
+| 存在 | 与本次导出的 `updated_at` 相同 | 无变化，跳过 |
+| 存在 | 与本次导出的 `updated_at` 不同 | 有变化，交给用户决定 |
+| 存在 | 为空（旧版本导入） | 回退比较本地 `update_at` 与导出的 `updated_at`；相同视为无变化 |
+
+- 旧数据判定为无变化时，导入完成后把导出时间补写进 `source_updated_at`（自愈），
+  下次导入不再依赖回退比较；本地继续对话不会影响该字段。
+- 三种处理：
+  - **保留**：不导入文件内容，本地会话保持原样。
+  - **覆盖**：先 `deleteConversation`（节点、收藏、FTS 一并清理），再用导出内容重建；本地后加的消息会丢失。
+  - **并存**：用 `stableUuid("deepseek:conversation:<id>#copy:<来源时间>")` 生成副本 id，
+    标题追加 ` (DeepSeek yyyy-MM-dd)`，原会话保留；副本不参与后续导入匹配。
+- 会话 id 用 `UUID.nameUUIDFromBytes("deepseek:conversation:<rawId>")`（UUID v3），
+  消息/节点 id 同理，保证跨进程、跨版本稳定。
+
+### 13.5 导入流程与界面
+
+1. 「设置 → 备份与恢复 → 从其他APP导入 → 从DeepSeek导入」（已移到该分组第一项）。
+2. 弹出助手选择对话框：列出全部助手，点击只切换高亮，「确认」后才继续（默认选中当前助手，带「当前使用」标识）。
+3. 选择文件后先扫描：
+   - 没有有变化的对话 → 直接导入并显示结果弹窗；
+   - 有有变化的对话 → 启动独立 `DeepSeekImportPreviewActivity`。
+4. 预览页（非对话框）：
+   - 顶部三个等宽分类按钮：新增 / 有变化 / 无变化，名称在上、数量在下；
+     选中项用 `primaryContainer`，未选中项透明背景 + `outlineVariant` 细边框。
+   - 搜索框只过滤当前分类。
+   - 「全部设为」只在「有变化」栏显示；所有有变化项选择一致时回显选中，否则保持未选中。
+   - 有变化项默认不选任何操作；未选完点「开始导入」会切到「有变化」并提示。
+   - 右上角信息图标打开说明弹窗（原对话 / 新对话 / 保留 / 覆盖 / 并存）；首次进入自动弹一次
+     （SharedPreferences key `deepseek_import_preview_help_shown`）。
+5. 结果弹窗：新增 / 已覆盖 / 已并存 / 已保留原对话 / 无变化 / 无法解析；可查看「已保留的对话」列表（支持搜索）。
+6. 只有真正写入会话时才提示重启；预览页取消不提示重启（修复了旧实现“进入预览即触发重启提示”的问题）。
+
+### 13.6 数据层
+
+| 文件 | 改动 |
+|---|---|
+| `data/db/AppDatabase.kt` | 版本 33 → 34，新增 `AutoMigration(from = 33, to = 34)` |
+| `data/db/entity/ConversationEntity.kt` | 新增 `@ColumnInfo("source_updated_at") sourceUpdatedAt: Long?` |
+| `data/db/dao/ConversationDAO.kt` | 新增 `ConversationImportState(id, sourceUpdatedAt, updateAt)`、`getImportStates(ids)`、`updateSourceUpdatedAt` |
+| `data/model/Conversation.kt` | 新增 `sourceUpdatedAt: Long?`，参与可空默认值序列化 |
+| `data/repository/ConversationRepository.kt` | 实体双向映射；`getImportStates(ids)`（分批 900）、`backfillSourceUpdatedAt(values)`（单事务）；`ImportState` |
+| `app/schemas/.../34.json` | 新增 Room schema 34 |
+
+### 13.7 备份时间按渠道拆分
+
+原先本地导出、WebDAV、S3 共用一个 `BackupReminderConfig.lastBackupTime`，
+导致本地备份后 WebDAV / S3 页也显示该时间。
+
+- 新增 `lastWebDavBackupTime`、`lastS3BackupTime`（默认 `0L`）。
+- `BackupVM.recordBackupTime(channel)`：本地只更新全局；WebDAV / S3 同时更新各自字段。
+- `WebDavTab` / `S3Tab` 改读各自字段，为 0 时显示「无记录」；提醒卡片仍用全局“任意渠道最近一次”。
+- 旧数据没有渠道信息，升级后网络页会显示「无记录」，各自成功备份一次后恢复。
+
+### 13.8 助手列表「当前使用」标识
+
+- 抽屉的助手选择列表（`AssistantPickerSheet`）：当前助手行在编辑按钮左侧显示「当前使用」。
+- 助手设置页（`AssistantPage`）：当前助手行在右侧操作菜单左边显示「当前使用」。
+- 导入的助手选择对话框同样显示该标识，并用 `primaryContainer` 背景区分。
+
+### 13.9 本次改动文件
+
+- 新增：
+  - `data/sync/importer/DeepSeekImporter.kt`（扫描、流式解析、决策导入、结果统计）
+  - `ui/activity/DeepSeekImportPreviewActivity.kt`（独立预览页 + `DeepSeekImportSession`）
+  - `ui/pages/backup/components/BackupAssistantPickerDialog.kt`
+  - `ui/pages/backup/components/DeepSeekImportResultDialog.kt`
+  - `app/src/test/java/.../DeepSeekImporterTest.kt`
+  - `app/schemas/me.rerere.rikkahub.data.db.AppDatabase/34.json`
+- 修改：
+  - `data/db/AppDatabase.kt`、`data/db/entity/ConversationEntity.kt`、`data/db/dao/ConversationDAO.kt`
+  - `data/model/Conversation.kt`、`data/repository/ConversationRepository.kt`
+  - `data/datastore/Settings.kt`（`BackupReminderConfig`）
+  - `ui/pages/backup/BackupVM.kt`
+  - `ui/pages/backup/tabs/ImportExportTab.kt`、`ui/pages/backup/tabs/WebDavTab.kt`、`ui/pages/backup/tabs/S3Tab.kt`
+  - `ui/components/ai/AssistantPicker.kt`、`ui/pages/assistant/AssistantPage.kt`
+  - `app/src/main/AndroidManifest.xml`（注册预览 Activity）
+  - `app/src/main/res/values/strings.xml`、`values-zh/strings.xml`
+
+### 13.10 测试
+
+`DeepSeekImporterTest`（8 个用例）：
+
+- fragment → 角色 / 文本 / Reasoning / 搜索工具 / 引用改写 / 附件占位；
+- 重新生成的多个回答合并为同一节点的候选；
+- 编辑提问的分支保留为尾部节点；
+- 时间解析与稳定 id（重复导入同一文件得到相同会话 id）；
+- 无法解析的会话跳过而不中断整次导入；
+- 顶层不是数组时抛出 `IllegalArgumentException`；
+- 已存在会话按决策执行，`source_updated_at` 正确写入；
+- `scan` 只读取 id / 标题 / 更新时间。
+
+### 13.11 已知限制
+
+- 官方导出不标记「当前分支」，主链按 `children` 书写顺序取第一条，存在多叶子时只能启发式选择。
+- 导出包不含附件二进制，`FILE` 只保留占位文本；`TOOL_OPEN` / `TIP` 无法还原。
+- 旧版本导入的会话没有 `source_updated_at`，首次导入会按本地 `update_at` 回退判断，
+  本地改过的对话会进入「有变化」；导入一次完成补写后恢复精确判定。
+- 判断依据是会话级 `updated_at`。DeepSeek 在置顶、重命名时也会刷新它，可能出现“内容没变但被列为有变化”的误报；
+  这类条目选择保留即可，不会丢数据。
+
+---
+
+## 14. 其他助手的记忆工具（2026-11-11）
+
+在现有的「修改其他助手」工具组里新增记忆管理能力，复用同一个 `AssistantConfig` 开关，不引入新的设置项。
+
+### 14.1 工具清单
+
+| 工具 | 作用 |
+|---|---|
+| `list_assistant_memories` | 列出目标助手的记忆文件：`path`、`title`、`description`、`version`、`updated_at`、`size_bytes` |
+| `read_assistant_memory` | 按路径批量读取（单次最多 20 个），返回 `content` 与 `version`，不存在的路径放入 `not_found` |
+| `write_assistant_memory` | 新建或整体覆盖单个文件；支持 `content` 或 `content_file`（绝对路径，UTF-8，≤1 MiB）；`if_version` 支持 `"new"` / 读取到的版本 |
+| `delete_assistant_memory` | 删除单个文件，可带 `if_version` 防止误删已变化的文件 |
+| `import_assistant_memory` | 从本地绝对路径导入：单个 `.md` 文件，或目录（最多 3 层、200 个文件，保留相对路径）；`overwrite` 默认 `false`（跳过已存在），`true` 时覆盖 |
+
+### 14.2 目标解析与安全限制
+
+- 目标助手按 id 或精确名称匹配（复用 `resolveAssistant`）。
+- 以下情况直接拒绝，返回 `CANNOT_MODIFY_SELF`：
+  - 目标就是当前对话的助手；
+  - 目标使用全局记忆且当前助手也使用全局记忆（实际是同一个记忆库）。
+- 所有写入走 `MemoryRepository`，因此保留原有的路径规范（必须以 `.md` 结尾、不允许隐藏目录、最长 128 字符）与 48 KiB 单文件上限。
+- `import_assistant_memory` 读取的路径必须绝对、可读；目录扫描跳过隐藏文件，超过数量上限时提示导入子目录。
+- 导入结果分三类返回：`imported`、`skipped`（已存在）、`failed`（读取失败或写入被拒绝，附原因）。
+
+### 14.3 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `data/ai/tools/local/AssistantConfigTools.kt` | `buildAssistantConfigTools` 增加 `memoryRepository` 参数；新增 5 个记忆工具与目标解析、路径收集辅助函数 |
+| `data/ai/tools/local/LocalTools.kt` | 构造注入 `MemoryRepository`，`AssistantConfig` 分支传入 |
+| `di/AppModule.kt` | `LocalTools` 构造参数增加一个依赖 |
+
+### 14.4 说明
+
+- 没有新增 `LocalToolOption`，沿用「修改其他助手」开关；关闭该开关时这些记忆工具也不会挂载。
+- 工具只操作记忆库（Markdown 文件），不暴露模型、MCP、工作区等本机配置。
+- 文件路径读取沿用提示词工具的做法，仅限 App 进程可读的绝对路径；Android 分区限制仍然存在。

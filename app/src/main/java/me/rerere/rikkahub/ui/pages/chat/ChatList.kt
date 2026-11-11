@@ -363,6 +363,8 @@ private fun ChatListNormal(
                                 ?: node.currentMessage.snapshotModel(),
                             assistant = assistant,
                             loading = loading && index == lastMessageIndex,
+                            // 整轮生成中都不响应路径点击
+                            pathOpenEnabled = !loading,
                             onRegenerate = {
                                 onRegenerate(node.currentMessage)
                             },

@@ -114,6 +114,10 @@ data class Settings(
     val webServerLocalhostOnly: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val sponsorAlertDismissedAt: Int = 0,
+    // 点击消息里的文件路径时优先用哪个应用打开
+    val pathOpenPreference: PathOpenPreference = PathOpenPreference.MT_MANAGER,
+    // 两个 MT 管理器都装时用户选过的包名；为空表示还没选过
+    val pathOpenMtPackage: String? = null,
 ) {
     companion object {
         // 构造一个用于初始化的settings, 但它不能用于保存，防止使用初始值存储
@@ -221,5 +225,24 @@ data class WebDavConfig(
 data class BackupReminderConfig(
     val enabled: Boolean = false,
     val intervalDays: Int = 7,
+    /** 任意渠道最近一次成功备份的时间，用于到期提醒 */
     val lastBackupTime: Long = 0L,
+    /** WebDAV 渠道最近一次成功备份的时间，0 表示从未在该渠道备份 */
+    val lastWebDavBackupTime: Long = 0L,
+    /** S3 渠道最近一次成功备份的时间，0 表示从未在该渠道备份 */
+    val lastS3BackupTime: Long = 0L,
 )
+
+/** 点击消息里的路径时优先用什么打开。 */
+@Serializable
+enum class PathOpenPreference {
+    @SerialName("mt_manager")
+    MT_MANAGER,
+
+    @SerialName("system")
+    SYSTEM,
+
+    /** 每次点击都询问用哪个应用打开 */
+    @SerialName("ask")
+    ASK,
+}

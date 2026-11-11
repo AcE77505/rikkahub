@@ -55,6 +55,7 @@ import me.rerere.hugeicons.stroke.Notification01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.ui.components.path.PathAwareText
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.message.tools.DefaultToolPreview
@@ -137,10 +138,16 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
     assistant: Assistant? = null,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    onOpenPath: ((String) -> Unit)? = null,
 ) {
     // ask_user 是交互式问答流程, 不走注册式渲染框架
     if (tool.toolName == ASK_USER_TOOL_NAME) {
-        AskUserToolStep(tool = tool, loading = loading, onToolAnswer = onToolAnswer)
+        AskUserToolStep(
+            tool = tool,
+            loading = loading,
+            onToolAnswer = onToolAnswer,
+            onOpenPath = onOpenPath,
+        )
         return
     }
 
@@ -341,6 +348,7 @@ private fun ChainOfThoughtScope.AskUserToolStep(
     tool: UIMessagePart.Tool,
     loading: Boolean,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)?,
+    onOpenPath: ((String) -> Unit)? = null,
 ) {
     val isPending = tool.isPending
     val isAnswered = tool.approvalState is ToolApprovalState.Answered
@@ -405,8 +413,10 @@ private fun ChainOfThoughtScope.AskUserToolStep(
             ) {
                 questions.forEach { q ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
+                        // 提问文本里的路径可点开；选项不做路径识别
+                        PathAwareText(
                             text = q.question,
+                            onOpenPath = onOpenPath,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                         )

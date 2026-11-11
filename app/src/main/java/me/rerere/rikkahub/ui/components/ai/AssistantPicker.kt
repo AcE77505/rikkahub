@@ -194,6 +194,7 @@ private fun AssistantPickerSheet(
                         AssistantItem(
                             assistant = assistant,
                             defaultAssistantName = defaultAssistantName,
+                            isCurrent = checked,
                             onEdit = {
                                 scope.launch {
                                     sheetState.hide()
@@ -213,6 +214,7 @@ private fun AssistantPickerSheet(
 private fun AssistantItem(
     assistant: Assistant,
     defaultAssistantName: String,
+    isCurrent: Boolean,
     onEdit: () -> Unit
 ) {
     ListItem(
@@ -231,15 +233,25 @@ private fun AssistantItem(
             )
         },
         trailingContent = {
-            IconButton(
-                onClick = {
-                    onEdit()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isCurrent) {
+                    Text(
+                        text = stringResource(R.string.assistant_current_in_use),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
                 }
-            ) {
-                Icon(
-                    imageVector = HugeIcons.Edit03,
-                    contentDescription = null
-                )
+                IconButton(
+                    onClick = {
+                        onEdit()
+                    }
+                ) {
+                    Icon(
+                        imageVector = HugeIcons.Edit03,
+                        contentDescription = null
+                    )
+                }
             }
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),

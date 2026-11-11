@@ -305,6 +305,31 @@ class ConversationRepository(
         return conversationDAO.existsById(uuid.toString())
     }
 
+    /**
+     * 批量查询这些会话是否存在，以及上次导入记录的来源更新时间。
+     * 返回的 map 里没有的 id 表示本地不存在；[ImportState.sourceUpdatedAt] 为 null 表示旧数据。
+     */
+    suspend fun getImportStates(ids: Collection<Uuid>): Map<Uuid, ImportState> =
+        ids.map { it.toString() }
+            .chunked(900)
+            .flatMap { conversationDAO.getImportStates(it) }
+            .mapNotNull { row ->
+                runCatching { Uuid.parse(row.id) }.getOrNull()?.let {
+                    it to ImportState(sourceUpdatedAt = row.sourceUpdatedAt, updateAt = row.updateAt)
+                }
+            }
+            .toMap()
+
+    /** 旧数据首次与导出内容对上以后，补写来源时间，下次导入就能精确判断。 */
+    suspend fun backfillSourceUpdatedAt(values: Map<Uuid, Long>) {
+        if (values.isEmpty()) return
+        database.withTransaction {
+            values.forEach { (id, sourceUpdatedAt) ->
+                conversationDAO.updateSourceUpdatedAt(id.toString(), sourceUpdatedAt)
+            }
+        }
+    }
+
     suspend fun countConversations(): Int {
         return conversationDAO.countAll()
     }
@@ -405,6 +430,7 @@ class ConversationRepository(
             workspaceCwd = conversation.workspaceCwd ?: "",
             folderId = conversation.folderId?.toString() ?: "",
             config = conversation.config?.let { JsonInstant.encodeToString(it) } ?: "",
+            sourceUpdatedAt = conversation.sourceUpdatedAt,
         )
     }
 
@@ -427,6 +453,7 @@ class ConversationRepository(
             workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
             folderId = conversationEntity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
             config = conversationEntity.config.ifEmpty { null }?.let { JsonInstant.decodeFromString(it) },
+            sourceUpdatedAt = conversationEntity.sourceUpdatedAt,
         )
     }
 
@@ -576,4 +603,10 @@ data class LightConversationEntity(
 data class ConversationPageResult(
     val items: List<Conversation>,
     val nextOffset: Int?,
+)
+
+/** 导入前对比用的本地会话状态。 */
+data class ImportState(
+    val sourceUpdatedAt: Long?,
+    val updateAt: Long,
 )

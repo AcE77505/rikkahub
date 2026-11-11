@@ -48,6 +48,12 @@ import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.QuillWrite01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import me.rerere.rikkahub.data.datastore.PathOpenPreference
+import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
+import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceLabel
+import me.rerere.rikkahub.utils.installedMtManagers
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.tools.WorkspaceToolDefaultApprovals
@@ -270,6 +276,73 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { CardGroupIcon(HugeIcons.FolderOpen) },
                         headlineContent = { Text(stringResource(R.string.setting_tools_terminal_dir)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
+                    )
+                }
+            }
+
+            item("path-open") {
+                val context = LocalContext.current
+                val installedPackages = remember { installedMtManagers(context) }
+                val systemLabel = stringResource(R.string.setting_path_open_system)
+                val askLabel = stringResource(R.string.setting_path_open_ask)
+                val selectedPackage = settings.pathOpenMtPackage?.takeIf { it in installedPackages }
+                    ?: installedPackages.firstOrNull()
+                CardGroup(title = { Text(stringResource(R.string.setting_path_open_title)) }) {
+                    if (installedPackages.isEmpty()) {
+                        item(
+                            headlineContent = { Text(stringResource(R.string.setting_path_open_not_installed)) },
+                            supportingContent = {
+                                Text(stringResource(R.string.setting_path_open_not_installed_desc))
+                            },
+                        )
+                    }
+                    // 每个已安装的 MT 单列一项，正式版和 Canary 可以分开选
+                    installedPackages.forEach { packageName ->
+                        val isSelected = settings.pathOpenPreference == PathOpenPreference.MT_MANAGER &&
+                            selectedPackage == packageName
+                        item(
+                            onClick = {
+                                vm.updateSettings {
+                                    it.copy(
+                                        pathOpenPreference = PathOpenPreference.MT_MANAGER,
+                                        pathOpenMtPackage = packageName,
+                                    )
+                                }
+                            },
+                            modifier = Modifier.semantics {
+                                role = Role.RadioButton
+                                this.selected = isSelected
+                            },
+                            headlineContent = {
+                                Text(stringResource(R.string.setting_path_open_mt_with_package, packageName))
+                            },
+                            leadingContent = { RadioButton(selected = isSelected, onClick = null) },
+                        )
+                    }
+                    val systemSelected = settings.pathOpenPreference == PathOpenPreference.SYSTEM
+                    item(
+                        onClick = {
+                            vm.updateSettings { it.copy(pathOpenPreference = PathOpenPreference.SYSTEM) }
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.RadioButton
+                            this.selected = systemSelected
+                        },
+                        headlineContent = { Text(systemLabel) },
+                        leadingContent = { RadioButton(selected = systemSelected, onClick = null) },
+                    )
+                    val askSelected = settings.pathOpenPreference == PathOpenPreference.ASK
+                    item(
+                        onClick = {
+                            vm.updateSettings { it.copy(pathOpenPreference = PathOpenPreference.ASK) }
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.RadioButton
+                            this.selected = askSelected
+                        },
+                        headlineContent = { Text(askLabel) },
+                        supportingContent = { Text(stringResource(R.string.setting_path_open_ask_desc)) },
+                        leadingContent = { RadioButton(selected = askSelected, onClick = null) },
                     )
                 }
             }

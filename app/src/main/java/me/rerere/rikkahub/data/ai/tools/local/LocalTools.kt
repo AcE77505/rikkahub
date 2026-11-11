@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.ai.tools.createWorkspaceTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.BackgroundShellManager
 import me.rerere.tts.provider.TTSManager
@@ -19,6 +20,7 @@ class LocalTools(
     private val eventBus: AppEventBus,
     private val ttsManager: TTSManager,
     private val settingsStore: SettingsStore,
+    private val memoryRepository: MemoryRepository,
     private val workspaceRepository: WorkspaceRepository,
     private val sshRunner: SshRunner,
     private val backgroundShellManager: BackgroundShellManager,
@@ -80,7 +82,7 @@ class LocalTools(
             tools.add(chartDisplayTool)
         }
         if (options.contains(LocalToolOption.AssistantConfig) && currentAssistantId != null) {
-            tools.addAll(buildAssistantConfigTools(settingsStore, currentAssistantId))
+            tools.addAll(buildAssistantConfigTools(settingsStore, memoryRepository, currentAssistantId))
         }
         tools.addAll(buildWorkspaceTools(options, workspaceCwd, conversationId))
         return tools

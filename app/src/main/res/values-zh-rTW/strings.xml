@@ -1820,4 +1820,16 @@
   <string name="chat_page_select_all">全選</string>
   <string name="chat_page_deselect_all">取消全選</string>
   <string name="chat_page_clear_selection">清除選取</string>
+  <string name="path_open_not_found">路徑不存在或無法存取：%s</string>
+  <string name="path_open_choose_title">選擇開啟方式</string>
+  <string name="path_open_choose_remember">下次不再詢問</string>
+  <string name="setting_path_open_title">點擊路徑的優先開啟方式</string>
+  <string name="setting_path_open_preference">點擊路徑時優先使用</string>
+  <string name="setting_path_open_mt">MT 管理器</string>
+  <string name="setting_path_open_system">系統</string>
+  <string name="setting_path_open_not_installed">未偵測到 MT 管理器</string>
+  <string name="setting_path_open_ask">每次詢問</string>
+  <string name="setting_path_open_ask_desc">每次點擊路徑時選擇用哪個應用程式開啟</string>
+  <string name="setting_path_open_mt_with_package">MT 管理器（%s）</string>
+  <string name="setting_path_open_not_installed_desc">安裝 MT 管理器後可以在這裡選擇</string>
 </resources>

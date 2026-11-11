@@ -534,6 +534,15 @@ private fun AssistantItem(
                 }
             }
 
+            if (assistant.id == settings.assistantId) {
+                Text(
+                    text = stringResource(R.string.assistant_current_in_use),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+            }
+
             ItemActionMenu(
                 actions = listOf(
                     ItemAction(

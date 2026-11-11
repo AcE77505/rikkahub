@@ -1820,4 +1820,16 @@
   <string name="chat_page_select_all">تحديد الكل</string>
   <string name="chat_page_deselect_all">إلغاء تحديد الكل</string>
   <string name="chat_page_clear_selection">إلغاء التحديد</string>
+  <string name="path_open_not_found">المسار غير موجود أو لا يمكن الوصول إليه: %s</string>
+  <string name="path_open_choose_title">اختر تطبيقًا</string>
+  <string name="path_open_choose_remember">لا تسأل مرة أخرى</string>
+  <string name="setting_path_open_title">فتح المسارات باستخدام</string>
+  <string name="setting_path_open_preference">فتح المسار باستخدام</string>
+  <string name="setting_path_open_mt">MT Manager</string>
+  <string name="setting_path_open_system">النظام</string>
+  <string name="setting_path_open_not_installed">MT Manager غير مثبت</string>
+  <string name="setting_path_open_ask">اسأل في كل مرة</string>
+  <string name="setting_path_open_ask_desc">اختر التطبيق الذي يفتح المسار في كل مرة</string>
+  <string name="setting_path_open_mt_with_package">MT Manager (%s)</string>
+  <string name="setting_path_open_not_installed_desc">ثبّت MT Manager لتتمكن من اختياره هنا</string>
 </resources>

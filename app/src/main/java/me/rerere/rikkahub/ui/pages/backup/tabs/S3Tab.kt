@@ -90,7 +90,7 @@ fun S3Tab(
         },
     ) {
         RemoteBackupStatus(
-            lastBackupTime = settings.backupReminderConfig.lastBackupTime,
+            lastBackupTime = settings.backupReminderConfig.lastS3BackupTime,
             filesState = backupItemsState,
             onShowFiles = {
                 vm.loadS3BackupFileItems()

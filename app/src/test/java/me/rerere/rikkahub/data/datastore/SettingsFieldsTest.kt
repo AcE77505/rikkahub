@@ -179,6 +179,8 @@ private val SAMPLE = Settings(
     webServerLocalhostOnly = true,
     backupReminderConfig = BackupReminderConfig(enabled = true),
     sponsorAlertDismissedAt = 7,
+    pathOpenPreference = PathOpenPreference.SYSTEM,
+    pathOpenMtPackage = "bin.mt.plus.canary",
 )
 
 private val STORED_KEYS = setOf(
@@ -244,4 +246,6 @@ private val STORED_KEYS = setOf(
     "workspace_prompt",
     "backup_reminder_config",
     "sponsor_alert_dismissed_at",
+    "path_open_preference",
+    "path_open_mt_package",
 )

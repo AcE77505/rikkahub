@@ -1822,4 +1822,16 @@
   <string name="chat_page_select_all">Выбрать все</string>
   <string name="chat_page_deselect_all">Снять все</string>
   <string name="chat_page_clear_selection">Снять выделение</string>
+  <string name="path_open_not_found">Путь не найден или недоступен: %s</string>
+  <string name="path_open_choose_title">Выберите приложение</string>
+  <string name="path_open_choose_remember">Больше не спрашивать</string>
+  <string name="setting_path_open_title">Чем открывать пути</string>
+  <string name="setting_path_open_preference">Открывать путь через</string>
+  <string name="setting_path_open_mt">MT Manager</string>
+  <string name="setting_path_open_system">Система</string>
+  <string name="setting_path_open_not_installed">MT Manager не установлен</string>
+  <string name="setting_path_open_ask">Спрашивать каждый раз</string>
+  <string name="setting_path_open_ask_desc">Выбирать приложение при каждом нажатии на путь</string>
+  <string name="setting_path_open_mt_with_package">MT Manager (%s)</string>
+  <string name="setting_path_open_not_installed_desc">Установите MT Manager, чтобы выбрать его здесь</string>
 </resources>

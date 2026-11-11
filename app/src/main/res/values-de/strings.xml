@@ -1823,4 +1823,16 @@
   <string name="chat_page_select_all">Alle auswählen</string>
   <string name="chat_page_deselect_all">Alle abwählen</string>
   <string name="chat_page_clear_selection">Auswahl aufheben</string>
+  <string name="path_open_not_found">Pfad nicht gefunden oder nicht zugänglich: %s</string>
+  <string name="path_open_choose_title">App wählen</string>
+  <string name="path_open_choose_remember">Nicht mehr fragen</string>
+  <string name="setting_path_open_title">Pfade öffnen mit</string>
+  <string name="setting_path_open_preference">Pfad öffnen mit</string>
+  <string name="setting_path_open_mt">MT Manager</string>
+  <string name="setting_path_open_system">System</string>
+  <string name="setting_path_open_not_installed">MT Manager nicht installiert</string>
+  <string name="setting_path_open_ask">Jedes Mal fragen</string>
+  <string name="setting_path_open_ask_desc">Bei jedem Tippen auf einen Pfad die App wählen</string>
+  <string name="setting_path_open_mt_with_package">MT Manager (%s)</string>
+  <string name="setting_path_open_not_installed_desc">Installiere MT Manager, um ihn hier auszuwählen</string>
 </resources>

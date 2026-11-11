@@ -176,20 +176,27 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(SUB_AGENTS, Settings::subAgents) { copy(subAgents = it) },
         json(SUBAGENT_DEFAULT_TOOLS, Settings::subAgentDefaultTools) { copy(subAgentDefaultTools = it) },
         SettingsField(
-            SUBAGENT_MODEL, Settings::subAgentModelId, { copy(subAgentModelId = it) },
+            SUBAGENT_MODEL,
+            Settings::subAgentModelId,
+            { copy(subAgentModelId = it) },
             encode = { it?.toString() },
             decode = { Uuid.parse(it) },
         ),
         plain(SUBAGENT_MAX_CONCURRENCY, Settings::subAgentMaxConcurrency) { copy(subAgentMaxConcurrency = it) },
         SettingsField(
-            SHELL_OVERTIME_SECONDS, Settings::shellOvertimeSeconds, { copy(shellOvertimeSeconds = it) },
+            SHELL_OVERTIME_SECONDS,
+            Settings::shellOvertimeSeconds,
+            { copy(shellOvertimeSeconds = it) },
             // null 表示无限制，用负数当哨兵，避免 key 被删掉后读回默认的 30 秒
             encode = { it ?: UNLIMITED_SHELL_OVERTIME },
             decode = { if (it < 0) null else it },
         ),
         plain(SHELL_AUTO_STOP_ON_OVERTIME, Settings::shellAutoStopOnOvertime) { copy(shellAutoStopOnOvertime = it) },
         plain(SHELL_BACKGROUND_ENABLED, Settings::shellBackgroundEnabled) { copy(shellBackgroundEnabled = it) },
-        plain(SHELL_BACKGROUND_MAX_RUNNING, Settings::shellBackgroundMaxRunning) { copy(shellBackgroundMaxRunning = it) },
+        plain(
+            SHELL_BACKGROUND_MAX_RUNNING,
+            Settings::shellBackgroundMaxRunning
+        ) { copy(shellBackgroundMaxRunning = it) },
         plain(SHELL_BACKGROUND_NOTIFY, Settings::shellBackgroundNotify) { copy(shellBackgroundNotify = it) },
         plain(WORKSPACE_PROMPT, Settings::workspacePrompt) { copy(workspacePrompt = it) },
 
@@ -198,6 +205,15 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
 
         // 赞助提醒
         plain(SPONSOR_ALERT_DISMISSED_AT, Settings::sponsorAlertDismissedAt) { copy(sponsorAlertDismissedAt = it) },
+        json(PATH_OPEN_PREFERENCE, Settings::pathOpenPreference) { copy(pathOpenPreference = it) },
+        SettingsField(
+            PATH_OPEN_MT_PACKAGE,
+            Settings::pathOpenMtPackage,
+            { copy(pathOpenMtPackage = it) },
+            // 没选过时不存这个 key
+            encode = { it },
+            decode = { it },
+        ),
     )
 }
 

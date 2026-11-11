@@ -4,7 +4,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
@@ -26,6 +29,9 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.PresetMessageGroup
 import me.rerere.rikkahub.data.model.SystemPromptPreset
 import me.rerere.rikkahub.data.model.effectiveSystemPrompt
+import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryWriteResult
+import me.rerere.rikkahub.data.repository.memoryId
 import java.io.File
 import kotlin.uuid.Uuid
 
@@ -33,20 +39,32 @@ private const val TOOL_LIST_ASSISTANTS = "list_assistants"
 private const val TOOL_GET_ASSISTANT = "get_assistant"
 private const val TOOL_UPDATE_ASSISTANT = "update_assistant"
 
+private const val TOOL_LIST_ASSISTANT_MEMORIES = "list_assistant_memories"
+private const val TOOL_READ_ASSISTANT_MEMORY = "read_assistant_memory"
+private const val TOOL_WRITE_ASSISTANT_MEMORY = "write_assistant_memory"
+private const val TOOL_DELETE_ASSISTANT_MEMORY = "delete_assistant_memory"
+private const val TOOL_IMPORT_ASSISTANT_MEMORY = "import_assistant_memory"
+
+private const val MAX_MEMORY_READ_PATHS = 20
+private const val MAX_MEMORY_IMPORT_FILES = 200
+private const val MAX_MEMORY_IMPORT_DEPTH = 3
+
 /**
  * 修改其他助手的工具组。
  *
- * 当前对话所属的助手是只读的：可以列出来读，但不能通过 [TOOL_UPDATE_ASSISTANT] 改自己。
- * 工具只暴露提示词、预设对话和生成参数，不暴露模型、MCP、工作区等本机引用。
+ * 当前对话所属的助手是只读的：可以列出来读，但不能通过 [TOOL_UPDATE_ASSISTANT] 改自己，
+ * 也不能改自己正在使用的记忆库（含共用全局记忆的情况）。
+ * 工具只暴露提示词、预设对话、生成参数和记忆文件，不暴露模型、MCP、工作区等本机引用。
  */
 internal fun buildAssistantConfigTools(
     settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
     currentAssistantId: Uuid,
 ): List<Tool> = listOf(
     listAssistantsTool(settingsStore, currentAssistantId),
     getAssistantTool(settingsStore),
     updateAssistantTool(settingsStore, currentAssistantId),
-)
+) + buildAssistantMemoryTools(settingsStore, memoryRepository, currentAssistantId)
 
 private fun listAssistantsTool(
     settingsStore: SettingsStore,
@@ -613,3 +631,389 @@ private fun fail(code: String, message: String): List<UIMessagePart> =
         put("error", code)
         put("message", message)
     }.toString()))
+// ---------------------------------------------------------------------------
+// 其他助手的记忆库
+// ---------------------------------------------------------------------------
+
+private sealed interface MemoryTarget {
+    data class Ok(val memoryId: String) : MemoryTarget
+    data class Error(val code: String, val message: String) : MemoryTarget
+}
+
+private suspend fun resolveMemoryTarget(
+    settingsStore: SettingsStore,
+    currentAssistantId: Uuid,
+    query: String,
+): MemoryTarget {
+    if (query.isEmpty()) {
+        return MemoryTarget.Error("MISSING_ASSISTANT", "Provide an assistant id or exact name.")
+    }
+    val settings = settingsStore.awaitLoaded()
+    val target = resolveAssistant(settings.assistants, query)
+        ?: return MemoryTarget.Error(
+            "ASSISTANT_NOT_FOUND",
+            "No unique assistant matches '$query'. Call $TOOL_LIST_ASSISTANTS and use the id.",
+        )
+    val current = settings.assistants.firstOrNull { it.id == currentAssistantId }
+    if (target.id == currentAssistantId || (current != null && target.memoryId == current.memoryId)) {
+        return MemoryTarget.Error(
+            "CANNOT_MODIFY_SELF",
+            "The current conversation's assistant shares this memory library. Choose another assistant " +
+                "whose memory is stored separately.",
+        )
+    }
+    return MemoryTarget.Ok(target.memoryId)
+}
+
+private fun buildAssistantMemoryTools(
+    settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
+    currentAssistantId: Uuid,
+): List<Tool> = listOf(
+    listAssistantMemoriesTool(settingsStore, memoryRepository, currentAssistantId),
+    readAssistantMemoryTool(settingsStore, memoryRepository, currentAssistantId),
+    writeAssistantMemoryTool(settingsStore, memoryRepository, currentAssistantId),
+    deleteAssistantMemoryTool(settingsStore, memoryRepository, currentAssistantId),
+    importAssistantMemoryTool(settingsStore, memoryRepository, currentAssistantId),
+)
+
+private fun listAssistantMemoriesTool(
+    settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
+    currentAssistantId: Uuid,
+): Tool = Tool(
+    name = TOOL_LIST_ASSISTANT_MEMORIES,
+    description = """
+        List another assistant's memory files. Returns path, title, description, version and update time.
+        Use the returned path with $TOOL_READ_ASSISTANT_MEMORY, $TOOL_WRITE_ASSISTANT_MEMORY or
+        $TOOL_DELETE_ASSISTANT_MEMORY. The current conversation's assistant cannot be accessed.
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject { assistantSchema() },
+            required = listOf("assistant"),
+        )
+    },
+    execute = { args ->
+        val target = resolveMemoryTarget(settingsStore, currentAssistantId, args.jsonObject.assistantQuery())
+        if (target is MemoryTarget.Error) return@Tool fail(target.code, target.message)
+        target as MemoryTarget.Ok
+        val files = memoryRepository.getFiles(target.memoryId)
+        ok(buildJsonObject {
+            put("files", buildJsonArray {
+                files.forEach { file ->
+                    add(buildJsonObject {
+                        put("path", file.path)
+                        put("title", file.title)
+                        put("description", file.description)
+                        put("version", file.version)
+                        put("updated_at", file.updatedAt)
+                        put("size_bytes", file.content.toByteArray().size)
+                    })
+                }
+            })
+        })
+    },
+)
+
+private fun readAssistantMemoryTool(
+    settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
+    currentAssistantId: Uuid,
+): Tool = Tool(
+    name = TOOL_READ_ASSISTANT_MEMORY,
+    description = """
+        Read one or more memory files of another assistant. Returns each file's content and version.
+        Pass at most $MAX_MEMORY_READ_PATHS paths per call, e.g. ["/topics/food.md"].
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                assistantSchema()
+                put("path", buildJsonObject {
+                    put("type", "array")
+                    put("items", buildJsonObject { put("type", "string") })
+                    put("maxItems", MAX_MEMORY_READ_PATHS)
+                    put("description", "Memory file paths to read")
+                })
+            },
+            required = listOf("assistant", "path"),
+        )
+    },
+    execute = { args ->
+        val target = resolveMemoryTarget(settingsStore, currentAssistantId, args.jsonObject.assistantQuery())
+        if (target is MemoryTarget.Error) return@Tool fail(target.code, target.message)
+        target as MemoryTarget.Ok
+        val paths = args.jsonObject["path"].memoryPaths().take(MAX_MEMORY_READ_PATHS)
+        if (paths.isEmpty()) return@Tool fail("MISSING_PATH", "Provide at least one memory file path.")
+        val files = paths.associateWith { memoryRepository.getFile(target.memoryId, it) }
+        ok(buildJsonObject {
+            put("files", buildJsonArray {
+                files.values.filterNotNull().forEach { file ->
+                    add(buildJsonObject {
+                        put("path", file.path)
+                        put("version", file.version)
+                        put("content", file.content)
+                    })
+                }
+            })
+            val notFound = files.filterValues { it == null }.keys
+            if (notFound.isNotEmpty()) {
+                put("not_found", buildJsonArray { notFound.forEach { add(it) } })
+            }
+        })
+    },
+)
+
+private fun writeAssistantMemoryTool(
+    settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
+    currentAssistantId: Uuid,
+): Tool = Tool(
+    name = TOOL_WRITE_ASSISTANT_MEMORY,
+    description = """
+        Create or overwrite a memory file of another assistant. content is the complete file.
+        Instead of inlining long content, pass content_file with an absolute path readable by the app;
+        the file is read as UTF-8 (max 1 MiB) and used only when content is absent.
+        if_version: "new" for a new file, or the version returned by the latest read/write; omit to allow upsert.
+        Memory files are limited to 48 KiB each.
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                assistantSchema()
+                put("path", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Absolute memory path ending in .md, e.g. /topics/food.md")
+                })
+                put("content", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Complete file content")
+                })
+                put("content_file", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Absolute path to a UTF-8 text file used as content. Ignored when content is present.")
+                })
+                put("if_version", buildJsonObject {
+                    put("type", "string")
+                    put("description", "\"new\" for a new file, otherwise the file's current version")
+                })
+            },
+            required = listOf("assistant", "path"),
+        )
+    },
+    execute = { args ->
+        val target = resolveMemoryTarget(settingsStore, currentAssistantId, args.jsonObject.assistantQuery())
+        if (target is MemoryTarget.Error) return@Tool fail(target.code, target.message)
+        target as MemoryTarget.Ok
+        val path = args.jsonObject["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return@Tool fail("MISSING_PATH", "Provide path, e.g. /topics/food.md.")
+        val inline = args.jsonObject["content"]?.jsonPrimitive?.contentOrNull
+        val sourcePath = args.jsonObject["content_file"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val content = when {
+            inline != null -> inline
+            sourcePath.isNotEmpty() -> readTextFile(sourcePath).getOrElse {
+                return@Tool fail("FILE_READ_FAILED", "content_file '$sourcePath': ${it.message}")
+            }
+            else -> return@Tool fail(
+                "MISSING_CONTENT",
+                "Provide content, or content_file with an absolute path.",
+            )
+        }
+        val ifVersion = args.jsonObject["if_version"]?.jsonPrimitive?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        when (val result = memoryRepository.writeFile(target.memoryId, path, content, ifVersion)) {
+            is MemoryWriteResult.Success -> ok(buildJsonObject {
+                put("path", result.file?.path ?: path)
+                put("version", result.file?.version.orEmpty())
+            })
+            is MemoryWriteResult.Conflict -> fail(
+                "VERSION_CONFLICT",
+                "The file changed or does not exist with that version. Read it first and retry.",
+            )
+            is MemoryWriteResult.Rejected -> fail("WRITE_REJECTED", result.reason)
+        }
+    },
+)
+
+private fun deleteAssistantMemoryTool(
+    settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
+    currentAssistantId: Uuid,
+): Tool = Tool(
+    name = TOOL_DELETE_ASSISTANT_MEMORY,
+    description = "Delete one memory file of another assistant. Pass if_version to avoid deleting a file that changed.",
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                assistantSchema()
+                put("path", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Memory file path to delete")
+                })
+                put("if_version", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Version returned by the latest read/write (optional)")
+                })
+            },
+            required = listOf("assistant", "path"),
+        )
+    },
+    execute = { args ->
+        val target = resolveMemoryTarget(settingsStore, currentAssistantId, args.jsonObject.assistantQuery())
+        if (target is MemoryTarget.Error) return@Tool fail(target.code, target.message)
+        target as MemoryTarget.Ok
+        val path = args.jsonObject["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (path.isEmpty()) return@Tool fail("MISSING_PATH", "Provide the memory file path.")
+        val ifVersion = args.jsonObject["if_version"]?.jsonPrimitive?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        when (val result = memoryRepository.deleteFile(target.memoryId, path, ifVersion)) {
+            is MemoryWriteResult.Success -> ok(buildJsonObject { put("deleted", path) })
+            is MemoryWriteResult.Conflict -> fail(
+                "NOT_FOUND_OR_STALE",
+                "The file does not exist or its version changed. List the memory files and retry.",
+            )
+            is MemoryWriteResult.Rejected -> fail("DELETE_REJECTED", result.reason)
+        }
+    },
+)
+
+private fun importAssistantMemoryTool(
+    settingsStore: SettingsStore,
+    memoryRepository: MemoryRepository,
+    currentAssistantId: Uuid,
+): Tool = Tool(
+    name = TOOL_IMPORT_ASSISTANT_MEMORY,
+    description = """
+        Import memory files from a local path into another assistant's memory library.
+        source is an absolute path to a single .md file or a directory (scanned up to
+        $MAX_MEMORY_IMPORT_DEPTH levels, at most $MAX_MEMORY_IMPORT_FILES files).
+        For a single file, path overrides the target path (default /<file name>.md).
+        For a directory, files keep their relative paths.
+        overwrite=false (default) skips files that already exist; overwrite=true replaces them.
+        Each file is limited to 48 KiB.
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                assistantSchema()
+                put("source", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Absolute path to a .md file or a directory")
+                })
+                put("path", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Target memory path when source is a single file")
+                })
+                put("overwrite", buildJsonObject {
+                    put("type", "boolean")
+                    put("description", "Replace existing files instead of skipping them. Default false.")
+                })
+            },
+            required = listOf("assistant", "source"),
+        )
+    },
+    execute = { args ->
+        val target = resolveMemoryTarget(settingsStore, currentAssistantId, args.jsonObject.assistantQuery())
+        if (target is MemoryTarget.Error) return@Tool fail(target.code, target.message)
+        target as MemoryTarget.Ok
+        val sourcePath = args.jsonObject["source"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (sourcePath.isEmpty()) return@Tool fail("MISSING_SOURCE", "Provide an absolute source path.")
+        val overwrite = args.jsonObject["overwrite"]?.jsonPrimitive?.booleanOrNull == true
+        val explicitPath = args.jsonObject["path"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        val sources = collectMemoryImportSources(File(sourcePath), explicitPath).getOrElse {
+            return@Tool fail("INVALID_SOURCE", it.message ?: "Cannot read $sourcePath")
+        }
+        if (sources.isEmpty()) {
+            return@Tool fail("NO_MEMORY_FILES", "No .md files found under '$sourcePath'.")
+        }
+
+        val imported = mutableListOf<JsonObject>()
+        val skipped = mutableListOf<JsonObject>()
+        val failed = mutableListOf<JsonObject>()
+        for ((file, targetPath) in sources) {
+            val read = readTextFile(file.absolutePath)
+            val content = read.getOrNull()
+            if (content == null) {
+                failed += buildJsonObject {
+                    put("source", file.absolutePath)
+                    put("path", targetPath)
+                    put("error", read.exceptionOrNull()?.message ?: "read failed")
+                }
+                continue
+            }
+            val ifVersion = if (overwrite) null else MemoryRepository.NEW_FILE_VERSION
+            when (val result = memoryRepository.writeFile(target.memoryId, targetPath, content, ifVersion)) {
+                is MemoryWriteResult.Success -> imported += buildJsonObject {
+                    put("path", result.file?.path ?: targetPath)
+                    put("version", result.file?.version.orEmpty())
+                }
+                is MemoryWriteResult.Conflict -> skipped += buildJsonObject {
+                    put("path", targetPath)
+                    put("reason", "already exists")
+                }
+                is MemoryWriteResult.Rejected -> failed += buildJsonObject {
+                    put("source", file.absolutePath)
+                    put("path", targetPath)
+                    put("error", result.reason)
+                }
+            }
+        }
+        ok(buildJsonObject {
+            put("imported", buildJsonArray { imported.forEach { add(it) } })
+            put("skipped", buildJsonArray { skipped.forEach { add(it) } })
+            put("failed", buildJsonArray { failed.forEach { add(it) } })
+        })
+    },
+)
+
+private fun JsonObjectBuilder.assistantSchema() {
+    put("assistant", buildJsonObject {
+        put("type", "string")
+        put("description", "Assistant id (preferred) or exact assistant name.")
+    })
+}
+
+private fun JsonObject.assistantQuery(): String =
+    this["assistant"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+
+private fun JsonElement?.memoryPaths(): List<String> = when (this) {
+    is JsonArray -> mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+    is JsonPrimitive -> listOfNotNull(contentOrNull?.trim()?.takeIf(String::isNotEmpty))
+    else -> emptyList()
+}
+
+private fun collectMemoryImportSources(
+    source: File,
+    explicitPath: String?,
+): Result<List<Pair<File, String>>> = runCatching {
+    require(source.exists()) { "Path does not exist: ${source.absolutePath}" }
+    if (source.isFile) {
+        require(source.extension.equals("md", ignoreCase = true)) {
+            "Not a .md file: ${source.absolutePath}"
+        }
+        return@runCatching listOf(source to (explicitPath ?: "/${source.name}"))
+    }
+    require(source.isDirectory) { "Not a file or directory: ${source.absolutePath}" }
+    val files = source.walkTopDown()
+        .maxDepth(MAX_MEMORY_IMPORT_DEPTH)
+        .filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
+        .filter { file ->
+            file.relativeTo(source).invariantSeparatorsPath.split('/').none { segment ->
+                segment.startsWith(".")
+            }
+        }
+        .take(MAX_MEMORY_IMPORT_FILES + 1)
+        .toList()
+    require(files.size <= MAX_MEMORY_IMPORT_FILES) {
+        "Too many files (max $MAX_MEMORY_IMPORT_FILES). Import a subdirectory instead."
+    }
+    files.map { file ->
+        val relative = file.relativeTo(source).invariantSeparatorsPath
+        file to "/$relative"
+    }
+}

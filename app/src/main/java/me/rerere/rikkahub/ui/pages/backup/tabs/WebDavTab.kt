@@ -99,7 +99,7 @@ fun WebDavTab(
         },
     ) {
         RemoteBackupStatus(
-            lastBackupTime = settings.backupReminderConfig.lastBackupTime,
+            lastBackupTime = settings.backupReminderConfig.lastWebDavBackupTime,
             filesState = backupItemsState,
             onShowFiles = {
                 vm.loadBackupFileItems()
