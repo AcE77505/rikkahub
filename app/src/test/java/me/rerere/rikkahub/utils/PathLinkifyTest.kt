@@ -71,6 +71,40 @@ class PathLinkifyTest {
     }
 
     @Test
+    fun `model written internal links are normalized`() {
+        val path = "/data/user/0/me.rerere.rikkahub/files/workspaces/default/home"
+        // 模型模仿客户端的内部链接：标签里带路径时保留标签，路径重新生成规范链接
+        assertEquals(
+            "HOME=[$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("[HOME=$path]($PATH_LINK_SCHEME$path)"),
+        )
+        // 标签只是描述时用链接目标，避免地址丢失
+        assertEquals(
+            "见 [$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("见 [查看]($PATH_LINK_SCHEME$path)"),
+        )
+    }
+
+    @Test
+    fun `bare internal scheme is removed`() {
+        val path = "/sdcard/a.txt"
+        assertEquals(
+            "路径 [$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("路径 rikkahub-path:$path"),
+        )
+        assertEquals(
+            "[$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("rikkahub-path=$path"),
+        )
+    }
+
+    @Test
+    fun `internal scheme inside inline code is untouched`() {
+        val markdown = "`rikkahub-path:/a`"
+        assertEquals(markdown, linkifyPaths(markdown))
+    }
+
+    @Test
     fun `trailing punctuation stays outside the link`() {
         val result = linkifyPaths("路径是 /sdcard/a.txt。")
         assertTrue(result.contains("[\u002Fsdcard/a.txt]($PATH_LINK_SCHEME"))

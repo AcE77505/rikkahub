@@ -9,6 +9,12 @@ private val FENCE = Regex("""^\s*(`{3,}|~{3,})""")
 private val INLINE_CODE = Regex("""`([^`\n]+)`""")
 private val MARKDOWN_LINK = Regex("""\[[^\]\n]*]\([^)\n]*\)""")
 
+/** 模型模仿内部链接写出的 `[文本](rikkahub-path:路径)`，渲染前要还原。 */
+private val INTERNAL_PATH_LINK = Regex("""\[([^\]\n]*)]\(\s*${PATH_LINK_SCHEME}\s*([^)\n]*)\)""")
+
+/** 正文里裸写的内部 scheme（`rikkahub-path:/x` 或 `rikkahub-path=/x`）。 */
+private val BARE_PATH_SCHEME = Regex("""(?:${PATH_LINK_SCHEME}|rikkahub-path=)\s*(?=/)""")
+
 /**
  * 绝对路径或明确的相对路径。
  *
@@ -60,14 +66,16 @@ private fun linkifyLine(line: String): String {
         held += rendered
     }
 
-    // 1. 行内代码：`/path/to/file`
+    // 1. 行内代码：`/path/to/file`；其他行内代码也先占位，避免被后面的清理改到
     var text = INLINE_CODE.replace(line) { match ->
         val code = match.groupValues[1].trim()
-        if (looksLikeOpenablePath(code)) hold(renderPathLink(code)) else match.value
+        if (looksLikeOpenablePath(code)) hold(renderPathLink(code)) else hold(match.value)
     }
-    // 2. 保护已有链接，避免把链接目标里的路径再包一层
+    // 2. 模型自己写出的内部链接：还原成普通文本，后面按正文路径重新生成
+    text = stripInternalPathLinks(text)
+    // 3. 保护已有链接，避免把链接目标里的路径再包一层
     text = MARKDOWN_LINK.replace(text) { hold(it.value) }
-    // 3. 正文里的路径
+    // 4. 正文里的路径
     text = PATH_PATTERN.replace(text) { match ->
         val raw = match.value
         val trailing = raw.takeLastWhile { it in TRAILING_PUNCTUATION }
@@ -92,6 +100,21 @@ private fun linkifyLine(line: String): String {
             index++
         }
     }
+}
+
+/**
+ * 模型有时会模仿客户端的内部链接，自己写出 `[文本](rikkahub-path:路径)` 或裸的
+ * `rikkahub-path:/路径`。这些都是客户端渲染用的标记，不该出现在消息里：这里把它们还原成
+ * 普通文本，随后 [linkifyPaths] 会按正文路径重新生成编码正确、可点击的链接。
+ */
+private fun stripInternalPathLinks(line: String): String {
+    if ("rikkahub-path" !in line) return line
+    val withoutLinks = INTERNAL_PATH_LINK.replace(line) { match ->
+        val label = match.groupValues[1]
+        // 文本里自带路径就保留原样；只有「查看」这类描述时用链接目标，别丢掉地址
+        if (findPathRanges(label).isNotEmpty()) label else decodePath(match.groupValues[2].trim())
+    }
+    return BARE_PATH_SCHEME.replace(withoutLinks, "")
 }
 
 private fun renderPathLink(path: String): String {

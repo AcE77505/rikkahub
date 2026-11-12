@@ -228,6 +228,10 @@
     - 同步上游时整块接受其实现（工具、无障碍服务、UI、字符串、`app/src/github` 源集）；与本地代码冲突时按上游语义合并，不保留 fork 特有分支。
     - 唯一允许的本地改动是「为合并通过而必需的机械修改」（例如把上游引用的 `assistant.localTools` 改成 fork 的 `enabledTools`、补 import），不改行为。
 
+14. **消息里的路径链接**
+    - `rikkahub-path:` 是渲染层内部 scheme（`PathLinkify` 生成、`Markdown.kt` 的 `pathLinkWidget` 消费），不会写回消息正文，也不发送给模型。
+    - 模型有时会模仿这个格式输出 `[文本](rikkahub-path:路径)` 或裸的 `rikkahub-path:/路径`；`linkifyPaths` 会先剥离内部标记，再按正文路径重新生成编码正确的链接。改 linkify 逻辑时不要跳过这一步，行内代码要提前占位保护。
+
 ---
 
 ## 5. 2026-11-08 批次
