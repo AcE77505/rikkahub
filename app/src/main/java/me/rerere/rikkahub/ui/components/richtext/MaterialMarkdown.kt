@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import me.rerere.bettertext.markdown.MarkdownBlock
 import me.rerere.bettertext.markdown.MarkdownComponents
+import me.rerere.bettertext.markdown.MarkdownDocument
 import me.rerere.bettertext.markdown.MarkdownInline
 import me.rerere.bettertext.markdown.MarkdownInlineContent
 import me.rerere.bettertext.markdown.MarkdownTheme
@@ -88,6 +89,34 @@ fun MaterialMarkdown(
             components = components,
             softBreakAsLineBreak = softBreakAsLineBreak,
             streaming = streaming,
+            onLinkClick = onLinkClick,
+        )
+    }
+}
+
+/**
+ * 渲染已经解析好的文档，用于需要在渲染前改动节点的地方（如路径链接）。
+ *
+ * @see me.rerere.bettertext.markdown.rememberMarkdownDocument
+ */
+@Composable
+fun MaterialMarkdown(
+    document: MarkdownDocument,
+    modifier: Modifier = Modifier,
+    style: TextStyle = LocalTextStyle.current,
+    theme: MarkdownTheme = MaterialMarkdownDefaults.theme(style),
+    components: MarkdownComponents = MaterialMarkdownDefaults.components,
+    onLinkClick: ((url: String) -> Unit)? = null,
+) {
+    val merged = LocalTextStyle.current.merge(style)
+    val resolved = merged.copy(color = merged.color.takeOrElse { LocalContentColor.current })
+    ProvideTextStyle(resolved) {
+        BetterMarkdown(
+            document = document,
+            modifier = modifier,
+            style = resolved,
+            theme = theme,
+            components = components,
             onLinkClick = onLinkClick,
         )
     }

@@ -229,9 +229,9 @@
     - 唯一允许的本地改动是「为合并通过而必需的机械修改」（例如把上游引用的 `assistant.localTools` 改成 fork 的 `enabledTools`、补 import），不改行为。
 
 14. **消息里的路径链接**
-    - `rikkahub-path:` 是渲染层内部 scheme（`PathLinkify` 生成、`Markdown.kt` 的 `pathLinkWidget` 消费），不会写回消息正文，也不发送给模型。
-    - 模型有时会模仿这个格式输出 `[文本](rikkahub-path:路径)` 或裸的 `rikkahub-path:/路径`；`linkifyPaths` 会先剥离内部标记，再按正文路径重新生成编码正确的链接。改 linkify 逻辑时不要跳过这一步，行内代码要提前占位保护。
-    - 所有用户可见的文本出口都要清理：消息渲染（含检查点）、复制/选择复制、Markdown 导出、图片导出、Web 端 `toDto()`、通知预览、编辑框、对话地图摘要、TTS。字符串用 `stripInternalPathLinks`，消息用 `withoutInternalPathLinks`；新增出口时一并调用，保证该标记不会出现在复制或导出内容里。
+    - `rikkahub-path:` 只是 `MarkdownDocument` 里 `MarkdownInline.Link` 的内部标记，由 `MarkdownDocument.linkifyPaths()` 在**解析后的节点树**上生成；`MarkdownDocument.source`、消息正文、数据库都不含它。
+    - 不要回到「在 Markdown 源字符串里插入 `[路径](rikkahub-path:...)`」的写法：那会把内部标记带进文本层，逼着复制、导出、Web、通知等每个出口都做清理。现在渲染入口只做一次 `stripInternalPathLinks` 防御模型幻觉。
+    - `stripInternalPathLinks` / `withoutInternalPathLinks` 保留给兜底（模型模仿出来的标记、旧数据），新增用户可见出口时仍应调用；但它们不是路径链接机制的一部分。
 
 ---
 

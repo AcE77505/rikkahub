@@ -4,12 +4,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import java.io.ByteArrayOutputStream
 
-/** linkifyPaths 生成的内部链接前缀，渲染层据此把链接变成可点击的路径。 */
+/** 路径链接在内存节点里的内部标记，渲染层据此把链接变成可点击的路径。 */
 internal const val PATH_LINK_SCHEME = "rikkahub-path:"
-
-private val FENCE = Regex("""^\s*(`{3,}|~{3,})""")
-private val INLINE_CODE = Regex("""`([^`\n]+)`""")
-private val MARKDOWN_LINK = Regex("""\[[^\]\n]*]\([^)\n]*\)""")
 
 /** 模型模仿内部链接写出的 `[文本](rikkahub-path:路径)`，渲染前要还原。 */
 private val INTERNAL_PATH_LINK = Regex("""\[([^\]\n]*)]\(\s*${PATH_LINK_SCHEME}\s*([^)\n]*)\)""")
@@ -23,91 +19,16 @@ private val BARE_PATH_SCHEME = Regex("""(?:${PATH_LINK_SCHEME}|rikkahub-path=)\s
  * 允许路径里出现空格（如 `HOYO-MiX - 泊船入梦.flac`），遇到中文标点或换行才结束；
  * 前面紧跟单词字符/URL 片段的不算路径，避免把 `example.com/a` 的路径部分当路径。
  */
-private val PATH_PATTERN =
+internal val PATH_PATTERN =
     Regex("""(?<![\p{L}\p{N}_/:.@~-])(?:~|\.{1,2})?/(?=\S)[^<>"'`|*()\[\]{}，。、；：！？（）【】《》「」“”‘’\r\n]+""")
 
 /** 路径末尾的标点不属于路径本身，链接时留在外面。 */
-private const val TRAILING_PUNCTUATION = ".,;:!?。，、；：！？"
-
-private const val PLACEHOLDER_START = '\u0000'
-private const val PLACEHOLDER_END = '\u0001'
-
-/**
- * 把 Markdown 里的文件/目录路径换成内部链接，交给渲染层变成可点击文本。
- *
- * - 只处理行内代码与正文里的绝对/相对路径；围栏代码块原样保留
- * - 已有链接（`[文本](地址)`）不重复处理
- * - 路径本体经过百分号编码放进链接目标，避免括号、中文等破坏 Markdown 结构
- */
-internal fun linkifyPaths(markdown: String): String {
-    if ('/' !in markdown) return markdown
-    val lines = markdown.split('\n')
-    var fence: String? = null
-    return lines.joinToString("\n") { line ->
-        val trimmed = line.trimStart()
-        val marker = FENCE.find(trimmed)?.groupValues?.get(1)
-        if (marker != null) {
-            fence = when {
-                fence == null -> marker
-                trimmed.startsWith(fence!!) -> null
-                else -> fence
-            }
-            line
-        } else if (fence != null) {
-            line
-        } else {
-            linkifyLine(line)
-        }
-    }
-}
-
-private fun linkifyLine(line: String): String {
-    if ('/' !in line) return line
-    val held = mutableListOf<String>()
-    fun hold(rendered: String): String = "$PLACEHOLDER_START${held.size}$PLACEHOLDER_END".also {
-        held += rendered
-    }
-
-    // 1. 行内代码：`/path/to/file`；其他行内代码也先占位，避免被后面的清理改到
-    var text = INLINE_CODE.replace(line) { match ->
-        val code = match.groupValues[1].trim()
-        if (looksLikeOpenablePath(code)) hold(renderPathLink(code)) else hold(match.value)
-    }
-    // 2. 模型自己写出的内部链接：还原成普通文本，后面按正文路径重新生成
-    text = stripInternalPathLinks(text)
-    // 3. 保护已有链接，避免把链接目标里的路径再包一层
-    text = MARKDOWN_LINK.replace(text) { hold(it.value) }
-    // 4. 正文里的路径
-    text = PATH_PATTERN.replace(text) { match ->
-        val raw = match.value
-        val trailing = raw.takeLastWhile { it in TRAILING_PUNCTUATION }
-        // 两个连续空格通常是路径后面的说明文字
-        val candidate = raw.dropLast(trailing.length).substringBefore("  ").trimEnd()
-        if (looksLikeOpenablePath(candidate)) hold(renderPathLink(candidate)) + trailing else raw
-    }
-    // 4. 还原占位符
-    return buildString {
-        var index = 0
-        while (index < text.length) {
-            if (text[index] == PLACEHOLDER_START) {
-                val end = text.indexOf(PLACEHOLDER_END, index + 1)
-                val slot = if (end > index) text.substring(index + 1, end).toIntOrNull() else null
-                if (slot != null && slot in held.indices) {
-                    append(held[slot])
-                    index = end + 1
-                    continue
-                }
-            }
-            append(text[index])
-            index++
-        }
-    }
-}
+internal const val TRAILING_PUNCTUATION = ".,;:!?。，、；：！？"
 
 /**
  * 模型有时会模仿客户端的内部链接，自己写出 `[文本](rikkahub-path:路径)` 或裸的
- * `rikkahub-path:/路径`。这些都是客户端渲染用的标记，不该出现在消息里：这里把它们还原成
- * 普通文本，随后 [linkifyPaths] 会按正文路径重新生成编码正确、可点击的链接。
+ * `rikkahub-path:/路径`。这些标记只属于渲染层，不能出现在用户可见的文本里：
+ * 这里把它们还原成普通文本，交给展示或导出。
  */
 internal fun stripInternalPathLinks(line: String): String {
     if ("rikkahub-path" !in line) return line
@@ -117,11 +38,6 @@ internal fun stripInternalPathLinks(line: String): String {
         if (findPathRanges(label).isNotEmpty()) label else decodePath(match.groupValues[2].trim())
     }
     return BARE_PATH_SCHEME.replace(withoutLinks, "")
-}
-
-private fun renderPathLink(path: String): String {
-    val label = path.replace("\\", "\\\\").replace("*", "\\*").replace("_", "\\_")
-    return "[$label]($PATH_LINK_SCHEME${encodePath(path)})"
 }
 
 /** 纯文本里可打开的路径范围，供带点击的 Text 使用（不处理 Markdown 结构）。 */

@@ -73,6 +73,7 @@ import me.rerere.bettertext.markdown.MarkdownBlock
 import me.rerere.bettertext.markdown.MarkdownComponents
 import me.rerere.bettertext.markdown.MarkdownInline
 import me.rerere.bettertext.markdown.plainText
+import me.rerere.bettertext.markdown.rememberMarkdownDocument
 import me.rerere.bettertext.text.BetterInline
 import me.rerere.bettertext.text.ComposableInline
 import me.rerere.bettertext.text.DrawnInline
@@ -168,9 +169,15 @@ fun MarkdownBlock(
 
     val currentOnClickCitation by rememberUpdatedState(onClickCitation)
     val currentOnOpenPath by rememberUpdatedState(onOpenPath)
-    // linkifyPaths 生成内部路径链接；不能点击时也要清掉模型模仿出来的内部标记
-    val renderedContent = remember(content, onOpenPath != null) {
-        if (onOpenPath == null) stripInternalPathLinks(content) else linkifyPaths(content)
+    // 内部路径标记不进文本：先清掉模型可能模仿出来的 scheme，再在解析后的节点树上挂链接
+    val sanitizedContent = remember(content) { stripInternalPathLinks(content) }
+    val document = rememberMarkdownDocument(
+        content = sanitizedContent,
+        softBreakAsLineBreak = true,
+        streaming = streaming,
+    )
+    val renderedDocument = remember(document, onOpenPath != null) {
+        if (onOpenPath == null) document else document.linkifyPaths()
     }
     val components = remember(enableLatexRendering) {
         MarkdownComponents(
@@ -219,12 +226,11 @@ fun MarkdownBlock(
     }
 
     MaterialMarkdown(
-        content = renderedContent,
+        document = renderedDocument,
         modifier = modifier.padding(horizontal = 4.dp),
         style = style,
         theme = theme,
         components = components,
-        streaming = streaming,
     )
 }
 
