@@ -3,10 +3,6 @@ package me.rerere.rikkahub.utils
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.bettertext.markdown.MarkdownBlock
-import me.rerere.bettertext.markdown.MarkdownInline
-import me.rerere.bettertext.markdown.parseMarkdown
-import me.rerere.bettertext.markdown.plainText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -14,95 +10,102 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PathLinkifyTest {
-    /** 解析并 linkify 后的第一段内联内容。 */
-    private fun paragraphOf(markdown: String): List<MarkdownInline> =
-        parseMarkdown(markdown).linkifyPaths()
-            .blocks.filterIsInstance<MarkdownBlock.Paragraph>()
-            .first()
-            .content
-
-    private fun List<MarkdownInline>.links(): List<MarkdownInline.Link> =
-        filterIsInstance<MarkdownInline.Link>()
+    @Test
+    fun `inline code path becomes a link`() {
+        val result = linkifyPaths("已写入 `\u002Fsdcard/a.txt`，请查看。")
+        assertTrue(result.contains("[\u002Fsdcard/a.txt]($PATH_LINK_SCHEME"))
+    }
 
     @Test
-    fun `plain absolute path becomes a clickable node`() {
-        val path = "/data/user/0/app/files/a.txt"
-        val link = paragraphOf("文件在 $path").links().single()
-        assertEquals(PATH_LINK_SCHEME + path, link.destination)
-        assertEquals(listOf(MarkdownInline.Text(path)), link.children)
+    fun `plain absolute path becomes a link`() {
+        val result = linkifyPaths("文件在 /data/user/0/app/files/a.txt")
+        assertTrue(result.contains("($PATH_LINK_SCHEME"))
     }
 
     @Test
     fun `relative and home paths become links`() {
-        listOf("./src/Main.kt", "../build/out", "~/notes.md").forEach { path ->
-            val link = paragraphOf("见 $path").links().single()
-            assertEquals(PATH_LINK_SCHEME + path, link.destination)
-        }
+        assertTrue(linkifyPaths("见 ./src/Main.kt").contains(PATH_LINK_SCHEME))
+        assertTrue(linkifyPaths("见 ../build/out").contains(PATH_LINK_SCHEME))
+        assertTrue(linkifyPaths("见 ~/notes.md").contains(PATH_LINK_SCHEME))
     }
 
     @Test
     fun `paths with spaces stay whole`() {
         val path = "/storage/9A58-0A02/Ringtones/HOYO-MiX - 泊船入梦 Moored in Dreams.flac"
-        val link = paragraphOf("音频在 $path").links().single()
-        assertEquals(path, link.children.single().let { (it as MarkdownInline.Text).text })
+        assertTrue(linkifyPaths("音频在 `" + path + "`").contains("[" + path + "](" + PATH_LINK_SCHEME))
+        assertTrue(linkifyPaths(path).contains("(" + PATH_LINK_SCHEME))
     }
 
     @Test
-    fun `trailing punctuation stays outside the link`() {
-        val nodes = paragraphOf("路径是 /sdcard/a.txt。")
-        assertEquals(PATH_LINK_SCHEME + "/sdcard/a.txt", nodes.links().single().destination)
-        assertTrue(nodes.last() is MarkdownInline.Text && (nodes.last() as MarkdownInline.Text).text.contains("。"))
+    fun `lone slash and chinese prose are not paths`() {
+        // 「/」后面跟空格，是正文里的分隔符，不是路径
+        assertFalse(linkifyPaths("/ 看它 hook 了哪些 PMS 方法），这一段").contains(PATH_LINK_SCHEME))
+        assertFalse(linkifyPaths("（看它 hook 了哪些 PMS 方法），这一段").contains(PATH_LINK_SCHEME))
+        // 中文后面紧跟斜杠也不算路径起点
+        assertFalse(linkifyPaths("hook 了哪些 PMS 方法/说明").contains(PATH_LINK_SCHEME))
     }
 
     @Test
-    fun `code blocks and inline code are untouched`() {
-        val document = parseMarkdown(
-            """
+    fun `path before chinese comma stops at the comma`() {
+        val result = linkifyPaths("文件在 /data/a.txt，请查看")
+        assertTrue(result, result.contains("[/data/a.txt](" + PATH_LINK_SCHEME + "/data/a.txt)"))
+    }
+
+    @Test
+    fun `code fences are untouched`() {
+        val markdown = """
             ```
             /sdcard/should_not_link.txt
             ```
-            """.trimIndent()
-        ).linkifyPaths()
-        val code = document.blocks.filterIsInstance<MarkdownBlock.CodeBlock>().single()
-        assertEquals("/sdcard/should_not_link.txt", code.code)
-
-        assertTrue(paragraphOf("`\u002Fsdcard/a.txt`").none { it is MarkdownInline.Link })
-    }
-
-    @Test
-    fun `existing links are not nested`() {
-        val link = paragraphOf("见 [文档](/sdcard/doc.md)").links().single()
-        assertEquals("/sdcard/doc.md", link.destination)
-    }
-
-    @Test
-    fun `styled path keeps its style`() {
-        val styled = paragraphOf("**\u002Fsdcard/a.txt**")
-            .filterIsInstance<MarkdownInline.Styled>()
-            .single()
-        assertTrue(styled.children.any { it is MarkdownInline.Link })
+        """.trimIndent()
+        assertEquals(markdown, linkifyPaths(markdown))
     }
 
     @Test
     fun `urls and ordinary text are untouched`() {
-        assertEquals("访问 https://example.com/a/b 即可", paragraphOf("访问 https://example.com/a/b 即可").plainText())
-        assertEquals("今天是 2026/11/08", paragraphOf("今天是 2026/11/08").plainText())
+        assertEquals("访问 https://example.com/a/b 即可", linkifyPaths("访问 https://example.com/a/b 即可"))
+        assertEquals("今天是 2026/11/08", linkifyPaths("今天是 2026/11/08"))
+    }
+
+    @Test
+    fun `existing links are not nested`() {
+        val markdown = "见 [文档](/sdcard/doc.md)"
+        val result = linkifyPaths(markdown)
+        assertEquals(markdown, result)
     }
 
     @Test
     fun `model written internal links are normalized`() {
         val path = "/data/user/0/me.rerere.rikkahub/files/workspaces/default/home"
-        // 标签里带路径时保留标签
-        assertEquals("HOME=$path", stripInternalPathLinks("[HOME=$path]($PATH_LINK_SCHEME$path)"))
+        // 模型模仿客户端的内部链接：标签里带路径时保留标签，路径重新生成规范链接
+        assertEquals(
+            "HOME=[$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("[HOME=$path]($PATH_LINK_SCHEME$path)"),
+        )
         // 标签只是描述时用链接目标，避免地址丢失
-        assertEquals(path, stripInternalPathLinks("[查看]($PATH_LINK_SCHEME$path)"))
+        assertEquals(
+            "见 [$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("见 [查看]($PATH_LINK_SCHEME$path)"),
+        )
     }
 
     @Test
     fun `bare internal scheme is removed`() {
         val path = "/sdcard/a.txt"
-        assertEquals("路径 $path", stripInternalPathLinks("路径 rikkahub-path:$path"))
-        assertEquals(path, stripInternalPathLinks("rikkahub-path=$path"))
+        assertEquals(
+            "路径 [$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("路径 rikkahub-path:$path"),
+        )
+        assertEquals(
+            "[$path]($PATH_LINK_SCHEME$path)",
+            linkifyPaths("rikkahub-path=$path"),
+        )
+    }
+
+    @Test
+    fun `internal scheme inside inline code is untouched`() {
+        val markdown = "`rikkahub-path:/a`"
+        assertEquals(markdown, linkifyPaths(markdown))
     }
 
     @Test
@@ -119,6 +122,13 @@ class PathLinkifyTest {
         assertEquals("没有标记", (cleaned.parts[1] as UIMessagePart.Text).text)
         // 没有内部标记时直接返回原对象，避免复制/导出时重建消息
         assertSame(cleaned, cleaned.withoutInternalPathLinks())
+    }
+
+    @Test
+    fun `trailing punctuation stays outside the link`() {
+        val result = linkifyPaths("路径是 /sdcard/a.txt。")
+        assertTrue(result.contains("[\u002Fsdcard/a.txt]($PATH_LINK_SCHEME"))
+        assertTrue(result.endsWith("。"))
     }
 
     @Test

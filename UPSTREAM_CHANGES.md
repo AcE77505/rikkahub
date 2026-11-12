@@ -229,9 +229,9 @@
     - 唯一允许的本地改动是「为合并通过而必需的机械修改」（例如把上游引用的 `assistant.localTools` 改成 fork 的 `enabledTools`、补 import），不改行为。
 
 14. **消息里的路径链接**
-    - `rikkahub-path:` 只是 `MarkdownDocument` 里 `MarkdownInline.Link` 的内部标记，由 `MarkdownDocument.linkifyPaths()` 在**解析后的节点树**上生成；`MarkdownDocument.source`、消息正文、数据库都不含它。
-    - 不要回到「在 Markdown 源字符串里插入 `[路径](rikkahub-path:...)`」的写法：那会把内部标记带进文本层，逼着复制、导出、Web、通知等每个出口都做清理。现在渲染入口只做一次 `stripInternalPathLinks` 防御模型幻觉。
-    - `stripInternalPathLinks` / `withoutInternalPathLinks` 保留给兜底（模型模仿出来的标记、旧数据），新增用户可见出口时仍应调用；但它们不是路径链接机制的一部分。
+    - `rikkahub-path:` 是**渲染期临时 Markdown 字符串**里的内部链接标记（`linkifyPaths` 生成、`Markdown.kt` 的 `pathLinkWidget` 消费），只存在于 `MarkdownBlock` 的局部变量；消息正文、数据库、复制、导出、Web 端拿到的都是原文。
+    - 2026-11-12 曾尝试改成在解析后的 `MarkdownDocument` 节点上挂链接（避免 scheme 进入文本层），但在 BetterText 0.1.5 的 `Markdown(document = ...)` 下路径不可点击，已回退到字符串方案。要再试节点级方案，先在真机上验证 `inlineLink` 组件确实被调用。
+    - `stripInternalPathLinks` / `withoutInternalPathLinks` 是防御模型模仿和旧数据的兜底，不是路径链接机制的一部分；新增用户可见出口时仍应调用。
 
 ---
 

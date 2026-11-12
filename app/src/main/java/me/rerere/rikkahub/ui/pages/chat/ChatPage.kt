@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -65,6 +66,7 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
@@ -208,15 +210,18 @@ fun ChatPage(
     val chatListState = rememberLazyListState()
     LaunchedEffect(nodeId, conversation.messageNodes.size) {
         if (!vm.chatListInitialized && conversation.messageNodes.isNotEmpty()) {
+            // 只尝试一次；等列表完成首次布局再滚，避免 requestScrollToItem 的 pending scroll
+            // 和用户刚进入时的拖动冲突（entered drag with non-zero pending scroll）
+            vm.chatListInitialized = true
+            snapshotFlow { chatListState.layoutInfo.totalItemsCount }.first { it > 0 }
             if (nodeId != null) {
                 val index = conversation.messageNodes.indexOfFirst { it.id == nodeId }
                 if (index >= 0) {
                     chatListState.scrollToItem(index)
                 }
             } else {
-                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                chatListState.scrollToItem(conversation.currentMessages.size + 5)
             }
-            vm.chatListInitialized = true
         }
     }
 
