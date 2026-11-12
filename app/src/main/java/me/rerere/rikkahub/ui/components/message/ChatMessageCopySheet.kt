@@ -21,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +36,7 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.utils.copyMessageToClipboard
+import me.rerere.rikkahub.utils.withoutInternalPathLinks
 
 @Composable
 fun ChatMessageCopySheet(
@@ -42,6 +44,8 @@ fun ChatMessageCopySheet(
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
+    // 复制和选择都不能看到渲染层的内部路径标记
+    val displayMessage = remember(message) { message.withoutInternalPathLinks() }
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
@@ -75,7 +79,7 @@ fun ChatMessageCopySheet(
 
                 TextButton(
                     onClick = {
-                        context.copyMessageToClipboard(message)
+                        context.copyMessageToClipboard(displayMessage)
                         onDismissRequest()
                     }
                 ) {
@@ -91,7 +95,7 @@ fun ChatMessageCopySheet(
 
             // Content
             val textParts =
-                message.parts.filterIsInstance<UIMessagePart.Text>().filter { it.text.isNotBlank() }
+                displayMessage.parts.filterIsInstance<UIMessagePart.Text>().filter { it.text.isNotBlank() }
 
             if (textParts.isEmpty()) {
                 // No text content available

@@ -103,6 +103,7 @@ import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.navigateToChatPage
+import me.rerere.rikkahub.utils.withoutInternalPathLinks
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -490,8 +491,10 @@ private fun ChatPageContent(
                     vm.regenerateAtMessage(it)
                 },
                 onEdit = {
-                    inputState.editingMessage = it.id
-                    inputState.setContents(it.parts)
+                    // 编辑框里也不要出现渲染层的内部路径标记
+                    val editable = it.withoutInternalPathLinks()
+                    inputState.editingMessage = editable.id
+                    inputState.setContents(editable.parts)
                 },
                 onForkMessage = {
                     scope.launch {

@@ -75,6 +75,7 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
 import me.rerere.rikkahub.utils.plus
+import me.rerere.rikkahub.utils.stripInternalPathLinks
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -602,6 +603,7 @@ private val EmphasisRegex = Regex("\\*\\*|__|~~")
 private val WhitespaceRegex = Regex("\\s+")
 
 private fun UIMessage.toPreviewText(): String = toText()
+    .let(::stripInternalPathLinks)
     .replace(CodeFenceRegex, " ")
     .replace(HeadingRegex, "")
     .replace(QuoteRegex, "")

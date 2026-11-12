@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.utils
 
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import java.io.ByteArrayOutputStream
 
 /** linkifyPaths 生成的内部链接前缀，渲染层据此把链接变成可点击的路径。 */
@@ -107,7 +109,7 @@ private fun linkifyLine(line: String): String {
  * `rikkahub-path:/路径`。这些都是客户端渲染用的标记，不该出现在消息里：这里把它们还原成
  * 普通文本，随后 [linkifyPaths] 会按正文路径重新生成编码正确、可点击的链接。
  */
-private fun stripInternalPathLinks(line: String): String {
+internal fun stripInternalPathLinks(line: String): String {
     if ("rikkahub-path" !in line) return line
     val withoutLinks = INTERNAL_PATH_LINK.replace(line) { match ->
         val label = match.groupValues[1]
@@ -194,4 +196,18 @@ internal fun decodePath(value: String): String {
         index++
     }
     return bytes.toString(Charsets.UTF_8.name())
+}
+
+/**
+ * 去掉消息里的内部路径链接标记，用于复制、导出、Web 端这类用户可见的文本出口。
+ *
+ * 只在文本确实带 `rikkahub-path` 时才复制 parts，避免每次复制/导出都重建消息对象。
+ */
+internal fun UIMessage.withoutInternalPathLinks(): UIMessage {
+    if (parts.none { it is UIMessagePart.Text && "rikkahub-path" in it.text }) return this
+    return copy(
+        parts = parts.map { part ->
+            if (part is UIMessagePart.Text) part.copy(text = stripInternalPathLinks(part.text)) else part
+        }
+    )
 }

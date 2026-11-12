@@ -66,6 +66,7 @@ import me.rerere.rikkahub.ui.theme.JetbrainsMono
 import me.rerere.rikkahub.utils.decodePathLink
 import me.rerere.rikkahub.utils.isPathLink
 import me.rerere.rikkahub.utils.linkifyPaths
+import me.rerere.rikkahub.utils.stripInternalPathLinks
 import me.rerere.bettertext.latex.LatexInline
 import me.rerere.bettertext.markdown.InlineDecoration
 import me.rerere.bettertext.markdown.MarkdownBlock
@@ -167,9 +168,9 @@ fun MarkdownBlock(
 
     val currentOnClickCitation by rememberUpdatedState(onClickCitation)
     val currentOnOpenPath by rememberUpdatedState(onOpenPath)
-    // 只有能打开时才把路径转成链接，否则保持原样
+    // linkifyPaths 生成内部路径链接；不能点击时也要清掉模型模仿出来的内部标记
     val renderedContent = remember(content, onOpenPath != null) {
-        if (onOpenPath == null) content else linkifyPaths(content)
+        if (onOpenPath == null) stripInternalPathLinks(content) else linkifyPaths(content)
     }
     val components = remember(enableLatexRendering) {
         MarkdownComponents(

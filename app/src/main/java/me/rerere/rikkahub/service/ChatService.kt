@@ -88,6 +88,7 @@ import me.rerere.rikkahub.data.model.withoutConversationFields
 import me.rerere.rikkahub.data.model.withoutUnresumableToolCalls
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.stripInternalPathLinks
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
@@ -852,7 +853,7 @@ class ChatService(
                             conversationId = conversationId,
                             senderName = senderName,
                             contentPreview = finished.currentMessages.lastOrNull()
-                                ?.toText()?.take(50)?.trim() ?: "",
+                                ?.toText()?.let(::stripInternalPathLinks)?.take(50)?.trim() ?: "",
                         )
                     )
                 }

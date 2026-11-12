@@ -1,7 +1,11 @@
 package me.rerere.rikkahub.utils
 
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -102,6 +106,22 @@ class PathLinkifyTest {
     fun `internal scheme inside inline code is untouched`() {
         val markdown = "`rikkahub-path:/a`"
         assertEquals(markdown, linkifyPaths(markdown))
+    }
+
+    @Test
+    fun `message text parts are sanitized for copy and export`() {
+        val message = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Text("见 [查看]($PATH_LINK_SCHEME/sdcard/a.txt)"),
+                UIMessagePart.Text("没有标记"),
+            ),
+        )
+        val cleaned = message.withoutInternalPathLinks()
+        assertEquals("见 /sdcard/a.txt", (cleaned.parts[0] as UIMessagePart.Text).text)
+        assertEquals("没有标记", (cleaned.parts[1] as UIMessagePart.Text).text)
+        // 没有内部标记时直接返回原对象，避免复制/导出时重建消息
+        assertSame(cleaned, cleaned.withoutInternalPathLinks())
     }
 
     @Test

@@ -77,6 +77,8 @@ import androidx.core.content.FileProvider
 import androidx.compose.runtime.mutableStateListOf
 import androidx.navigation3.runtime.NavKey
 import me.rerere.rikkahub.ui.context.Navigator
+import me.rerere.rikkahub.utils.stripInternalPathLinks
+import me.rerere.rikkahub.utils.withoutInternalPathLinks
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
@@ -402,7 +404,7 @@ private fun buildMarkdownExport(
         message.parts.forEach { part ->
             when (part) {
                 is UIMessagePart.Text -> {
-                    append(part.text)
+                    append(stripInternalPathLinks(part.text))
                     appendLine()
                 }
 
@@ -447,7 +449,7 @@ private fun buildMarkdownExport(
                                 is UIMessagePart.Text -> {
                                     append("```text")
                                     appendLine()
-                                    append(outputPart.text)
+                                    append(stripInternalPathLinks(outputPart.text))
                                     appendLine()
                                     append("```")
                                     appendLine()
@@ -518,7 +520,7 @@ private suspend fun writeImageExport(
             CompositionLocalProvider(LocalSettings provides settings) {
                 ExportedChatImage(
                     conversation = conversation,
-                    messages = messages,
+                    messages = messages.map { it.withoutInternalPathLinks() },
                     options = options
                 )
             }

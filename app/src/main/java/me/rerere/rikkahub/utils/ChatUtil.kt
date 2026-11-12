@@ -31,7 +31,7 @@ fun navigateToChatPage(
 }
 
 fun Context.copyMessageToClipboard(message: UIMessage) {
-    this.writeClipboardText(message.toText())
+    this.writeClipboardText(message.withoutInternalPathLinks().toText())
 }
 
 private val ALLOWED_MIME_TYPES = setOf(

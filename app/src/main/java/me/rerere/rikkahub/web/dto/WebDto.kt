@@ -10,6 +10,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.ConversationConfig
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.utils.stripInternalPathLinks
 
 // ========== Request DTOs ==========
 
@@ -369,7 +370,10 @@ fun MessageNode.toDto() = MessageNodeDto(
 fun UIMessage.toDto() = MessageDto(
     id = id.toString(),
     role = role.name,
-    parts = parts,
+    // rikkahub-path 是客户端渲染层的内部标记，Web 端看不到
+    parts = parts.map { part ->
+        if (part is UIMessagePart.Text) part.copy(text = stripInternalPathLinks(part.text)) else part
+    },
     annotations = annotations,
     createdAt = createdAt.toString(),
     finishedAt = finishedAt?.toString(),

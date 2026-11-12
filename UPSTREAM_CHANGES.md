@@ -231,6 +231,7 @@
 14. **消息里的路径链接**
     - `rikkahub-path:` 是渲染层内部 scheme（`PathLinkify` 生成、`Markdown.kt` 的 `pathLinkWidget` 消费），不会写回消息正文，也不发送给模型。
     - 模型有时会模仿这个格式输出 `[文本](rikkahub-path:路径)` 或裸的 `rikkahub-path:/路径`；`linkifyPaths` 会先剥离内部标记，再按正文路径重新生成编码正确的链接。改 linkify 逻辑时不要跳过这一步，行内代码要提前占位保护。
+    - 所有用户可见的文本出口都要清理：消息渲染（含检查点）、复制/选择复制、Markdown 导出、图片导出、Web 端 `toDto()`、通知预览、编辑框、对话地图摘要、TTS。字符串用 `stripInternalPathLinks`，消息用 `withoutInternalPathLinks`；新增出口时一并调用，保证该标记不会出现在复制或导出内容里。
 
 ---
 

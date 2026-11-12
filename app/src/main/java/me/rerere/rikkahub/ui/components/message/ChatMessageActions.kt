@@ -64,6 +64,7 @@ import me.rerere.rikkahub.utils.extractQuotedContentAsText
 import me.rerere.rikkahub.utils.removeBracketedContent
 import me.rerere.rikkahub.utils.toLocalString
 import me.rerere.rikkahub.utils.toMessageTimeString
+import me.rerere.rikkahub.utils.withoutInternalPathLinks
 import me.rerere.ui.components.RikkaConfirmDialog
 import java.util.Locale
 
@@ -122,7 +123,7 @@ fun ColumnScope.ChatMessageActionButtons(
                     checked = isSpeaking,
                     onCheckedChange = { speak ->
                         if (speak) {
-                            val text = message.toText()
+                            val text = message.withoutInternalPathLinks().toText()
                             var textToSpeak = text
                             if (settings.displaySetting.ttsOnlyReadQuoted) {
                                 textToSpeak = textToSpeak.extractQuotedContentAsText() ?: textToSpeak
