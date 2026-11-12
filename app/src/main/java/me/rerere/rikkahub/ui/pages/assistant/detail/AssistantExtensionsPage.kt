@@ -35,6 +35,14 @@ import me.rerere.rikkahub.ui.theme.CustomColors
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
+/** 扩展管理页的 tab 顺序：Skills 放最前，其余保持原有顺序。 */
+private val EXTENSION_TABS = listOf(
+    ExtensionTab.SKILLS,
+    ExtensionTab.QUICK_MESSAGES,
+    ExtensionTab.MODE_INJECTIONS,
+    ExtensionTab.LOREBOOKS,
+)
+
 @Composable
 fun AssistantExtensionsPage(id: String) {
     val vm: AssistantDetailVM = koinViewModel(parameters = { parametersOf(id) })
@@ -43,7 +51,7 @@ fun AssistantExtensionsPage(id: String) {
     val skills by vm.skills.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val pagerState = rememberPagerState { ExtensionTab.entries.size }
+    val pagerState = rememberPagerState { EXTENSION_TABS.size }
     val listPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
     // 页面背景比 sheet 深，列表项用更亮的容器色才分得开
     val listColors = ListItemDefaults.segmentedColors(
@@ -69,7 +77,7 @@ fun AssistantExtensionsPage(id: String) {
         ) {
             PagerTabs(
                 pagerState = pagerState,
-                tabs = ExtensionTab.entries,
+                tabs = EXTENSION_TABS,
                 modifier = Modifier.padding(bottom = 4.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp),
             )
@@ -80,8 +88,8 @@ fun AssistantExtensionsPage(id: String) {
                     .fillMaxWidth()
                     .weight(1f),
             ) { page ->
-                when (page) {
-                    0 -> {
+                when (EXTENSION_TABS[page]) {
+                    ExtensionTab.QUICK_MESSAGES -> {
                         if (settings.quickMessages.isEmpty()) {
                             ExtensionEmptyState(
                                 message = stringResource(R.string.assistant_extensions_page_empty_quick_messages),
@@ -105,7 +113,7 @@ fun AssistantExtensionsPage(id: String) {
                         }
                     }
 
-                    1 -> {
+                    ExtensionTab.MODE_INJECTIONS -> {
                         if (settings.modeInjections.isEmpty()) {
                             ExtensionEmptyState(
                                 message = stringResource(R.string.assistant_extensions_page_empty_mode_injections),
@@ -129,7 +137,7 @@ fun AssistantExtensionsPage(id: String) {
                         }
                     }
 
-                    2 -> {
+                    ExtensionTab.LOREBOOKS -> {
                         if (settings.lorebooks.isEmpty()) {
                             ExtensionEmptyState(
                                 message = stringResource(R.string.assistant_extensions_page_empty_lorebooks),
@@ -153,7 +161,7 @@ fun AssistantExtensionsPage(id: String) {
                         }
                     }
 
-                    3 -> {
+                    ExtensionTab.SKILLS -> {
                         if (skills.isEmpty()) {
                             ExtensionEmptyState(
                                 message = stringResource(R.string.assistant_extensions_page_empty_skills),
