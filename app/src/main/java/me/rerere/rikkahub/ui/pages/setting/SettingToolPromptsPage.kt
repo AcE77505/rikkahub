@@ -1,14 +1,17 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -16,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.FloppyDisk
 import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -40,6 +45,7 @@ import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.plus
+import me.rerere.ui.components.RikkaConfirmDialog
 import org.koin.androidx.compose.koinViewModel
 
 /** 「设置 → 工具提示词」：按分类进入，具体工具在分类页里再展开。 */
@@ -134,7 +140,12 @@ fun SettingToolPromptCategoryPage(
     }
 }
 
-/** 编辑单个工具的描述和系统提示；留空表示使用内置默认。 */
+/**
+ * 编辑单个工具的描述和系统提示。
+ *
+ * 初始文本就是当前生效值（覆盖或内置默认），所以默认值本身可以直接编辑。
+ * 修改后需要点保存才写入设置；未保存退出会先询问保存还是丢弃。
+ */
 @Composable
 fun SettingToolPromptEditPage(
     toolName: String,
@@ -142,59 +153,75 @@ fun SettingToolPromptEditPage(
 ) {
     val entry: ToolPromptEntry = TOOL_PROMPT_ENTRIES.firstOrNull { it.name == toolName } ?: return
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val defaultDescription = entry.defaultDescription
+    val defaultSystemPrompt = entry.defaultSystemPrompt
 
     var description by rememberSaveable(toolName) {
-        mutableStateOf(settings.toolDescriptionOverrides[toolName].orEmpty())
+        mutableStateOf(settings.toolDescriptionOverrides[toolName] ?: defaultDescription)
     }
     var systemPrompt by rememberSaveable(toolName) {
-        mutableStateOf(settings.toolSystemPromptOverrides[toolName].orEmpty())
+        mutableStateOf(settings.toolSystemPromptOverrides[toolName] ?: defaultSystemPrompt)
     }
+    var dirty by rememberSaveable(toolName) { mutableStateOf(false) }
+    var showResetDialog by rememberSaveable { mutableStateOf(false) }
+    var showExitDialog by rememberSaveable { mutableStateOf(false) }
 
-    // 设置是异步读盘的，拿到真实值后同步一次
+    // 设置是异步读盘的，拿到真实值后同步一次；用户已经改过就不覆盖
     LaunchedEffect(settings.init, toolName) {
-        if (settings.init) {
-            description = settings.toolDescriptionOverrides[toolName].orEmpty()
-            systemPrompt = settings.toolSystemPromptOverrides[toolName].orEmpty()
+        if (settings.init && !dirty) {
+            description = settings.toolDescriptionOverrides[toolName] ?: defaultDescription
+            systemPrompt = settings.toolSystemPromptOverrides[toolName] ?: defaultSystemPrompt
         }
     }
 
-    fun saveDescription(value: String) {
-        description = value
+    fun save() {
         vm.updateSettings { current ->
             current.copy(
-                toolDescriptionOverrides = current.toolDescriptionOverrides.withOverride(toolName, value)
+                toolDescriptionOverrides = current.toolDescriptionOverrides
+                    .withOverride(toolName, description, defaultDescription),
+                toolSystemPromptOverrides = current.toolSystemPromptOverrides
+                    .withOverride(toolName, systemPrompt, defaultSystemPrompt),
             )
         }
-    }
-
-    fun saveSystemPrompt(value: String) {
-        systemPrompt = value
-        vm.updateSettings { current ->
-            current.copy(
-                toolSystemPromptOverrides = current.toolSystemPromptOverrides.withOverride(toolName, value)
-            )
-        }
+        dirty = false
     }
 
     fun reset() {
-        description = ""
-        systemPrompt = ""
+        description = defaultDescription
+        systemPrompt = defaultSystemPrompt
         vm.updateSettings { current ->
             current.copy(
                 toolDescriptionOverrides = current.toolDescriptionOverrides - toolName,
                 toolSystemPromptOverrides = current.toolSystemPromptOverrides - toolName,
             )
         }
+        dirty = false
     }
+
+    // 系统返回键也要拦住未保存的修改
+    BackHandler(enabled = dirty) { showExitDialog = true }
 
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text(entry.label) },
-                navigationIcon = { BackButton() },
+                navigationIcon = {
+                    BackButton(
+                        onClick = {
+                            if (dirty) showExitDialog = true else navController.popBackStack()
+                        }
+                    )
+                },
                 actions = {
-                    IconButton(onClick = { reset() }) {
+                    IconButton(onClick = { save() }) {
+                        Icon(
+                            imageVector = HugeIcons.FloppyDisk,
+                            contentDescription = stringResource(R.string.common_save),
+                        )
+                    }
+                    IconButton(onClick = { showResetDialog = true }) {
                         Icon(
                             imageVector = HugeIcons.Refresh03,
                             contentDescription = stringResource(R.string.tool_prompts_reset),
@@ -221,7 +248,10 @@ fun SettingToolPromptEditPage(
                 formItem {
                     OutlinedTextField(
                         value = description,
-                        onValueChange = ::saveDescription,
+                        onValueChange = {
+                            description = it
+                            dirty = true
+                        },
                         label = { Text(stringResource(R.string.tool_prompts_description_label)) },
                         minLines = 5,
                         maxLines = 12,
@@ -239,7 +269,10 @@ fun SettingToolPromptEditPage(
                 formItem {
                     OutlinedTextField(
                         value = systemPrompt,
-                        onValueChange = ::saveSystemPrompt,
+                        onValueChange = {
+                            systemPrompt = it
+                            dirty = true
+                        },
                         label = { Text(stringResource(R.string.tool_prompts_system_prompt_label)) },
                         minLines = 5,
                         maxLines = 16,
@@ -253,6 +286,54 @@ fun SettingToolPromptEditPage(
                 }
             }
         }
+    }
+
+    RikkaConfirmDialog(
+        show = showResetDialog,
+        title = stringResource(R.string.tool_prompts_reset),
+        confirmText = stringResource(R.string.confirm),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = {
+            showResetDialog = false
+            reset()
+        },
+        onDismiss = { showResetDialog = false },
+    ) {
+        Text(stringResource(R.string.tool_prompts_reset_confirm))
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text(stringResource(R.string.tool_prompts_unsaved_title)) },
+            text = { Text(stringResource(R.string.tool_prompts_unsaved_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        save()
+                        showExitDialog = false
+                        navController.popBackStack()
+                    }
+                ) {
+                    Text(stringResource(R.string.common_save))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { showExitDialog = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    TextButton(
+                        onClick = {
+                            showExitDialog = false
+                            navController.popBackStack()
+                        }
+                    ) {
+                        Text(stringResource(R.string.tool_prompts_discard))
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -269,5 +350,9 @@ private fun categoryTitle(category: ToolPromptCategory): String = stringResource
     }
 )
 
-private fun Map<String, String>.withOverride(key: String, value: String): Map<String, String> =
-    if (value.isBlank()) this - key else this + (key to value)
+/** 与默认值相同就删掉覆盖，让工具继续使用内置默认。 */
+private fun Map<String, String>.withOverride(
+    key: String,
+    value: String,
+    default: String,
+): Map<String, String> = if (value == default) this - key else this + (key to value)

@@ -2188,6 +2188,10 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="tool_prompts_system_prompt_label">工具系统提示词</string>
   <string name="tool_prompts_default_hint">留空则使用内置默认值。</string>
   <string name="tool_prompts_reset">恢复默认</string>
+  <string name="tool_prompts_reset_confirm">将当前文本替换为内置默认值？</string>
+  <string name="tool_prompts_unsaved_title">有未保存的修改</string>
+  <string name="tool_prompts_unsaved_message">离开前要保存这些修改吗？</string>
+  <string name="tool_prompts_discard">丢弃</string>
   <string name="tool_prompts_category_skills">技能</string>
   <string name="tool_prompts_category_memory">记忆</string>
   <string name="tool_prompts_category_search">搜索</string>

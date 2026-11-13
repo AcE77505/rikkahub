@@ -2189,6 +2189,10 @@
   <string name="tool_prompts_system_prompt_label">Tool system prompt</string>
   <string name="tool_prompts_default_hint">Leave empty to use the built-in default.</string>
   <string name="tool_prompts_reset">Reset to default</string>
+  <string name="tool_prompts_reset_confirm">Replace the current text with the built-in default?</string>
+  <string name="tool_prompts_unsaved_title">Unsaved changes</string>
+  <string name="tool_prompts_unsaved_message">Save your changes before leaving?</string>
+  <string name="tool_prompts_discard">Discard</string>
   <string name="tool_prompts_category_skills">Skills</string>
   <string name="tool_prompts_category_memory">Memory</string>
   <string name="tool_prompts_category_search">Search</string>
