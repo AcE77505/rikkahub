@@ -81,6 +81,7 @@ class ChatToolFactory(
                     createSkillTools(
                         enabledSkills = assistant.enabledSkills,
                         allSkills = skillManager.listSkills(),
+                        workspaceRepository = workspaceRepository,
                     )
                 )
             }

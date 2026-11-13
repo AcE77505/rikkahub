@@ -713,3 +713,40 @@ README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续
 ### 15.6 验证
 
 按当次要求未执行编译与测试，合入后需要重新构建并跑 `./gradlew test`。
+
+---
+
+## 16. Skills 导入与导出（2026-11-13）
+
+### 16.1 GitHub 导入改用 Git Trees API
+
+`SkillsVM.importSkillFromGitHub` 不再逐目录调用 Contents API，改为参考 Chatbox 的做法：
+
+- `GET /repos/{owner}/{repo}/git/trees/{ref}?recursive=1` 一次拿到整棵树（默认 `HEAD`，支持 URL 里的 `tree/{branch}/{sub/path}`）；
+- 找出任意深度的 `SKILL.md`，一个技能 = 一个父目录，支持一次导入多个技能（上限 100 个）；
+- 文件内容走 `raw.githubusercontent.com`，不消耗 GitHub API 配额；
+- 树被截断、为空或接口失败时回退到旧的 Contents API，只导入根目录的 `SKILL.md`；
+- 单文件上限 10 MiB、单技能最多 2000 个文件；格式不完整的技能跳过，不影响同仓库其他技能。
+
+### 16.2 `use_skill` 支持读取图片
+
+`use_skill` 的 `path` 参数现在按扩展名区分：
+
+- `png` / `jpg` / `jpeg` / `webp` / `gif` 返回 `UIMessagePart.Image("file://...")`，交给模型内置识图能力；是否支持由模型决定，本地不做判断；
+- 其他文件仍按 UTF-8 文本返回。
+
+### 16.3 新增 `export_skill` 工具（始终挂载，无独立开关）
+
+- 把技能目录（或其中 `path` 指定的文件/子目录）复制到本地工作区；没有声明本地工作区时使用 sandbox；
+- 默认目标 `skills/<skill-name>/`，可用 `destination` 指定工作区内的其他目录；
+- `overwrite` 默认 false，已存在的文件跳过；目标路径做 canonical 校验，禁止逃出工作区；
+- 只要助手的 skills 工具组挂载且存在可用技能，这个工具就存在，不新增设置项。
+
+### 16.4 默认提示词
+
+- `SkillsTools` 的 system prompt 说明 `use_skill` 可读文本/图片，以及 `export_skill` 用于执行脚本/处理二进制；
+- `WorkspacePrompt` 默认模板新增对应两行，并带上 `{{skills_dir}}` 占位符，使 SSH 远程段按既有 `dropLinesWith` 逻辑删除这些行。
+
+### 16.5 验证
+
+按当次要求未执行编译。
