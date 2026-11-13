@@ -750,3 +750,21 @@ README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续
 ### 16.5 验证
 
 按当次要求未执行编译。
+
+---
+
+## 17. 工具提示词编辑（2026-11-13）
+
+- 设置页在「工具」后面新增「工具提示词」，按分类进入，分类内再选工具，不把所有编辑框堆在一页：
+  - 工作区提示词（复用现有 `SettingWorkspacePromptPage`）
+  - 技能：`use_skill`、`export_skill`
+  - 记忆：`memory_read` / `memory_write` / `memory_str_replace` / `memory_append` / `memory_delete` / `memory_list`
+  - 搜索：`search_web`、`scrape_web`
+  - 对话检索：`recent_chats`、`conversation_search`、`conversation_read`
+  - 本地工具：时间、剪贴板、TTS、屏幕时间、日历、图表、`ask_user`
+  - 工作区工具：`read_file` / `write_file` / `edit_file` / `shell` / `shell_output` / `shell_kill`（`ssh_*` 复用同名基础工具的覆盖）
+  - 助手配置：`list_assistants` / `get_assistant` / `update_assistant` 及其他助手记忆工具
+- 存储：`Settings.toolDescriptionOverrides` / `toolSystemPromptOverrides`（工具名 → 文本），空文本表示使用内置默认；已纳入备份的 SETTINGS 字段。
+- 应用：`ChatToolFactory` 在返回工具列表前统一替换 `description` / `systemPrompt`，不改各工具构建函数。
+- 设置 → 扩展管理里的「提示词」改名为「提示词注入」。
+- 未开放：子代理（`task`/`fleet` 的描述会动态列出当前启用的子代理，覆盖会丢列表；子代理自身提示词在子代理配置里）、MCP（描述由服务端提供）、Phone Use（跟随上游）。

@@ -143,6 +143,7 @@ internal object BackupSettingsFields {
             "enableSuggestion", "suggestionPrompt", "ocrModelId", "ocrPrompt", "providers",
             "enableAutoCompress", "autoCompressThreshold",
             "webDavConfig", "s3Config", "uploadS3Config", "localTools", "toolApprovals",
+            "toolDescriptionOverrides", "toolSystemPromptOverrides",
             "shellOvertimeSeconds", "shellAutoStopOnOvertime", "shellBackgroundEnabled",
             "shellBackgroundMaxRunning", "shellBackgroundNotify", "workspacePrompt", "webServerEnabled",
             "webServerPort", "webServerJwtEnabled", "webServerAccessPassword", "webServerLocalhostOnly",

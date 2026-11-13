@@ -83,8 +83,7 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         plain(THEME_ID, Settings::themeId) { copy(themeId = it) },
         json(CUSTOM_THEMES, Settings::customThemes) { copy(customThemes = it) },
         json(DISPLAY_SETTING, Settings::displaySetting) { copy(displaySetting = it) },
-        json(NETWORK_SETTING, Settings::networkSetting) { copy(networkSetting = it) },
-        plain(DEVELOPER_MODE, Settings::developerMode) { copy(developerMode = it) },
+        json(NETWORK_SETTING, Settings::networkSetting) { copy(networkSetting = it) },        plain(DEVELOPER_MODE, Settings::developerMode) { copy(developerMode = it) },
 
         // 模型选择
         json(FAVORITE_MODELS, Settings::favoriteModels) { copy(favoriteModels = it) },
@@ -177,6 +176,8 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         // 工具开关与审批
         json(LOCAL_TOOLS, Settings::localTools) { copy(localTools = it) },
         json(TOOL_APPROVALS, Settings::toolApprovals) { copy(toolApprovals = it) },
+        json(TOOL_DESCRIPTION_OVERRIDES, Settings::toolDescriptionOverrides) { copy(toolDescriptionOverrides = it) },
+        json(TOOL_SYSTEM_PROMPT_OVERRIDES, Settings::toolSystemPromptOverrides) { copy(toolSystemPromptOverrides = it) },
         json(SUB_AGENTS, Settings::subAgents) { copy(subAgents = it) },
         json(SUBAGENT_DEFAULT_TOOLS, Settings::subAgentDefaultTools) { copy(subAgentDefaultTools = it) },
         SettingsField(

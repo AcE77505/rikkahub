@@ -90,6 +90,9 @@ data class Settings(
     val localTools: List<LocalToolOption> = emptyList(),
     // 工具审批的用户覆盖项（toolName -> needsApproval），未覆盖的工具沿用 WorkspaceToolDefaultApprovals
     val toolApprovals: Map<String, Boolean> = emptyMap(),
+    // 工具提示词覆盖（工具名 -> 文本）；没列出的工具使用内置默认
+    val toolDescriptionOverrides: Map<String, String> = emptyMap(),
+    val toolSystemPromptOverrides: Map<String, String> = emptyMap(),
     // 子代理定义，全局共享；哪个助手能派发哪些由 Assistant.enabledSubAgents 决定
     val subAgents: List<SubAgent> = emptyList(),
     // 未自定义 allowedTools 的子代理共享这一份默认工具模板

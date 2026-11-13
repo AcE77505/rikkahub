@@ -419,8 +419,8 @@
   <string name="extension_selector_tab_skills">Skills</string>
   <string name="extensions_page_agent_skills">Agent Skills</string>
   <string name="extensions_page_agent_skills_desc">Manage skill packages for AI to load on demand</string>
-  <string name="extensions_page_prompts">Prompts</string>
-  <string name="extensions_page_prompts_desc">Manage and use custom prompts</string>
+  <string name="extensions_page_prompts">Prompt Injection</string>
+  <string name="extensions_page_prompts_desc">Manage and use custom prompt injections</string>
   <string name="extensions_page_quick_messages_desc">Manage shared quick message templates</string>
   <string name="extensions_page_section_extensions">Extensions</string>
   <string name="extensions_page_title">Extensions</string>
@@ -2181,4 +2181,19 @@
   <string name="chat_message_tool_phone_use_open_app_name">Open app: %1$s</string>
   <string name="chat_message_tool_phone_use_list_apps">List apps</string>
   <string name="chat_message_tool_phone_use_wait">Wait %1$s seconds</string>
+  <string name="setting_page_tool_prompts">Tool Prompts</string>
+  <string name="setting_page_tool_prompts_desc">Edit the descriptions and system prompts of built-in tools</string>
+  <string name="tool_prompts_workspace_desc">Template injected when a workspace is declared</string>
+  <string name="tool_prompts_tools_count">%1$d tools</string>
+  <string name="tool_prompts_description_label">Tool description</string>
+  <string name="tool_prompts_system_prompt_label">Tool system prompt</string>
+  <string name="tool_prompts_default_hint">Leave empty to use the built-in default.</string>
+  <string name="tool_prompts_reset">Reset to default</string>
+  <string name="tool_prompts_category_skills">Skills</string>
+  <string name="tool_prompts_category_memory">Memory</string>
+  <string name="tool_prompts_category_search">Search</string>
+  <string name="tool_prompts_category_conversation">Conversation</string>
+  <string name="tool_prompts_category_local_tools">Local tools</string>
+  <string name="tool_prompts_category_workspace_tools">Workspace tools</string>
+  <string name="tool_prompts_category_assistant_config">Assistant config</string>
 </resources>

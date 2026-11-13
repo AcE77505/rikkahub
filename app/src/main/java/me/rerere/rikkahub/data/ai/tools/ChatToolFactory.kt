@@ -147,7 +147,26 @@ class ChatToolFactory(
         } else {
             tools
         }
-        return allTools.map { withOutputTruncation(it, workspaceDir) }
+        return allTools
+            .map { withToolPromptOverrides(it, settings) }
+            .map { withOutputTruncation(it, workspaceDir) }
+    }
+
+    /**
+     * 应用「设置 → 工具提示词」里的覆盖。工作区远程工具的覆盖沿用基础工具名
+     * （`ssh_read_file` 使用 `read_file` 的覆盖），避免本地/远程两套文案。
+     */
+    private fun withToolPromptOverrides(tool: Tool, settings: Settings): Tool {
+        val baseName = if (tool.name.startsWith(SSH_TOOL_PREFIX)) baseWorkspaceToolName(tool.name) else tool.name
+        val description = settings.toolDescriptionOverrides[tool.name]
+            ?: settings.toolDescriptionOverrides[baseName]
+        val systemPrompt = settings.toolSystemPromptOverrides[tool.name]
+            ?: settings.toolSystemPromptOverrides[baseName]
+        if (description == null && systemPrompt == null) return tool
+        return tool.copy(
+            description = description ?: tool.description,
+            systemPrompt = systemPrompt?.let { custom -> { _, _ -> custom } } ?: tool.systemPrompt,
+        )
     }
 
     private fun withOutputTruncation(tool: Tool, workspaceDir: File): Tool {

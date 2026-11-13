@@ -187,6 +187,8 @@ class SettingsStore internal constructor(
         // 工具开关与审批（全局，所有助手共用）
         val LOCAL_TOOLS = stringPreferencesKey("local_tools")
         val TOOL_APPROVALS = stringPreferencesKey("tool_approvals")
+        val TOOL_DESCRIPTION_OVERRIDES = stringPreferencesKey("tool_description_overrides")
+        val TOOL_SYSTEM_PROMPT_OVERRIDES = stringPreferencesKey("tool_system_prompt_overrides")
         val SUB_AGENTS = stringPreferencesKey("sub_agents")
         val SUBAGENT_DEFAULT_TOOLS = stringPreferencesKey("subagent_default_tools")
         val SUBAGENT_MODEL = stringPreferencesKey("subagent_model")

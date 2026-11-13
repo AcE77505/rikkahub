@@ -235,6 +235,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = { Text(stringResource(R.string.setting_page_tools_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_tools)) },
                     )
+                    item(
+                        onClick = { navController.navigate(Screen.SettingToolPrompts) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Tools, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text(stringResource(R.string.setting_page_tool_prompts_desc)) },
+                        headlineContent = { Text(stringResource(R.string.setting_page_tool_prompts)) },
+                    )
                 }
             }
 

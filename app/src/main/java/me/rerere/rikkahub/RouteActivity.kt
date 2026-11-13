@@ -115,6 +115,9 @@ import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingToolsPage
+import me.rerere.rikkahub.ui.pages.setting.SettingToolPromptCategoryPage
+import me.rerere.rikkahub.ui.pages.setting.SettingToolPromptEditPage
+import me.rerere.rikkahub.ui.pages.setting.SettingToolPromptsPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSubAgentsPage
 import me.rerere.rikkahub.ui.pages.setting.SubAgentDefaultToolsPage
 import me.rerere.rikkahub.ui.pages.setting.SubAgentDetailPage
@@ -549,6 +552,18 @@ class RouteActivity : ComponentActivity() {
                                 SettingToolsPage()
                             }
 
+                            entry<Screen.SettingToolPrompts> {
+                                SettingToolPromptsPage()
+                            }
+
+                            entry<Screen.SettingToolPromptCategory> { key ->
+                                SettingToolPromptCategoryPage(key.category)
+                            }
+
+                            entry<Screen.SettingToolPromptEdit> { key ->
+                                SettingToolPromptEditPage(key.toolName)
+                            }
+
                             entry<Screen.SettingSubAgents> {
                                 SettingSubAgentsPage()
                             }
@@ -825,6 +840,15 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingTools : Screen
+
+    @Serializable
+    data object SettingToolPrompts : Screen
+
+    @Serializable
+    data class SettingToolPromptCategory(val category: String) : Screen
+
+    @Serializable
+    data class SettingToolPromptEdit(val toolName: String) : Screen
 
     @Serializable
     data object SettingSubAgents : Screen
