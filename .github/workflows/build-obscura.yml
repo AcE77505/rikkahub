@@ -169,14 +169,15 @@ jobs:
         env:
           ANDROID_ABI: ${{ matrix.abi }}
           ANDROID_PLATFORM: android-24
-          # V8 编译本身能过，但 bindgen 生成 Rust 绑定时需要 Android target 与 NDK
-          # sysroot，否则 V8 自带的 libc++ 头文件（cstdint 的 using_if_exists）解析
-          # 不到 bionic 的符号，报 "reference to unresolved using declaration"。
-          BINDGEN_EXTRA_CLANG_ARGS: >-
-            --target=${{ matrix.target }}${{ env.ANDROID_API }}
-            --sysroot=${{ env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
         run: |
           set -o pipefail
+          TRIPLE="${{ matrix.target }}"
+          # bindgen 只在编「目标 crate」时需要 Android target 与 NDK sysroot
+          # （否则 V8 自带 libc++ 的 cstdint using_if_exists 解析不到 bionic 符号）。
+          # 必须用 target 专用变量：全局 BINDGEN_EXTRA_CLANG_ARGS 会污染 V8 的
+          # host 构建工具（clang_x64_for_rust_host_build_tools），
+          # 它带 -msse3，会报 unsupported option '-msse3' for target 'aarch64-linux-android24'。
+          export "BINDGEN_EXTRA_CLANG_ARGS_${TRIPLE//-/_}=--target=${TRIPLE}${ANDROID_API} --sysroot=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           cargo build \
             --profile release-dist \
             --target "${{ matrix.target }}" \
