@@ -12,10 +12,12 @@ CI 工作流 `.github/workflows/build-obscura.yml` 负责这件事：
 
 1. `ubuntu-22.04` + NDK r26d + stable Rust，matrix 覆盖 `arm64-v8a` / `x86_64`
 2. `V8_FROM_SOURCE=1` 从源码编 V8，`--profile release-dist`
-3. 因为 crates.io 发布的 `v8` crate 排除了两个大目录，构建前会补齐：
-   - `third_party/rust/chromium_crates_io/vendor`：从 rusty_v8 仓库的 `third_party/rust` 子模块取
-   - ICU 的 `icudtl.dat`：直接关闭 V8 i18n（`GN_ARGS=v8_enable_i18n_support=false`）
-4. 产物重命名为 `libobscura.so` 上传 artifact（`obscura-android-arm64-v8a` / `obscura-android-x86_64`）
+3. **不能用 crates.io 上的 `v8` crate 做源码编译**：发布包裁掉了 ICU 数据、`third_party/rust/chromium_crates_io/vendor` 和部分 `v8/tools` 脚本，
+   ninja 会直接报文件缺失。CI 改为 clone 完整的 `rusty_v8` 仓库（含 V8 子模块），再用
+   `[patch.crates-io] v8 = { path = ... }` 替换，和 rusty_v8 官方 CI 的做法一致
+4. bindgen 需要显式给出 Android target 与 NDK sysroot（`BINDGEN_EXTRA_CLANG_ARGS`），
+   否则 V8 自带的 libc++ 头文件解析不到 bionic 符号
+5. 产物重命名为 `libobscura.so` 上传 artifact（`obscura-android-arm64-v8a` / `obscura-android-x86_64`）
 
 ## 放进仓库
 
@@ -45,7 +47,6 @@ Android 10+ 只允许从 `nativeLibraryDir` 执行文件，且文件名必须是
 
 - **一次性调用**：`browser_*` 工具每次都是独立的 `obscura fetch`，不能保持会话、点击、填表或走登录流程。
   交互能力需要后续接 `obscura mcp --http` 或 `obscura serve`（CDP）。
-- **没有 i18n**：V8 关闭了 ICU 支持，页面里的 `Intl.*` 不可用（obscura 自身 JS bootstrap 不用）。
 - **中文字体**：`fetch --screenshot` 没有 `--font-dir` 参数，CJK 文本可能渲染成方框。
 - **scrape 不可用**：只打包了 `obscura` 主程序，并行 `scrape` 需要的 `obscura-worker` 没有构建。
 - **内网默认拒绝**：obscura 有 SSRF 防护，访问 localhost / 局域网需要显式 `--allow-private-network`
