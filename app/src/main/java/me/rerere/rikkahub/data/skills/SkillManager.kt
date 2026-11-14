@@ -73,12 +73,13 @@ class SkillManager(
      */
     fun listInvalidSkillDirs(): List<InvalidSkillDir> = skillDirsIn(getSkillsDir())
         .mapNotNull { dir ->
-            val reason = when (val error = parseSkillDir(dir, builtin = false).exceptionOrNull()) {
-                null -> return@mapNotNull null
-                is InvalidSkillException -> error.reason
-                else -> InvalidSkillReason.ReadFailed
-            }
-            InvalidSkillDir(dirName = dir.name, reason = reason)
+            val error = parseSkillDir(dir, builtin = false).exceptionOrNull() ?: return@mapNotNull null
+            val reason = if (error is InvalidSkillException) error.reason else InvalidSkillReason.ReadFailed
+            InvalidSkillDir(
+                dirName = dir.name,
+                reason = reason,
+                detail = (error as? InvalidSkillException)?.detail,
+            )
         }
         .sortedBy { it.dirName }
 
@@ -249,9 +250,13 @@ class SkillManager(
     private fun parseSkillDir(skillDir: File, builtin: Boolean): Result<SkillMetadata> = runCatching {
         val skillFile = skillDir.resolve("SKILL.md")
         if (!skillFile.isFile) throw InvalidSkillException(InvalidSkillReason.MissingSkillMd)
-        val frontmatter = SkillFrontmatterParser.parse(skillFile.readText())
+        val parsed = SkillFrontmatterParser.parseWithResult(skillFile.readText())
+        val frontmatter = parsed.frontmatter
         val name = frontmatter["name"]?.takeIf { it.isNotBlank() }
-            ?: throw InvalidSkillException(InvalidSkillReason.MissingName)
+            ?: throw InvalidSkillException(
+                if (parsed.error != null) InvalidSkillReason.InvalidYaml else InvalidSkillReason.MissingName,
+                parsed.error,
+            )
         val description = frontmatter["description"]?.takeIf { it.isNotBlank() }
             ?: throw InvalidSkillException(InvalidSkillReason.MissingDescription)
         SkillMetadata(
@@ -268,16 +273,22 @@ class SkillManager(
 data class InvalidSkillDir(
     val dirName: String,
     val reason: InvalidSkillReason,
+    /** 解析失败的具体原因（如 YAML 错误行），没有时为空 */
+    val detail: String? = null,
 )
 
 enum class InvalidSkillReason {
     MissingSkillMd,
     MissingName,
     MissingDescription,
+    InvalidYaml,
     ReadFailed,
 }
 
-private class InvalidSkillException(val reason: InvalidSkillReason) : Exception(reason.name)
+private class InvalidSkillException(
+    val reason: InvalidSkillReason,
+    val detail: String? = null,
+) : Exception(reason.name)
 
 data class SkillMetadata(
     val name: String,

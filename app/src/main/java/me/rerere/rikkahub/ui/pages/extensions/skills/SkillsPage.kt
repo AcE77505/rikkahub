@@ -314,6 +314,7 @@ private fun invalidSkillReasonText(reason: InvalidSkillReason): String = stringR
         InvalidSkillReason.MissingSkillMd -> R.string.skills_page_invalid_reason_missing_skill_md
         InvalidSkillReason.MissingName -> R.string.skills_page_invalid_reason_missing_name
         InvalidSkillReason.MissingDescription -> R.string.skills_page_invalid_reason_missing_description
+        InvalidSkillReason.InvalidYaml -> R.string.skills_page_invalid_reason_invalid_yaml
         InvalidSkillReason.ReadFailed -> R.string.skills_page_invalid_reason_read_failed
     }
 )
@@ -351,7 +352,20 @@ private fun InvalidSkillDirsGroup(
                 headlineContent = {
                     Text(dir.dirName, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
-                supportingContent = { Text(invalidSkillReasonText(dir.reason)) },
+                supportingContent = {
+                    Column {
+                        Text(invalidSkillReasonText(dir.reason))
+                        dir.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                            Text(
+                                text = detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                },
                 trailingContent = {
                     ItemActionMenu(
                         actions = listOf(

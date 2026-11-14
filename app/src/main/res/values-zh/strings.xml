@@ -1929,6 +1929,7 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="skills_page_invalid_reason_missing_skill_md">缺少 SKILL.md</string>
   <string name="skills_page_invalid_reason_missing_name">SKILL.md 缺少 name 字段</string>
   <string name="skills_page_invalid_reason_missing_description">SKILL.md 缺少 description 字段</string>
+  <string name="skills_page_invalid_reason_invalid_yaml">SKILL.md 的 frontmatter 不是有效的 YAML</string>
   <string name="skills_page_invalid_reason_read_failed">读取 SKILL.md 失败</string>
   <string name="skills_page_delete_dir_title">删除文件夹</string>
   <string name="skills_page_delete_dir_message">确定要删除文件夹 %1$s 及其中的所有文件吗？此操作无法撤销。</string>

@@ -11,21 +11,34 @@ import org.yaml.snakeyaml.representer.Representer
 object SkillFrontmatterParser {
     private val frontmatterEndRegex = Regex("""\r?\n---(?:\r?\n|$)""")
 
-    fun parse(content: String): SkillFrontmatter {
-        if (!content.startsWith("---")) return SkillFrontmatter.Empty
-        val endRange = findFrontmatterEndRange(content) ?: return SkillFrontmatter.Empty
+    /** 解析结果；[error] 非空表示 frontmatter 存在但不是合法 YAML。 */
+    data class ParseResult(
+        val frontmatter: SkillFrontmatter,
+        val error: String? = null,
+    )
+
+    fun parse(content: String): SkillFrontmatter = parseWithResult(content).frontmatter
+
+    fun parseWithResult(content: String): ParseResult {
+        if (!content.startsWith("---")) return ParseResult(SkillFrontmatter.Empty)
+        val endRange = findFrontmatterEndRange(content) ?: return ParseResult(SkillFrontmatter.Empty)
         val yamlContent = content.substring(3, endRange.first).trim()
-        if (yamlContent.isEmpty()) return SkillFrontmatter.Empty
+        if (yamlContent.isEmpty()) return ParseResult(SkillFrontmatter.Empty)
 
         return runCatching {
             val values = createYaml().load<Any?>(yamlContent) as? Map<*, *>
-                ?: return SkillFrontmatter.Empty
-            SkillFrontmatter(
-                values.entries.mapNotNull { (key, value) ->
-                    (key as? String)?.let { it to value }
-                }.toMap()
+                ?: return@runCatching ParseResult(SkillFrontmatter.Empty)
+            ParseResult(
+                SkillFrontmatter(
+                    values.entries.mapNotNull { (key, value) ->
+                        (key as? String)?.let { it to value }
+                    }.toMap()
+                )
             )
-        }.getOrDefault(SkillFrontmatter.Empty)
+        }.getOrElse { error ->
+            // 常见原因：description 没加引号却包含「: 」；把 YAML 的错误交给调用方，避免误报缺少 name
+            ParseResult(SkillFrontmatter.Empty, error.message ?: error.javaClass.simpleName)
+        }
     }
 
     fun extractBody(content: String): String {

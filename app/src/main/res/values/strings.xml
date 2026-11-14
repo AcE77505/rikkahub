@@ -1890,6 +1890,7 @@
   <string name="skills_page_invalid_reason_missing_skill_md">Missing SKILL.md</string>
   <string name="skills_page_invalid_reason_missing_name">SKILL.md is missing the name field</string>
   <string name="skills_page_invalid_reason_missing_description">SKILL.md is missing the description field</string>
+  <string name="skills_page_invalid_reason_invalid_yaml">SKILL.md frontmatter is not valid YAML</string>
   <string name="skills_page_invalid_reason_read_failed">Failed to read SKILL.md</string>
   <string name="skills_page_delete_dir_title">Delete Folder</string>
   <string name="skills_page_delete_dir_message">Delete the folder %1$s and all files in it? This action cannot be undone.</string>
