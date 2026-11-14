@@ -98,27 +98,15 @@ internal fun buildBrowserFetchTool(
             ?: "markdown"
         val timeout = params.timeoutSeconds() ?: DEFAULT_TIMEOUT_SECONDS
 
-        val command = buildList {
-            add("fetch")
-            add(url)
-            add("--dump")
-            add(dump)
-            add("--timeout")
-            add(timeout.toString())
-            add("--quiet")
-            params["eval"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let {
-                add("--eval")
-                add(it)
-            }
-            params["wait_until"]?.jsonPrimitive?.contentOrNull
-                ?.takeIf { it in WAIT_UNTIL }
-                ?.let { add("--wait-until"); add(it) }
-            params["selector"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let {
-                add("--selector")
-                add(it)
-            }
-            if (params.allowPrivateNetwork()) add("--allow-private-network")
-        }
+        val command = buildFetchArgs(
+            url = url,
+            dump = dump,
+            eval = params["eval"]?.jsonPrimitive?.contentOrNull,
+            waitUntil = params["wait_until"]?.jsonPrimitive?.contentOrNull,
+            selector = params["selector"]?.jsonPrimitive?.contentOrNull,
+            timeoutSeconds = timeout,
+            allowPrivateNetwork = params.allowPrivateNetwork(),
+        )
 
         val result = runObscura(context, resolveBinary, command, PROCESS_GRACE_MILLIS + timeout * 1_000L)
         val output = result.stdout.ifBlank { result.stderr }
@@ -178,19 +166,13 @@ internal fun buildBrowserScreenshotTool(
 
         val workDir = obscuraTempDir(context)
         val shot = File(workDir, "shot-${System.currentTimeMillis()}.png")
-        val command = buildList {
-            add("fetch")
-            add(url)
-            add("--screenshot")
-            add(shot.absolutePath)
-            add("--timeout")
-            add(timeout.toString())
-            add("--quiet")
-            params["wait_until"]?.jsonPrimitive?.contentOrNull
-                ?.takeIf { it in WAIT_UNTIL }
-                ?.let { add("--wait-until"); add(it) }
-            if (params.allowPrivateNetwork()) add("--allow-private-network")
-        }
+        val command = buildScreenshotArgs(
+            url = url,
+            screenshotPath = shot.absolutePath,
+            waitUntil = params["wait_until"]?.jsonPrimitive?.contentOrNull,
+            timeoutSeconds = timeout,
+            allowPrivateNetwork = params.allowPrivateNetwork(),
+        )
 
         val result = runObscura(context, resolveBinary, command, PROCESS_GRACE_MILLIS + timeout * 1_000L)
         val bytes = runCatching { shot.readBytes() }.getOrNull()
@@ -243,6 +225,60 @@ private suspend fun runObscura(
             .start()
         process.readResult(shellContext)
     }
+}
+
+/** 组装 `obscura fetch` 的参数（纯函数，方便单测） */
+internal fun buildFetchArgs(
+    url: String,
+    dump: String,
+    eval: String?,
+    waitUntil: String?,
+    selector: String?,
+    timeoutSeconds: Int,
+    allowPrivateNetwork: Boolean,
+): List<String> = buildList {
+    add("fetch")
+    add(url)
+    add("--dump")
+    add(dump.takeIf { it in DUMP_FORMATS } ?: "markdown")
+    add("--timeout")
+    add(timeoutSeconds.coerceIn(1, MAX_TIMEOUT_SECONDS).toString())
+    add("--quiet")
+    eval?.takeIf { it.isNotBlank() }?.let {
+        add("--eval")
+        add(it)
+    }
+    waitUntil?.takeIf { it in WAIT_UNTIL }?.let {
+        add("--wait-until")
+        add(it)
+    }
+    selector?.takeIf { it.isNotBlank() }?.let {
+        add("--selector")
+        add(it)
+    }
+    if (allowPrivateNetwork) add("--allow-private-network")
+}
+
+/** 组装截图用的 `obscura fetch` 参数（纯函数，方便单测） */
+internal fun buildScreenshotArgs(
+    url: String,
+    screenshotPath: String,
+    waitUntil: String?,
+    timeoutSeconds: Int,
+    allowPrivateNetwork: Boolean,
+): List<String> = buildList {
+    add("fetch")
+    add(url)
+    add("--screenshot")
+    add(screenshotPath)
+    add("--timeout")
+    add(timeoutSeconds.coerceIn(1, MAX_TIMEOUT_SECONDS).toString())
+    add("--quiet")
+    waitUntil?.takeIf { it in WAIT_UNTIL }?.let {
+        add("--wait-until")
+        add(it)
+    }
+    if (allowPrivateNetwork) add("--allow-private-network")
 }
 
 private fun kotlinx.serialization.json.JsonObject.timeoutSeconds(): Int? =
