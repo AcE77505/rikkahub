@@ -146,7 +146,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo fetch --target "${{ matrix.target }}"
-          V8_VER=$(awk '/^name = "v8"$/{f=1} f&&/^version = /{gsub(/[", ]/,"");print;exit}' Cargo.lock)
+          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' Cargo.lock)
           echo "v8 crate version: $V8_VER"
           CRATE=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
           echo "v8 crate dir: $CRATE"
