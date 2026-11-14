@@ -378,7 +378,7 @@ object TextToSpeechToolUI : ToolUIRenderer {
  * 技能调用: 标题显示技能名与路径
  */
 object UseSkillToolUI : ToolUIRenderer {
-    override val toolName: String = "use_skill"
+    override val toolName: String = "view_skill"
 
     override fun icon(context: ToolUIContext): ImageVector = HugeIcons.MagicWand01
 

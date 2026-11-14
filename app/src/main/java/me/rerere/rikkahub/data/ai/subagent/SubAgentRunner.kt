@@ -34,6 +34,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.DEFAULT_SUBAGENT_SYSTEM_PROMPT
 import me.rerere.rikkahub.data.model.SubAgent
 import me.rerere.rikkahub.data.model.SubAgentToolDefaults
+import me.rerere.rikkahub.data.ai.tools.SKILL_TOOL_ALIASES
 import me.rerere.rikkahub.data.ai.tools.buildCompleteSubtaskTool
 import kotlin.uuid.Uuid
 
@@ -329,6 +330,8 @@ class SubAgentRunner(
         val allowed = configured
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+            // 旧配置里可能还写着 use_skill，映射到改名后的 view_skill
+            .map { SKILL_TOOL_ALIASES[it] ?: it }
             .toSet()
         return baseTools
             .asSequence()

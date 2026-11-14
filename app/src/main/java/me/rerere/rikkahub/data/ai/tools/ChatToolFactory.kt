@@ -158,9 +158,13 @@ class ChatToolFactory(
      */
     private fun withToolPromptOverrides(tool: Tool, settings: Settings): Tool {
         val baseName = if (tool.name.startsWith(SSH_TOOL_PREFIX)) baseWorkspaceToolName(tool.name) else tool.name
+        // 技能工具从 use_skill 改名为 view_skill，旧设置里的覆盖继续生效
+        val legacyName = if (tool.name == SKILL_VIEW_TOOL_NAME) LEGACY_SKILL_VIEW_TOOL_NAME else null
         val description = settings.toolDescriptionOverrides[tool.name]
+            ?: legacyName?.let { settings.toolDescriptionOverrides[it] }
             ?: settings.toolDescriptionOverrides[baseName]
         val systemPrompt = settings.toolSystemPromptOverrides[tool.name]
+            ?: legacyName?.let { settings.toolSystemPromptOverrides[it] }
             ?: settings.toolSystemPromptOverrides[baseName]
         if (description == null && systemPrompt == null) return tool
         return tool.copy(

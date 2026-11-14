@@ -166,7 +166,7 @@ private val SAMPLE = Settings(
     localTools = listOf(LocalToolOption.TimeInfo),
     toolApprovals = mapOf("workspace_shell" to false),
     toolDescriptionOverrides = mapOf("search_web" to "custom description"),
-    toolSystemPromptOverrides = mapOf("use_skill" to "custom prompt"),
+    toolSystemPromptOverrides = mapOf("view_skill" to "custom prompt"),
     subAgents = listOf(SubAgent(id = id(40), name = "Reviewer")),
     subAgentDefaultTools = setOf("read_file"),
     subAgentModelId = id(41),

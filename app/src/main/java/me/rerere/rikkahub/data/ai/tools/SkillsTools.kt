@@ -20,6 +20,13 @@ private const val MAX_SKILL_DESCRIPTION_LENGTH = 1024
 /** 这些图片会作为图片内容返回，交给模型内置的识图能力处理。 */
 private val SKILL_IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "gif")
 
+/** 读取技能的工具名；旧对话里保存为 `use_skill`。 */
+const val SKILL_VIEW_TOOL_NAME = "view_skill"
+const val LEGACY_SKILL_VIEW_TOOL_NAME = "use_skill"
+
+/** 旧工具名到新工具名的映射，执行、渲染和子代理白名单都复用它。 */
+val SKILL_TOOL_ALIASES = mapOf(LEGACY_SKILL_VIEW_TOOL_NAME to SKILL_VIEW_TOOL_NAME)
+
 fun createSkillTools(
     enabledSkills: Set<String>,
     allSkills: List<SkillMetadata>,
@@ -31,7 +38,7 @@ fun createSkillTools(
     val tools = mutableListOf<Tool>()
 
     tools += Tool(
-        name = "use_skill",
+        name = SKILL_VIEW_TOOL_NAME,
         description = """
             Load and apply a skill to get specialized instructions or capabilities.
             Call this tool when the user's request matches one of the available skills.
@@ -40,8 +47,8 @@ fun createSkillTools(
         systemPrompt = { _, _ ->
             buildString {
                 appendLine("**Skills**")
-                appendLine("You have access to the following skills. Use the `use_skill` tool to load a skill's instructions when the user's request matches.")
-                appendLine("- Call `use_skill` with `name` to read `SKILL.md`. Pass `path` to read a file referenced by the skill; text files come back as text, image files (png/jpeg/webp/gif) come back as image content so you can look at them directly when the model supports images.")
+                appendLine("You have access to the following skills. Use the `view_skill` tool to load a skill's instructions when the user's request matches.")
+                appendLine("- Call `view_skill` with `name` to read `SKILL.md`. Pass `path` to read a file referenced by the skill; text files come back as text, image files (png/jpeg/webp/gif) come back as image content so you can look at them directly when the model supports images.")
                 appendLine("- Only use paths that appear in the `SKILL.md` content or in the skill's file list. Do not guess or infer paths.")
                 if (workspaceRepository != null) {
                     appendLine("- To run a skill's scripts or work with binary files, call `export_skill` to copy the skill into the local workspace (or the app sandbox when no local workspace is declared), then use the local shell and file tools on the exported files.")

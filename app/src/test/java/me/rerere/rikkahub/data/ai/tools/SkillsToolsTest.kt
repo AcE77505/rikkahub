@@ -17,7 +17,7 @@ class SkillsToolsTest {
     val tempFolder = TemporaryFolder()
 
     @Test
-    fun `use_skill reads metadata directory when display name differs`() = runBlocking {
+    fun `view_skill reads metadata directory when display name differs`() = runBlocking {
         val skillDir = tempFolder.newFolder("directory-name")
         skillDir.resolve("SKILL.md").writeText(
             """

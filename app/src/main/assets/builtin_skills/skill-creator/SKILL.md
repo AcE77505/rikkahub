@@ -7,7 +7,7 @@ description: >-
 
 # Skill Creator
 
-A skill is a directory with a `SKILL.md` file (YAML frontmatter + Markdown instructions) and optional supporting files. Only the `name` and `description` of enabled skills are always in context; the body is loaded with the `use_skill` tool when a request matches, and supporting files are loaded only when needed.
+A skill is a directory with a `SKILL.md` file (YAML frontmatter + Markdown instructions) and optional supporting files. Only the `name` and `description` of enabled skills are always in context; the body is loaded with the `view_skill` tool when a request matches, and supporting files are loaded only when needed.
 
 ## Where skills live
 
@@ -59,13 +59,13 @@ Use this layout:
 └── assets/       # templates and other files used in the output
 ```
 
-- **References**: link each one from `SKILL.md` with a relative Markdown link, e.g. `[API reference](references/api.md)`. The `use_skill` tool only loads files whose paths appear in such links. Say when each file should be read. Keep references one level deep, and do not chain references to other references.
+- **References**: link each one from `SKILL.md` with a relative Markdown link, e.g. `[API reference](references/api.md)`. The `view_skill` tool only loads files whose paths appear in such links. Say when each file should be read. Keep references one level deep, and do not chain references to other references.
 - **Scripts**: use them for deterministic or repetitive work where writing code each time would be wasteful or error-prone.
   - Scripts only run when the assistant has a workspace.
   - In `SKILL.md`, refer to scripts by absolute path (e.g. `/skills/my-skill/scripts/convert.py`) so they work from any working directory, and document their arguments and output.
   - Start each script with a shebang and run `chmod +x` on it.
   - The workspace rootfs is chosen by the user, so do not assume any interpreter or package is installed. Check with `command -v python3` (or similar), and declare requirements in `compatibility`.
-- **Assets**: `use_skill` can only read text files. Binary files can only be used from the workspace.
+- **Assets**: `view_skill` can only read text files. Binary files can only be used from the workspace.
 
 Do not add README, CHANGELOG or other files that do not help the model do the task.
 

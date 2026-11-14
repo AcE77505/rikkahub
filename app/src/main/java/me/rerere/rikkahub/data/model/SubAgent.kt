@@ -58,7 +58,7 @@ object SubAgentToolDefaults {
         "search_web",
         "scrape_web",
         "get_time_info",
-        "use_skill",
+        "view_skill",
         "chart_display",
     )
 
@@ -66,7 +66,7 @@ object SubAgentToolDefaults {
     val TOOL_GROUPS: List<ToolGroup> = listOf(
         ToolGroup(
             title = "读取与搜索",
-            tools = listOf("read_file", "search_web", "scrape_web", "get_time_info", "use_skill", "chart_display"),
+            tools = listOf("read_file", "search_web", "scrape_web", "get_time_info", "view_skill", "chart_display"),
         ),
         ToolGroup(
             title = "写入",

@@ -35,6 +35,7 @@ import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.ui.components.FormItem
 import me.rerere.rikkahub.data.ai.tools.LEGACY_WORKSPACE_TOOL_ALIASES
+import me.rerere.rikkahub.data.ai.tools.SKILL_TOOL_ALIASES
 import me.rerere.rikkahub.data.ai.tools.baseWorkspaceToolName
 
 /**
@@ -127,6 +128,10 @@ object ToolUIRegistry {
         renderers[base]?.let { return it }
         // 改名前的旧名字（workspace_read_file 等）用同一套渲染器，旧对话的卡片才不会退化成默认样式
         LEGACY_WORKSPACE_TOOL_ALIASES[toolName]?.let { current ->
+            renderers[current]?.let { return it }
+        }
+        // 技能工具从 use_skill 改名为 view_skill，旧对话仍用原来的卡片
+        SKILL_TOOL_ALIASES[toolName]?.let { current ->
             renderers[current]?.let { return it }
         }
         return DefaultToolUIRenderer

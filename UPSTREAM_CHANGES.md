@@ -728,9 +728,11 @@ README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续
 - 树被截断、为空或接口失败时回退到旧的 Contents API，只导入根目录的 `SKILL.md`；
 - 单文件上限 10 MiB、单技能最多 2000 个文件；格式不完整的技能跳过，不影响同仓库其他技能。
 
-### 16.2 `use_skill` 支持读取图片
+### 16.2 `view_skill` 支持读取图片
 
-`use_skill` 的 `path` 参数现在按扩展名区分：
+> 工具名从 `use_skill` 改为 `view_skill`（对齐 Open WebUI 的命名）；旧对话、旧工具提示词覆盖和子代理白名单里的 `use_skill` 会自动映射到新名。
+
+`view_skill` 的 `path` 参数现在按扩展名区分：
 
 - `png` / `jpg` / `jpeg` / `webp` / `gif` 返回 `UIMessagePart.Image("file://...")`，交给模型内置识图能力；是否支持由模型决定，本地不做判断；
 - 其他文件仍按 UTF-8 文本返回。
@@ -744,7 +746,7 @@ README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续
 
 ### 16.4 默认提示词
 
-- `SkillsTools` 的 system prompt 说明 `use_skill` 可读文本/图片，以及 `export_skill` 用于执行脚本/处理二进制；
+- `SkillsTools` 的 system prompt 说明 `view_skill` 可读文本/图片，以及 `export_skill` 用于执行脚本/处理二进制；
 - `WorkspacePrompt` 默认模板新增对应两行，并带上 `{{skills_dir}}` 占位符，使 SSH 远程段按既有 `dropLinesWith` 逻辑删除这些行。
 
 ### 16.5 验证
@@ -757,7 +759,7 @@ README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续
 
 - 设置页在「工具」后面新增「工具提示词」，按分类进入，分类内再选工具，不把所有编辑框堆在一页：
   - 工作区提示词（复用现有 `SettingWorkspacePromptPage`）
-  - 技能：`use_skill`、`export_skill`
+  - 技能：`view_skill`、`export_skill`
   - 记忆：`memory_read` / `memory_write` / `memory_str_replace` / `memory_append` / `memory_delete` / `memory_list`
   - 搜索：`search_web`、`scrape_web`
   - 对话检索：`recent_chats`、`conversation_search`、`conversation_read`

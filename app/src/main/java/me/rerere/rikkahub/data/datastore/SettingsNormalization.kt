@@ -5,7 +5,30 @@ import me.rerere.rikkahub.data.model.SubAgent
 
 /** 读盘后和每次修改后都要过一遍，保证内存里的设置始终是规整的。 */
 internal fun Settings.normalized(): Settings =
-    withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies().withValidSubAgents()
+    withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies()
+        .withValidSubAgents().withToolPromptKeyMigration()
+
+/**
+ * 技能读取工具从 `use_skill` 改名为 `view_skill`。
+ *
+ * 把旧的提示词覆盖迁移到新 key，避免旧覆盖在设置页里看不到却仍然生效。
+ */
+internal fun Settings.withToolPromptKeyMigration(): Settings {
+    val legacy = "use_skill"
+    val current = "view_skill"
+    if (legacy !in toolDescriptionOverrides && legacy !in toolSystemPromptOverrides) return this
+
+    fun Map<String, String>.migrate(): Map<String, String> {
+        if (legacy !in this) return this
+        val withoutLegacy = this - legacy
+        return if (current in withoutLegacy) withoutLegacy else withoutLegacy + (current to getValue(legacy))
+    }
+
+    return copy(
+        toolDescriptionOverrides = toolDescriptionOverrides.migrate(),
+        toolSystemPromptOverrides = toolSystemPromptOverrides.migrate(),
+    )
+}
 
 /**
  * 子代理定义去重、裁剪，并清掉助手里的悬空引用。

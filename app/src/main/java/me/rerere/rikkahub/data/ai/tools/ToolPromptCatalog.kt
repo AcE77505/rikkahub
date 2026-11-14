@@ -31,7 +31,7 @@ private fun prompt(text: String): String = text.trimIndent()
 internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
     // 技能
     ToolPromptEntry(
-        "use_skill",
+        SKILL_VIEW_TOOL_NAME,
         ToolPromptCategory.SKILLS,
         defaultDescription = """
             Load and apply a skill to get specialized instructions or capabilities.
@@ -41,8 +41,8 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
         defaultSystemPrompt = prompt(
             """
             **Skills**
-            You have access to the following skills. Use the `use_skill` tool to load a skill's instructions when the user's request matches.
-            - Call `use_skill` with `name` to read `SKILL.md`. Pass `path` to read a file referenced by the skill; text files come back as text, image files (png/jpeg/webp/gif) come back as image content so you can look at them directly when the model supports images.
+            You have access to the following skills. Use the `view_skill` tool to load a skill's instructions when the user's request matches.
+            - Call `view_skill` with `name` to read `SKILL.md`. Pass `path` to read a file referenced by the skill; text files come back as text, image files (png/jpeg/webp/gif) come back as image content so you can look at them directly when the model supports images.
             - Only use paths that appear in the `SKILL.md` content or in the skill's file list. Do not guess or infer paths.
             - To run a skill's scripts or work with binary files, call `export_skill` to copy the skill into the local workspace (or the app sandbox when no local workspace is declared), then use the local shell and file tools on the exported files.
             <available_skills> is appended at runtime; saving an override replaces this whole prompt, including that list.
