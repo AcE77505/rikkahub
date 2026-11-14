@@ -1,0 +1,159 @@
+name: Build Obscura (Android)
+
+# 为 RikkaHub 交叉编译 obscura 无头浏览器（aarch64 / x86_64 Android）。
+#
+# obscura 内嵌 V8，没有 Android 预编译包，必须在 Linux 主机上用 NDK 从源码编译；
+# 这里只负责产出可执行文件，再由 jniLibs 打包进 APK（重命名为 libobscura.so 才能
+# 落在 nativeLibraryDir 里被 exec）。x86_64 主机（ubuntu-22.04）交叉编译，
+# 不能用 Windows 本机直接编。
+#
+# 产物：obscura-android-arm64-v8a / obscura-android-x86_64 两个 artifact，
+# 各含一个 libobscura.so，下载后放进 app/src/main/jniLibs/<abi>/。
+
+on:
+  workflow_dispatch:
+    inputs:
+      obscura_ref:
+        description: 'obscura 的 tag / 分支（例如 v0.2.7）'
+        required: false
+        default: 'v0.2.7'
+      features:
+        description: 'cargo features（render,stealth / render / 空）'
+        required: false
+        default: 'render,stealth'
+  push:
+    paths:
+      - '.github/workflows/build-obscura.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-obscura-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: obscura ${{ matrix.abi }}
+    runs-on: ubuntu-22.04
+    # V8 从源码编一次约 10–40 分钟，加 BoringSSL 留足余量
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-linux-android
+            abi: arm64-v8a
+          - target: x86_64-linux-android
+            abi: x86_64
+
+    env:
+      OBSCURA_REF: ${{ inputs.obscura_ref || 'v0.2.7' }}
+      OBSCURA_FEATURES: ${{ inputs.features || 'render,stealth' }}
+      # NDK r26d 与 rusty_v8 Build 脚本自带的 r26c 对齐，避免两套 sysroot 混用
+      NDK_VERSION: r26d
+      ANDROID_API: '24'
+      # V8 从源码编（Android 没有预编译的 rusty_v8 静态库）
+      V8_FROM_SOURCE: '1'
+      CARGO_INCREMENTAL: '0'
+      # V8 链接阶段吃内存，2 并发是 obscura 官方推荐值
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev unzip python3 curl
+          # boring-sys 的 bindgen 需要 libclang
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+          clang --version
+          cmake --version
+
+      - name: Set up Android NDK
+        run: |
+          ZIP="android-ndk-${NDK_VERSION}-linux.zip"
+          curl -fsSL -o "/tmp/${ZIP}" "https://dl.google.com/android/repository/${ZIP}"
+          sudo unzip -q "/tmp/${ZIP}" -d /opt
+          echo "ANDROID_NDK_HOME=/opt/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "/opt/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          "/opt/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" --version
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Check out obscura
+        run: |
+          git clone --depth=1 --branch "$OBSCURA_REF" https://github.com/h4ckf0r0day/obscura.git obscura
+          git -C obscura rev-parse HEAD
+          git -C obscura describe --tags --always
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
+
+      - name: Cache V8 build
+        # V8 的编译产物在 target/<triple>/release-dist/gn_out，
+        # 命中后增量构建只需几分钟
+        uses: actions/cache@v4
+        with:
+          path: obscura/target/${{ matrix.target }}/release-dist/gn_out
+          key: v8-${{ matrix.target }}-${{ env.OBSCURA_REF }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
+
+      - name: Configure cargo linker
+        run: |
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          cat >> obscura/.cargo/config.toml <<EOF
+
+          [target.${{ matrix.target }}]
+          linker = "$NDK_BIN/${{ matrix.target }}${ANDROID_API}-clang"
+          # Android 15+ 要求 16 KB 页对齐，否则安装/运行会报错
+          rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+          EOF
+          cat obscura/.cargo/config.toml
+
+      - name: Build obscura
+        working-directory: obscura
+        env:
+          # boring-sys 走 CMake 交叉编译，必须给出 NDK toolchain
+          CMAKE_TOOLCHAIN_FILE: ${{ env.ANDROID_NDK_HOME }}/build/cmake/android.toolchain.cmake
+          ANDROID_ABI: ${{ matrix.abi }}
+          ANDROID_PLATFORM: android-24
+        run: |
+          cargo build \
+            --profile release-dist \
+            --target "${{ matrix.target }}" \
+            -p obscura-cli \
+            --bin obscura \
+            --features "$OBSCURA_FEATURES"
+
+      - name: Inspect binary
+        run: |
+          BIN="obscura/target/${{ matrix.target }}/release-dist/obscura"
+          test -f "$BIN"
+          file "$BIN"
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -h "$BIN"
+          du -h "$BIN"
+          # 只打包 obscura 主程序：scrape 需要的 obscura-worker 未构建，先不支持 scrape
+          mkdir -p "dist/${{ matrix.abi }}"
+          cp "$BIN" "dist/${{ matrix.abi }}/libobscura.so"
+          chmod 755 "dist/${{ matrix.abi }}/libobscura.so"
+          sha256sum "dist/${{ matrix.abi }}/libobscura.so"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obscura-android-${{ matrix.abi }}
+          path: dist/${{ matrix.abi }}/libobscura.so
+          # 已经是压缩过的 ELF，再压一遍没意义
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
