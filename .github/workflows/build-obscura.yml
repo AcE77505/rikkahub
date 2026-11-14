@@ -7,6 +7,10 @@ name: Build Obscura (Android)
 # 落在 nativeLibraryDir 里被 exec）。x86_64 主机（ubuntu-22.04）交叉编译，
 # 不能用 Windows 本机直接编。
 #
+# 关键点：crates.io 上发布的 v8 crate 是裁剪版（缺 ICU 数据、chromium_crates_io
+# vendor、部分 v8/tools 脚本），无法从源码编 V8。这里按 rusty_v8 官方 CI 的做法，
+# 把完整的 rusty_v8 仓库（含 V8 子模块）作为 path 依赖 patch 进去。
+#
 # 产物：obscura-android-arm64-v8a / obscura-android-x86_64 两个 artifact，
 # 各含一个 libobscura.so，下载后放进 app/src/main/jniLibs/<abi>/。
 
@@ -36,8 +40,8 @@ jobs:
   build:
     name: obscura ${{ matrix.abi }}
     runs-on: ubuntu-22.04
-    # V8 从源码编一次约 10–40 分钟，加 BoringSSL 留足余量
-    timeout-minutes: 180
+    # V8 从源码编一次 30–60 分钟，加 BoringSSL 与冷缓存留足余量
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
@@ -50,15 +54,11 @@ jobs:
     env:
       OBSCURA_REF: ${{ inputs.obscura_ref || 'v0.2.7' }}
       OBSCURA_FEATURES: ${{ inputs.features || 'render,stealth' }}
-      # NDK r26d 与 rusty_v8 Build 脚本自带的 r26c 对齐，避免两套 sysroot 混用
+      # NDK r26d 与 rusty_v8 build.rs 自带的 r26c 对齐，避免两套 sysroot 混用
       NDK_VERSION: r26d
       ANDROID_API: '24'
       # V8 从源码编（Android 没有预编译的 rusty_v8 静态库）
       V8_FROM_SOURCE: '1'
-      # crates.io 的 v8 crate 裁掉了 third_party/icu/common/icudtl.dat，
-      # 不关 i18n 时 ninja 会因为缺这个文件直接失败。代价：页面里的 Intl.* 不可用
-      # （obscura 自己的 JS bootstrap 不使用 Intl）。
-      GN_ARGS: 'v8_enable_i18n_support=false'
       CARGO_INCREMENTAL: '0'
       # V8 链接阶段吃内存，2 并发是 obscura 官方推荐值
       CARGO_BUILD_JOBS: '2'
@@ -70,11 +70,19 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang libclang-dev llvm-dev unzip python3 curl
-          # boring-sys 的 bindgen 需要 libclang
-          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+          sudo apt-get install -y cmake unzip python3 curl git
+          # bindgen 需要 libclang 21+（rusty_v8 的硬性要求）
+          sudo apt-get install -y lld-21 clang-21 libclang-21-dev || {
+            echo "llvm-21 not in jammy, adding apt.llvm.org"
+            echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain-jammy-21.list
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/llvm-snapshot.gpg > /dev/null
+            sudo apt-get update
+            sudo apt-get install -y lld-21 clang-21 libclang-21-dev
+          }
+          echo "LIBCLANG_PATH=/usr/lib/llvm-21/lib" >> "$GITHUB_ENV"
           clang --version
           cmake --version
+          df -h /
 
       - name: Set up Android NDK
         run: |
@@ -94,7 +102,6 @@ jobs:
         run: |
           git clone --depth=1 --branch "$OBSCURA_REF" https://github.com/h4ckf0r0day/obscura.git obscura
           git -C obscura rev-parse HEAD
-          git -C obscura describe --tags --always
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -110,6 +117,25 @@ jobs:
         with:
           path: obscura/target/**/gn_out
           key: v8-${{ matrix.target }}-${{ env.OBSCURA_REF }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
+
+      - name: Fetch full V8 source (rusty_v8 repo)
+        # crates.io 的 v8 crate 不完整，源码编译必须用 rust_v8 仓库 + 子模块
+        run: |
+          set -euo pipefail
+          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
+          echo "v8 crate version: $V8_VER"
+          git clone --depth 1 --branch "v$V8_VER" https://github.com/denoland/rusty_v8 "$RUNNER_TEMP/rusty_v8"
+          git -C "$RUNNER_TEMP/rusty_v8" submodule update --init --recursive --depth 1
+          git -C "$RUNNER_TEMP/rusty_v8" submodule status
+          du -sh "$RUNNER_TEMP/rusty_v8"
+          df -h /
+          cat >> obscura/Cargo.toml <<EOF
+
+          # CI: 用完整源码替换 crates.io 上裁剪过的 v8 crate
+          [patch.crates-io]
+          v8 = { path = "$RUNNER_TEMP/rusty_v8" }
+          EOF
+          tail -5 obscura/Cargo.toml
 
       - name: Configure cargo linker
         run: |
@@ -137,26 +163,6 @@ jobs:
           EOF
           cat "$TOOLCHAIN"
           echo "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" >> "$GITHUB_ENV"
-
-      - name: Populate V8 Rust dependencies
-        # crates.io 发布的 v8 crate 里 third_party/rust/chromium_crates_io/vendor 是空的
-        # （打包时被忽略），但 V8 的 Rust host 工具（icu_calendar_data 等）需要这些源码。
-        # rusty_v8 仓库把该目录固定为 third_party/rust 子模块，按 crate 版本取同一份补进去。
-        working-directory: obscura
-        run: |
-          set -euo pipefail
-          cargo fetch --target "${{ matrix.target }}"
-          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' Cargo.lock)
-          echo "v8 crate version: $V8_VER"
-          CRATE=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
-          echo "v8 crate dir: $CRATE"
-          test -n "$CRATE"
-          git clone --depth 1 --branch "v$V8_VER" https://github.com/denoland/rusty_v8 "$RUNNER_TEMP/rusty_v8"
-          git -C "$RUNNER_TEMP/rusty_v8" submodule update --init --depth 1 third_party/rust
-          mkdir -p "$CRATE/third_party/rust"
-          cp -a "$RUNNER_TEMP/rusty_v8/third_party/rust/chromium_crates_io" "$CRATE/third_party/rust/"
-          test -d "$CRATE/third_party/rust/chromium_crates_io/vendor"
-          ls "$CRATE/third_party/rust/chromium_crates_io/vendor" | head
 
       - name: Build obscura
         working-directory: obscura
