@@ -10,6 +10,7 @@ import me.rerere.rikkahub.data.datastore.DEFAULT_SHELL_OVERTIME_SECONDS
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.workspace.BundledExecutables
 import me.rerere.workspace.SshEnvironment
 import me.rerere.workspace.SshRunner
 import me.rerere.workspace.SshTarget
@@ -39,8 +40,16 @@ class WorkspaceRepository(
     private val sandboxRoot: File,
     /** SSH 工作区的远端执行与文件读写 */
     private val sshRunner: SshRunner,
+    /** 随 APK 打包的内置命令（例如 obscura），安装后位于 nativeLibraryDir */
+    private val bundledExecutables: BundledExecutables,
 ) {
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
+
+    /** 内置命令目录：注入 shell / 终端的 PATH，让 `obscura` 可以直接调用 */
+    fun bundledBinPath(): List<String> = bundledExecutables.pathEntries()
+
+    /** 内置命令的真实路径；未打包当前 ABI 时为 null */
+    fun bundledExecutable(name: String): File? = bundledExecutables.executable(name)
 
     /** 当前被声明给 AI 的工作区：本地与 SSH 各最多一个 */
     fun declaredFlow(): Flow<List<WorkspaceEntity>> = dao.declaredFlow()

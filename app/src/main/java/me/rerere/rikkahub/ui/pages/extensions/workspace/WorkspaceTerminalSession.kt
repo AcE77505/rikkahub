@@ -50,7 +50,8 @@ internal fun createWorkspaceTerminalSession(
 
     val shell = toolchain?.shellPath ?: DEFAULT_SHELL
     val systemPath = "/system/bin:/system/xbin:/vendor/bin:/sbin:/bin"
-    val path = (toolchain?.pathPrepend.orEmpty() + listOf(systemPath, "/usr/bin", "/usr/local/bin"))
+    // 内置命令（obscura）排在工具链前面，保证终端里直接敲命令就能用
+    val path = (repository.bundledBinPath() + toolchain?.pathPrepend.orEmpty() + listOf(systemPath, "/usr/bin", "/usr/local/bin"))
         .filter { it.isNotBlank() }
         .distinct()
         .joinToString(":")

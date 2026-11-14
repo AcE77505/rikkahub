@@ -1425,6 +1425,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="skills_page_search_no_result">没有匹配的技能</string>
   <string name="assistant_page_local_tools_chart_display_title">图表显示</string>
   <string name="assistant_page_local_tools_chart_display_desc">让 AI 显示折线图、柱状图和散点图</string>
+  <string name="assistant_page_local_tools_browser_title">浏览器</string>
+  <string name="assistant_page_local_tools_browser_desc">用内置无头浏览器抓取渲染后的网页内容或截图</string>
   <string name="chat_message_tool_chart_display">显示图表</string>
   <string name="chat_message_tool_chart_display_with_title">显示图表：%1$s</string>
   <string name="error_fast_model_not_found">未找到快速模型。请在设置中选择一个。</string>
@@ -1748,6 +1750,15 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_tools_local_tools_desc">AI 可以调用的设备能力</string>
   <string name="setting_tools_tool_approval">工具审批</string>
   <string name="setting_tools_tool_approval_desc">开启后，AI 调用该工具前需要你确认</string>
+  <string name="setting_tools_tool_identifier_display_title">工具标识符</string>
+  <string name="setting_tools_tool_identifier_display_desc">显示 AI 实际收到的工具名。长按工具设置项可以查看并复制。</string>
+  <string name="setting_tools_tool_identifier_display_off">关闭</string>
+  <string name="setting_tools_tool_identifier_display_long_press">长按显示</string>
+  <string name="setting_tools_tool_identifier_display_always">始终显示</string>
+  <string name="setting_tools_tool_identifier_dialog_title">工具标识符</string>
+  <string name="setting_tools_tool_identifier_copy">复制</string>
+  <string name="setting_tools_tool_identifier_copied">已复制</string>
+  <string name="setting_tools_tool_identifier_close">关闭</string>
   <string name="setting_tools_shell_timeout">命令超时</string>
   <string name="setting_tools_shell_overtime_threshold">超时提示阈值</string>
   <string name="setting_tools_shell_overtime_desc">命令运行超时提醒。除非开启自动停止，否则命令会继续运行。</string>

@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.data.ai.tools
 
+import me.rerere.rikkahub.data.ai.tools.local.BROWSER_FETCH_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.local.BROWSER_SCREENSHOT_TOOL_NAME
+
 /**
  * 「设置 → 工具提示词」里可编辑的工具分类。
  *
@@ -228,6 +231,28 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
             so x_axis 'min'/'max' and log scale are not allowed; use y_axis for range and log scale.
             Axis 'data' labels are only allowed on x_axis for line and bar charts.
             The chart is rendered for the user directly; you don't need to repeat the raw data in your reply.
+        """.let(::desc),
+    ),
+    ToolPromptEntry(
+        BROWSER_FETCH_TOOL_NAME,
+        ToolPromptCategory.LOCAL_TOOLS,
+        defaultDescription = """
+            Open a web page in a real headless browser, including JavaScript execution, and return its content.
+            dump=markdown for readable text (default), text for plain text, html for the DOM, links for anchors,
+            assets for sub-resource URLs, cookies for the cookie jar, original for the raw response body.
+            eval runs a JavaScript expression in the page and returns its value (wrap multi-statement code in an IIFE).
+            Loopback and LAN addresses are blocked unless allow_private_network is true.
+            One-shot: no session, no clicking, no login flow.
+        """.let(::desc),
+    ),
+    ToolPromptEntry(
+        BROWSER_SCREENSHOT_TOOL_NAME,
+        ToolPromptCategory.LOCAL_TOOLS,
+        defaultDescription = """
+            Render a web page in a real headless browser and return a PNG screenshot as image content.
+            Use when layout, images, charts or visual state matter and the text dump is not enough.
+            Loopback and LAN addresses are blocked unless allow_private_network is true.
+            Text uses the fonts bundled with the engine; CJK glyphs may render as boxes.
         """.let(::desc),
     ),
     ToolPromptEntry(

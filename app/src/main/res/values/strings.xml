@@ -1242,6 +1242,15 @@
   <string name="setting_tools_local_tools_desc">Device capabilities the AI can call</string>
   <string name="setting_tools_tool_approval">Tool Approval</string>
   <string name="setting_tools_tool_approval_desc">When on, the AI needs your confirmation before calling this tool</string>
+  <string name="setting_tools_tool_identifier_display_title">Tool identifiers</string>
+  <string name="setting_tools_tool_identifier_display_desc">Show the exact tool names the AI receives. Long-press a tool setting to view and copy them.</string>
+  <string name="setting_tools_tool_identifier_display_off">Hidden</string>
+  <string name="setting_tools_tool_identifier_display_long_press">On long press</string>
+  <string name="setting_tools_tool_identifier_display_always">Always shown</string>
+  <string name="setting_tools_tool_identifier_dialog_title">Tool identifiers</string>
+  <string name="setting_tools_tool_identifier_copy">Copy</string>
+  <string name="setting_tools_tool_identifier_copied">Copied</string>
+  <string name="setting_tools_tool_identifier_close">Close</string>
   <string name="setting_tools_shell_timeout">Command Timeout</string>
   <string name="setting_tools_shell_overtime_threshold">Overtime Notice</string>
   <string name="setting_tools_shell_overtime_desc">Notify when a command runs longer than this. The command keeps running unless auto-stop is on.</string>
@@ -1476,6 +1485,8 @@
   <string name="skills_page_search_no_result">No matching skills</string>
   <string name="assistant_page_local_tools_chart_display_title">Chart Display</string>
   <string name="assistant_page_local_tools_chart_display_desc">Let the AI display line, bar, and scatter charts</string>
+  <string name="assistant_page_local_tools_browser_title">Browser</string>
+  <string name="assistant_page_local_tools_browser_desc">Fetch rendered web pages and take screenshots with the built-in headless browser</string>
   <string name="chat_message_tool_chart_display">Display chart</string>
   <string name="chat_message_tool_chart_display_with_title">Display chart: %1$s</string>
   <string name="error_fast_model_not_found">Fast model not found. Please select one in settings.</string>

@@ -13,6 +13,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.TranslationHistoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.skills.SkillManager
+import me.rerere.workspace.BundledExecutables
 import me.rerere.workspace.HostShellRunner
 import me.rerere.workspace.SshRunner
 import me.rerere.workspace.ToolchainManager
@@ -59,6 +60,16 @@ val repositoryModule = module {
             baseDir = File(context.filesDir, WORKSPACES_DIR),
             // 命令直接跑在 Android 原生环境（/system/bin/sh + toybox），不再经过 proot
             shellRunner = HostShellRunner(),
+            // jniLibs 里的内置命令（obscura）通过 shim 目录进入 PATH
+            extraPathPrepend = { get<BundledExecutables>().pathEntries() },
+        )
+    }
+
+    single {
+        val context: Context = get()
+        BundledExecutables(
+            context = context,
+            shimRoot = File(context.filesDir, "bundled-bin").apply { mkdirs() },
         )
     }
 
@@ -80,6 +91,7 @@ val repositoryModule = module {
             settingsStore = get(),
             sandboxRoot = File(context.filesDir, SANDBOX_DIR),
             sshRunner = get(),
+            bundledExecutables = get(),
         )
     }
 

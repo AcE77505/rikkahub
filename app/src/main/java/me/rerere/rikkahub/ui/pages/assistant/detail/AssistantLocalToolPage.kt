@@ -30,6 +30,7 @@ import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.ChartLineData01
 import me.rerere.hugeicons.stroke.ClipboardPaste
 import me.rerere.hugeicons.stroke.Clock01
+import me.rerere.hugeicons.stroke.Internet
 import me.rerere.hugeicons.stroke.JavaScript
 import me.rerere.hugeicons.stroke.MessageQuestion
 import me.rerere.hugeicons.stroke.SmartPhone01
@@ -38,6 +39,8 @@ import me.rerere.hugeicons.stroke.VolumeHigh
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.ai.tools.local.BROWSER_FETCH_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.local.BROWSER_SCREENSHOT_TOOL_NAME
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.phoneuse.PhoneUseManager
 import me.rerere.rikkahub.phoneuse.isFloatingChatWindowOn
@@ -45,6 +48,7 @@ import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
 import me.rerere.rikkahub.ui.components.ui.CardGroupScope
+import me.rerere.rikkahub.ui.components.ui.ToolNameDisplay
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionInfo
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
@@ -89,6 +93,7 @@ fun AssistantLocalToolPage(vm: SettingVM = koinViewModel()) {
         AssistantLocalToolContent(
             innerPadding = innerPadding,
             enabledTools = settings.localTools,
+            toolNameDisplay = settings.toolNameDisplay,
             onUpdate = { tools -> vm.updateSettings { it.copy(localTools = tools) } }
         )
     }
@@ -98,6 +103,7 @@ fun AssistantLocalToolPage(vm: SettingVM = koinViewModel()) {
 private fun AssistantLocalToolContent(
     innerPadding: PaddingValues,
     enabledTools: List<LocalToolOption>,
+    toolNameDisplay: ToolNameDisplay,
     onUpdate: (List<LocalToolOption>) -> Unit
 ) {
     val context = LocalContext.current
@@ -170,6 +176,7 @@ private fun AssistantLocalToolContent(
         switchItem(
             checked = checked,
             onCheckedChange = { toggleLocalTool(option, it) },
+            toolNames = option.aiToolNames(),
             // 图标底色跟着开关状态变化
             leadingContent = {
                 CardGroupIcon(
@@ -213,7 +220,7 @@ private fun AssistantLocalToolContent(
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        CardGroup {
+        CardGroup(toolNameDisplay = toolNameDisplay) {
             toolItem(
                 option = LocalToolOption.JavascriptEngine,
                 icon = HugeIcons.JavaScript,
@@ -262,6 +269,12 @@ private fun AssistantLocalToolContent(
                 title = R.string.assistant_page_local_tools_chart_display_title,
                 description = R.string.assistant_page_local_tools_chart_display_desc,
             )
+            toolItem(
+                option = LocalToolOption.Browser,
+                icon = HugeIcons.Internet,
+                title = R.string.assistant_page_local_tools_browser_title,
+                description = R.string.assistant_page_local_tools_browser_desc,
+            )
             // 只有 github 渠道的 Android 11 及以上才有
             if (PhoneUseManager.isSupported) {
                 toolItem(
@@ -284,4 +297,23 @@ private fun AssistantLocalToolContent(
             }
         }
     }
+}
+
+/** 设置项对应的 AI 可见工具名；不在「工具提示词」目录里的工具不显示。 */
+private fun LocalToolOption.aiToolNames(): List<String> = when (this) {
+    LocalToolOption.TimeInfo -> listOf("get_time_info")
+    LocalToolOption.Clipboard -> listOf("clipboard_tool")
+    LocalToolOption.Tts -> listOf("text_to_speech")
+    LocalToolOption.AskUser -> listOf("ask_user")
+    LocalToolOption.ScreenTime -> listOf("get_screen_time")
+    LocalToolOption.Calendar -> listOf("calendar_query", "calendar_create")
+    LocalToolOption.ChartDisplay -> listOf("chart_display")
+    LocalToolOption.Browser -> listOf(BROWSER_FETCH_TOOL_NAME, BROWSER_SCREENSHOT_TOOL_NAME)
+    LocalToolOption.JavascriptEngine,
+    LocalToolOption.PhoneUse,
+    LocalToolOption.WorkspaceReadFile,
+    LocalToolOption.WorkspaceWriteFile,
+    LocalToolOption.WorkspaceEditFile,
+    LocalToolOption.WorkspaceShell,
+    LocalToolOption.AssistantConfig -> emptyList()
 }

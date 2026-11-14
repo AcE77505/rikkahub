@@ -37,6 +37,12 @@ sealed class LocalToolOption {
     @SerialName("chart_display")
     data object ChartDisplay : LocalToolOption()
 
+    // 内置无头浏览器（obscura）：抓取页面文本 / 截图，单次调用无状态
+
+    @Serializable
+    @SerialName("browser")
+    data object Browser : LocalToolOption()
+
     @Serializable
     @SerialName("phone_use")
     data object PhoneUse : LocalToolOption()

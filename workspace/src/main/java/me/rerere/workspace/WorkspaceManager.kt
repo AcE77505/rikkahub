@@ -22,8 +22,14 @@ class WorkspaceManager(
     private val baseDir: File,
     private val config: WorkspaceConfig = WorkspaceConfig(),
     private val shellRunner: WorkspaceShellRunner = HostShellRunner(),
+    /** 随 APK 打包的内置命令目录（如 obscura），总是排在 PATH 最前面 */
+    private val extraPathPrepend: () -> List<String> = { emptyList() },
 ) {
     private val fileSystem = WorkspaceFileSystem(config)
+
+    /** 工具链 bin 与内置命令目录合并后的 PATH 前缀 */
+    private fun pathPrepend(toolchain: ToolchainEnvironment?): List<String> =
+        (extraPathPrepend() + toolchain?.pathPrepend.orEmpty()).filter { it.isNotBlank() }
 
     init {
         baseDir.mkdirs()
@@ -189,7 +195,7 @@ class WorkspaceManager(
                 overtimeMillis = overtimeMillis,
                 autoStopOnOvertime = autoStopOnOvertime,
                 extraEnv = toolchain?.extraEnv.orEmpty(),
-                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+                pathPrepend = pathPrepend(toolchain),
                 stdin = stdin,
                 overflowFile = overflowFileName?.let { File(tempDir, it) },
                 onOvertime = onOvertime,
@@ -244,7 +250,7 @@ class WorkspaceManager(
                 overtimeMillis = overtimeMillis,
                 autoStopOnOvertime = autoStopOnOvertime,
                 extraEnv = toolchain?.extraEnv.orEmpty(),
-                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+                pathPrepend = pathPrepend(toolchain),
                 stdin = stdin,
                 overflowFile = overflowFileName?.let { File(tempDir, it) },
                 onOvertime = onOvertime,
@@ -281,7 +287,7 @@ class WorkspaceManager(
                 tempDir = tempDir,
                 overtimeMillis = 0,
                 extraEnv = toolchain?.extraEnv.orEmpty(),
-                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+                pathPrepend = pathPrepend(toolchain),
             ),
             id,
         )
@@ -311,7 +317,7 @@ class WorkspaceManager(
                 tempDir = tempDir,
                 overtimeMillis = 0,
                 extraEnv = toolchain?.extraEnv.orEmpty(),
-                pathPrepend = toolchain?.pathPrepend.orEmpty(),
+                pathPrepend = pathPrepend(toolchain),
             ),
             id,
         )
