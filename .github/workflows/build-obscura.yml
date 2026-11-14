@@ -123,11 +123,24 @@ jobs:
           EOF
           cat obscura/.cargo/config.toml
 
+      - name: Generate CMake toolchain wrapper
+        # boring-sys 调 cmake 时会清掉环境变量，NDK 的 toolchain 读不到 ANDROID_ABI，
+        # 会回落到默认的 armeabi-v7a（x86_64 下直接报 -march=armv7-a 不支持）。
+        # 这里用包装文件在 include 之前把 ABI / API level 固定下来。
+        run: |
+          TOOLCHAIN="$RUNNER_TEMP/android-${{ matrix.abi }}.cmake"
+          cat > "$TOOLCHAIN" <<EOF
+          set(ANDROID_ABI "${{ matrix.abi }}" CACHE STRING "")
+          set(ANDROID_PLATFORM "android-${ANDROID_API}" CACHE STRING "")
+          set(ANDROID_NDK "$ANDROID_NDK_HOME" CACHE PATH "")
+          include("$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake")
+          EOF
+          cat "$TOOLCHAIN"
+          echo "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" >> "$GITHUB_ENV"
+
       - name: Build obscura
         working-directory: obscura
         env:
-          # boring-sys 走 CMake 交叉编译，必须给出 NDK toolchain
-          CMAKE_TOOLCHAIN_FILE: ${{ env.ANDROID_NDK_HOME }}/build/cmake/android.toolchain.cmake
           ANDROID_ABI: ${{ matrix.abi }}
           ANDROID_PLATFORM: android-24
         run: |
