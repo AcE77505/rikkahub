@@ -55,6 +55,10 @@ jobs:
       ANDROID_API: '24'
       # V8 从源码编（Android 没有预编译的 rusty_v8 静态库）
       V8_FROM_SOURCE: '1'
+      # crates.io 的 v8 crate 裁掉了 third_party/icu/common/icudtl.dat，
+      # 不关 i18n 时 ninja 会因为缺这个文件直接失败。代价：页面里的 Intl.* 不可用
+      # （obscura 自己的 JS bootstrap 不使用 Intl）。
+      GN_ARGS: 'v8_enable_i18n_support=false'
       CARGO_INCREMENTAL: '0'
       # V8 链接阶段吃内存，2 并发是 obscura 官方推荐值
       CARGO_BUILD_JOBS: '2'
@@ -101,11 +105,10 @@ jobs:
           key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Cache V8 build
-        # V8 的编译产物在 target/<triple>/release-dist/gn_out，
-        # 命中后增量构建只需几分钟
+        # V8 的编译产物（gn_out）是 cross 编译最耗时的一步；命中后增量构建只需几分钟
         uses: actions/cache@v4
         with:
-          path: obscura/target/${{ matrix.target }}/release-dist/gn_out
+          path: obscura/target/**/gn_out
           key: v8-${{ matrix.target }}-${{ env.OBSCURA_REF }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Configure cargo linker
@@ -128,12 +131,22 @@ jobs:
           ANDROID_ABI: ${{ matrix.abi }}
           ANDROID_PLATFORM: android-24
         run: |
+          set -o pipefail
           cargo build \
             --profile release-dist \
             --target "${{ matrix.target }}" \
             -p obscura-cli \
             --bin obscura \
-            --features "$OBSCURA_FEATURES"
+            --features "$OBSCURA_FEATURES" 2>&1 | tee "${GITHUB_WORKSPACE}/build-${{ matrix.abi }}.log"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.abi }}
+          path: build-${{ matrix.abi }}.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Inspect binary
         run: |
