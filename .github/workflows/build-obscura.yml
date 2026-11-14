@@ -138,6 +138,26 @@ jobs:
           cat "$TOOLCHAIN"
           echo "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" >> "$GITHUB_ENV"
 
+      - name: Populate V8 Rust dependencies
+        # crates.io 发布的 v8 crate 里 third_party/rust/chromium_crates_io/vendor 是空的
+        # （打包时被忽略），但 V8 的 Rust host 工具（icu_calendar_data 等）需要这些源码。
+        # rusty_v8 仓库把该目录固定为 third_party/rust 子模块，按 crate 版本取同一份补进去。
+        working-directory: obscura
+        run: |
+          set -euo pipefail
+          cargo fetch --target "${{ matrix.target }}"
+          V8_VER=$(awk '/^name = "v8"$/{f=1} f&&/^version = /{gsub(/[", ]/,"");print;exit}' Cargo.lock)
+          echo "v8 crate version: $V8_VER"
+          CRATE=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
+          echo "v8 crate dir: $CRATE"
+          test -n "$CRATE"
+          git clone --depth 1 --branch "v$V8_VER" https://github.com/denoland/rusty_v8 "$RUNNER_TEMP/rusty_v8"
+          git -C "$RUNNER_TEMP/rusty_v8" submodule update --init --depth 1 third_party/rust
+          mkdir -p "$CRATE/third_party/rust"
+          cp -a "$RUNNER_TEMP/rusty_v8/third_party/rust/chromium_crates_io" "$CRATE/third_party/rust/"
+          test -d "$CRATE/third_party/rust/chromium_crates_io/vendor"
+          ls "$CRATE/third_party/rust/chromium_crates_io/vendor" | head
+
       - name: Build obscura
         working-directory: obscura
         env:
