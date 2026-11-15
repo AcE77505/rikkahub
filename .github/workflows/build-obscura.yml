@@ -66,8 +66,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang libclang-dev unzip python3 curl git
-          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev unzip python3 curl git
+          # libclang-dev 的库在 /usr/lib/llvm-<ver>/lib；llvm-config 由 llvm-dev 提供
+          LIBCLANG_DIR="$(llvm-config --libdir)"
+          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
+          test -e "$LIBCLANG_DIR/libclang.so"
           clang --version
           cmake --version
 
@@ -114,6 +117,20 @@ jobs:
           gzip -t "$LIB"
           echo "RUSTY_V8_ARCHIVE=$LIB" >> "$GITHUB_ENV"
           echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
+
+      - name: Generate CMake toolchain wrapper
+        # btls-sys 调 cmake 时会清掉环境变量，NDK toolchain 读不到 ANDROID_ABI 会回落
+        # 到 armeabi-v7a（x86_64 下直接报 -march=armv7-a 不支持）。用包装文件固定 ABI。
+        run: |
+          TOOLCHAIN="$RUNNER_TEMP/android-${{ matrix.abi }}.cmake"
+          cat > "$TOOLCHAIN" <<EOF
+          set(ANDROID_ABI "${{ matrix.abi }}" CACHE STRING "")
+          set(ANDROID_PLATFORM "android-${ANDROID_API}" CACHE STRING "")
+          set(ANDROID_NDK "$ANDROID_NDK_HOME" CACHE PATH "")
+          include("$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake")
+          EOF
+          cat "$TOOLCHAIN"
+          echo "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" >> "$GITHUB_ENV"
 
       - name: Configure cargo linker
         run: |
