@@ -137,6 +137,32 @@ jobs:
           EOF
           tail -5 obscura/Cargo.toml
 
+      - name: Prepare prebuilt V8 bindings
+        # V8_FROM_SOURCE 分支会无条件跑 bindgen，而 Android 交叉编译时 bindgen
+        # 解析 V8 自带的 libc++ 会失败（cstdint 的 using_if_exists）。
+        # 直接取 rusty_v8 release 里同架构 Linux 的预生成 bindings：LP64 ABI 一致，
+        # 且同样是无 pointer compression 的 release 配置。
+        run: |
+          set -euo pipefail
+          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
+          case "${{ matrix.abi }}" in
+            arm64-v8a) LINUX_ARCH=aarch64 ;;
+            x86_64) LINUX_ARCH=x86_64 ;;
+            *) echo "unsupported abi: ${{ matrix.abi }}"; exit 1 ;;
+          esac
+          BINDINGS="$RUNNER_TEMP/v8-bindings-${{ matrix.abi }}.rs"
+          curl -fL -o "$BINDINGS" \
+            "https://github.com/denoland/rusty_v8/releases/download/v$V8_VER/src_binding_release_${LINUX_ARCH}-unknown-linux-gnu.rs"
+          wc -l "$BINDINGS"
+          echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
+
+      - name: Patch rusty_v8 to reuse prebuilt bindings
+        run: |
+          set -euo pipefail
+          perl -0pi -e 's/\Q    build_v8(is_asan);\n    build_binding();\n\E/    build_v8(is_asan);\n    if let Ok(binding) = env::var("RUSTY_V8_SRC_BINDING_PATH") {\n      println!("cargo:rustc-env=RUSTY_V8_SRC_BINDING_PATH={binding}");\n    } else {\n      build_binding();\n    }\n/' "$RUNNER_TEMP/rusty_v8/build.rs"
+          grep -q 'RUSTY_V8_SRC_BINDING_PATH={binding}' "$RUNNER_TEMP/rusty_v8/build.rs"
+          sed -n '108,126p' "$RUNNER_TEMP/rusty_v8/build.rs"
+
       - name: Configure cargo linker
         run: |
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -193,6 +219,15 @@ jobs:
           path: build-${{ matrix.abi }}.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Save V8 build cache
+        # V8 编译是最贵的一步；即使本轮失败也把 gn_out 存下来，下一轮直接增量
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: obscura/target/**/gn_out
+          key: v8-${{ matrix.target }}-${{ env.OBSCURA_REF }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Inspect binary
         run: |
