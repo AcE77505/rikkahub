@@ -159,9 +159,15 @@ jobs:
       - name: Patch rusty_v8 to reuse prebuilt bindings
         run: |
           set -euo pipefail
-          perl -0pi -e 's/\Q    build_v8(is_asan);\n    build_binding();\n\E/    build_v8(is_asan);\n    if let Ok(binding) = env::var("RUSTY_V8_SRC_BINDING_PATH") {\n      println!("cargo:rustc-env=RUSTY_V8_SRC_BINDING_PATH={binding}");\n    } else {\n      build_binding();\n    }\n/' "$RUNNER_TEMP/rusty_v8/build.rs"
-          grep -q 'RUSTY_V8_SRC_BINDING_PATH={binding}' "$RUNNER_TEMP/rusty_v8/build.rs"
-          sed -n '108,126p' "$RUNNER_TEMP/rusty_v8/build.rs"
+          BUILD_RS="$RUNNER_TEMP/rusty_v8/build.rs"
+          # V8_FROM_SOURCE 分支里的 build_binding() 是文件里唯一一行 4 空格缩进的调用。
+          # 有 RUSTY_V8_SRC_BINDING_PATH 时直接复用预生成 bindings，跳过 bindgen。
+          # 用 GNU sed 的 \n 插入多行（perl 的 \Q..\E 会把 \n 当字面反斜杠，别用）。
+          sed -i 's|^    build_binding();$|    if let Ok(binding) = env::var("RUSTY_V8_SRC_BINDING_PATH") {\n      println!("cargo:rustc-env=RUSTY_V8_SRC_BINDING_PATH={binding}");\n    } else {\n      build_binding();\n    }|' "$BUILD_RS"
+          sed -n '108,126p' "$BUILD_RS"
+          # 验证 patch 生效：原始单行调用必须消失，且出现 else 分支
+          ! grep -q '^    build_binding();$' "$BUILD_RS"
+          grep -q '} else {' "$BUILD_RS"
 
       - name: Configure cargo linker
         run: |
