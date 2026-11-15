@@ -8,10 +8,13 @@ name: Build Obscura (Android)
 #   - 静态库是 .o 集合，用 NDK clang 链接进 Android 可执行文件
 #   - bindings 描述 V8 的 C++ 接口，LP64 下与 Android ABI 一致
 #
-# 关键：RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 是全局环境变量，rusty_v8 还会
-# 为 host（build script 依赖）再构建一份 v8。若不区分，host 侧会拿到 Android 架构的
-# 静态库（rust-lld: incompatible with elf64-x86-64）。所以这里把 crates.io 的 v8 crate
-# 复制出来打补丁：让这两个变量只对 android target 生效，host 走默认下载。
+# 关键 patch：
+#   1) RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 是全局环境变量，而 rusty_v8 还会
+#      为 host（build script 依赖）再构建一份 v8。不区分的话 host 会拿到 Android 架构的
+#      静态库（rust-lld: incompatible with elf64-x86-64）。所以 patch v8 crate 的 build.rs，
+#      让这两个变量只对 android target 生效，host 走默认的 x86_64 预编译下载。
+#   2) deno_core 0.412 的 uv_compat 只为 linux/macos 实现了 errno_location，Android 会命中
+#      compile_error!。补一个 __errno()（bionic 提供）分支。
 #
 # 产物：obscura-android-<abi> artifact，含 libobscura.so 与 libc++_shared.so，
 # 下载后放进 app/src/main/jniLibs/<abi>/。
@@ -119,29 +122,44 @@ jobs:
           echo "RUSTY_V8_ARCHIVE=$LIB" >> "$GITHUB_ENV"
           echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
 
-      - name: Patch v8 crate to scope prebuilt artifacts to Android
-        # 让 RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 只对 android target 生效；
-        # host（build script 依赖的 v8）继续走默认的 x86_64 预编译下载。
+      - name: Patch v8 and deno_core for Android
         working-directory: obscura
         run: |
           set -euo pipefail
           cargo fetch --target "${{ matrix.target }}"
           V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' Cargo.lock)
-          SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
-          test -n "$SRC"
-          PATCHED="$RUNNER_TEMP/v8-patched"
-          cp -a "$SRC" "$PATCHED"
-          BUILD_RS="$PATCHED/build.rs"
+          DENO_VER=$(awk -F'"' '/^name = "deno_core"$/{f=1} f&&/^version = /{print $2; exit}' Cargo.lock)
+          V8_SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
+          DENO_SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "deno_core-$DENO_VER" | head -n1)
+          test -n "$V8_SRC"
+          test -n "$DENO_SRC"
+          V8_PATCHED="$RUNNER_TEMP/v8-patched"
+          DENO_PATCHED="$RUNNER_TEMP/deno_core-patched"
+          cp -a "$V8_SRC" "$V8_PATCHED"
+          cp -a "$DENO_SRC" "$DENO_PATCHED"
+
+          # --- v8：预编译产物只对 android target 生效 ---
+          BUILD_RS="$V8_PATCHED/build.rs"
           perl -pi -e 's/if let Ok\(custom_archive\) = env::var\("RUSTY_V8_ARCHIVE"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_ARCHIVE").is_ok() { let custom_archive = env::var("RUSTY_V8_ARCHIVE").unwrap();/' "$BUILD_RS"
           perl -pi -e 's/if let Ok\(binding\) = env::var\("RUSTY_V8_SRC_BINDING_PATH"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_SRC_BINDING_PATH").is_ok() { let binding = env::var("RUSTY_V8_SRC_BINDING_PATH").unwrap();/' "$BUILD_RS"
           grep -c 't.contains("android")' "$BUILD_RS"
+
+          # --- deno_core：Android 的 errno_location ---
+          TTY_RS="$DENO_PATCHED/uv_compat/tty.rs"
+          perl -0pi -e 's/(  #\[cfg\(target_os = "linux"\)\]\n  fn errno_location\(\) -> \*mut c_int \{\n    unsafe extern "C" \{\n      fn __errno_location\(\) -> \*mut c_int;\n    \}\n    unsafe \{ __errno_location\(\) \}\n  \}\n)/$1\n  #[cfg(target_os = "android")]\n  fn errno_location() -> *mut c_int {\n    unsafe extern "C" {\n      fn __errno() -> *mut c_int;\n    }\n    unsafe { __errno() }\n  }\n/' "$TTY_RS"
+          perl -pi -e 's/not\(any\(target_os = "macos", target_os = "linux"\)\)/not(any(target_os = "macos", target_os = "linux", target_os = "android"))/' "$TTY_RS"
+          grep -q '__errno()' "$TTY_RS"
+          grep -q 'target_os = "linux", target_os = "android"' "$TTY_RS"
+          sed -n '384,418p' "$TTY_RS"
+
           cat >> Cargo.toml <<EOF
 
-          # CI: 用打过补丁的 v8 crate（仅 Android 使用预编译产物）
+          # CI: 用打过补丁的 v8 / deno_core（Android 交叉编译适配）
           [patch.crates-io]
-          v8 = { path = "$PATCHED" }
+          v8 = { path = "$V8_PATCHED" }
+          deno_core = { path = "$DENO_PATCHED" }
           EOF
-          tail -5 Cargo.toml
+          tail -6 Cargo.toml
 
       - name: Generate CMake toolchain wrapper
         # btls-sys 调 cmake 时会清掉环境变量，NDK toolchain 读不到 ANDROID_ABI 会回落
