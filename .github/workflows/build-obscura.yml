@@ -112,6 +112,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Cache V8 build
+        id: v8cache
         # V8 的编译产物（gn_out）是 cross 编译最耗时的一步；命中后增量构建只需几分钟
         uses: actions/cache@v4
         with:
@@ -136,12 +137,13 @@ jobs:
           v8 = { path = "$RUNNER_TEMP/rusty_v8" }
           EOF
           tail -5 obscura/Cargo.toml
-          # gn 需要 //third_party/android_ndk 来确定 android_ndk_version。
-          # build.rs 只在「该目录不存在」时下载，而恢复 gn_out 缓存后它可能跳过下载，
-          # 导致 gn gen 报 "Undefined identifier android_ndk_version"。这里直接指到已解压的 NDK。
+          # chromium_build 的 config.gni 期望 //third_party/android_toolchain/ndk，
+          # build.rs 自己检查的是 //third_party/android_ndk；两个路径都指到已解压的 NDK。
+          mkdir -p "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain"
           ln -sfn "/opt/android-ndk-${NDK_VERSION}" "$RUNNER_TEMP/rusty_v8/third_party/android_ndk"
-          ls -l "$RUNNER_TEMP/rusty_v8/third_party/android_ndk"
-          test -x "$RUNNER_TEMP/rusty_v8/third_party/android_ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+          ln -sfn "/opt/android-ndk-${NDK_VERSION}" "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain/ndk"
+          ls -l "$RUNNER_TEMP/rusty_v8/third_party/android_ndk" "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain/ndk"
+          test -x "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 
       - name: Prepare prebuilt V8 bindings
         # V8_FROM_SOURCE 分支会无条件跑 bindgen，而 Android 交叉编译时 bindgen
@@ -174,6 +176,12 @@ jobs:
           # 验证 patch 生效：原始单行调用必须消失，且出现 else 分支
           ! grep -q '^    build_binding();$' "$BUILD_RS"
           grep -q '} else {' "$BUILD_RS"
+          # 交叉编译到 Android 时，build.rs 有时没把 target_os="android" 传给 gn，
+          # is_android=false 会让 config.gni 不定义 android_ndk_version，gn gen 直接失败。
+          # 这里对 Android 目标硬性补上（host 实例的 TARGET 不含 android，不受影响）。
+          sed -i 's|^  let gn_out = run_gn_gen(&gn_args);$|  if target_triple.contains("android") { gn_args.push("target_os=\\"android\\"".to_string()); }\n  let gn_out = run_gn_gen(\&gn_args);|' "$BUILD_RS"
+          grep -q 'target_triple.contains("android")' "$BUILD_RS"
+          grep -n -A1 'target_triple.contains' "$BUILD_RS"
 
       - name: Configure cargo linker
         run: |
@@ -233,8 +241,9 @@ jobs:
           retention-days: 7
 
       - name: Save V8 build cache
-        # V8 编译是最贵的一步；即使本轮失败也把 gn_out 存下来，下一轮直接增量
-        if: always()
+        # V8 编译是最贵的一步；即使本轮失败也把 gn_out 存下来，下一轮直接增量。
+        # 已命中缓存时不再上传（否则会白传几 GB 再报 key 冲突）。
+        if: always() && steps.v8cache.outputs.cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
