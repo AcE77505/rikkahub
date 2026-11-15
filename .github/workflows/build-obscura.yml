@@ -122,10 +122,11 @@ jobs:
       - name: Patch v8 crate to scope prebuilt artifacts to Android
         # 让 RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 只对 android target 生效；
         # host（build script 依赖的 v8）继续走默认的 x86_64 预编译下载。
+        working-directory: obscura
         run: |
           set -euo pipefail
           cargo fetch --target "${{ matrix.target }}"
-          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
+          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' Cargo.lock)
           SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
           test -n "$SRC"
           PATCHED="$RUNNER_TEMP/v8-patched"
@@ -134,13 +135,13 @@ jobs:
           perl -pi -e 's/if let Ok\(custom_archive\) = env::var\("RUSTY_V8_ARCHIVE"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_ARCHIVE").is_ok() { let custom_archive = env::var("RUSTY_V8_ARCHIVE").unwrap();/' "$BUILD_RS"
           perl -pi -e 's/if let Ok\(binding\) = env::var\("RUSTY_V8_SRC_BINDING_PATH"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_SRC_BINDING_PATH").is_ok() { let binding = env::var("RUSTY_V8_SRC_BINDING_PATH").unwrap();/' "$BUILD_RS"
           grep -c 't.contains("android")' "$BUILD_RS"
-          cat >> obscura/Cargo.toml <<EOF
+          cat >> Cargo.toml <<EOF
 
           # CI: 用打过补丁的 v8 crate（仅 Android 使用预编译产物）
           [patch.crates-io]
           v8 = { path = "$PATCHED" }
           EOF
-          tail -5 obscura/Cargo.toml
+          tail -5 Cargo.toml
 
       - name: Generate CMake toolchain wrapper
         # btls-sys 调 cmake 时会清掉环境变量，NDK toolchain 读不到 ANDROID_ABI 会回落
