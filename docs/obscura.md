@@ -15,9 +15,15 @@ CI 工作流 `.github/workflows/build-obscura.yml` 负责这件事：
 3. **不能用 crates.io 上的 `v8` crate 做源码编译**：发布包裁掉了 ICU 数据、`third_party/rust/chromium_crates_io/vendor` 和部分 `v8/tools` 脚本，
    ninja 会直接报文件缺失。CI 改为 clone 完整的 `rusty_v8` 仓库（含 V8 子模块），再用
    `[patch.crates-io] v8 = { path = ... }` 替换，和 rusty_v8 官方 CI 的做法一致
-4. bindgen 需要显式给出 Android target 与 NDK sysroot（`BINDGEN_EXTRA_CLANG_ARGS`），
-   否则 V8 自带的 libc++ 头文件解析不到 bionic 符号
-5. 产物重命名为 `libobscura.so` 上传 artifact（`obscura-android-arm64-v8a` / `obscura-android-x86_64`）
+4. **跳过 Android 下的 bindgen**：`V8_FROM_SOURCE` 分支无条件跑 bindgen，而 Android 交叉编译时
+   bindgen 解析 V8 自带的 libc++ 会报 `unresolved using declaration`。CI 用 sed 把 `build_binding()`
+   包一层判断，配合 `RUSTY_V8_SRC_BINDING_PATH` 指向 rusty_v8 release 里同架构 Linux 的预生成
+   bindings（LP64、无 pointer compression，配置一致）
+5. **预置 `third_party/android_ndk`**：build.rs 只在该目录不存在时下载 NDK；恢复 `gn_out` 缓存后
+   它会跳过下载，导致 `gn gen` 报 `Undefined identifier android_ndk_version`。CI 直接把已解压的
+   NDK 符号链接进去
+6. `gn_out` 即使构建失败也缓存，避免每轮重复 86 分钟的 V8 编译
+7. 产物重命名为 `libobscura.so` 上传 artifact（`obscura-android-arm64-v8a` / `obscura-android-x86_64`）
 
 ## 放进仓库
 
