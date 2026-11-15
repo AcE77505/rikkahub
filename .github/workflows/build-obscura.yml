@@ -101,22 +101,32 @@ jobs:
           key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Prepare prebuilt V8 artifacts
-        # 从 rusty_v8 release 取同版本的预编译静态库与 bindings。
-        # 两者都是 release、无 pointer compression，与 deno_core 的 v8 依赖配置一致。
+        # rusty_v8 有两套构建：target（Android）和 host（build script 依赖的 v8）。
+        # RUSTY_V8_ARCHIVE 是全局变量，指向单文件会害得 host 侧链接错架构
+        # （rust-lld: incompatible with elf64-x86-64）。改用目录形式：build.rs 会按
+        # 当前 target triple 去目录里找对应文件名，host / target 各取所需。
         run: |
           set -euo pipefail
           V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
           echo "v8 crate version: $V8_VER"
           ARCH="${{ matrix.linux_arch }}"
+          TARGET="${{ matrix.target }}"
           BASE="https://github.com/denoland/rusty_v8/releases/download/v${V8_VER}"
-          LIB="$RUNNER_TEMP/librusty_v8.a.gz"
-          BINDINGS="$RUNNER_TEMP/src_binding.rs"
-          curl -fL -o "$LIB" "$BASE/librusty_v8_release_${ARCH}-unknown-linux-gnu.a.gz"
-          curl -fL -o "$BINDINGS" "$BASE/src_binding_release_${ARCH}-unknown-linux-gnu.rs"
-          ls -lh "$LIB" "$BINDINGS"
-          gzip -t "$LIB"
-          echo "RUSTY_V8_ARCHIVE=$LIB" >> "$GITHUB_ENV"
-          echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
+          DIR="$RUNNER_TEMP/v8-archive"
+          mkdir -p "$DIR"
+          # target：同架构 Linux 的库/绑定，按目标 triple 命名
+          curl -fL -o "$DIR/librusty_v8_release_${TARGET}.a.gz" \
+            "$BASE/librusty_v8_release_${ARCH}-unknown-linux-gnu.a.gz"
+          curl -fL -o "$DIR/src_binding_release_${TARGET}.rs" \
+            "$BASE/src_binding_release_${ARCH}-unknown-linux-gnu.rs"
+          # host（x86_64-unknown-linux-gnu）：真实 x86_64 库/绑定
+          curl -fL -o "$DIR/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz" \
+            "$BASE/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz"
+          curl -fL -o "$DIR/src_binding_release_x86_64-unknown-linux-gnu.rs" \
+            "$BASE/src_binding_release_x86_64-unknown-linux-gnu.rs"
+          ls -lh "$DIR"
+          gzip -t "$DIR/librusty_v8_release_${TARGET}.a.gz"
+          echo "RUSTY_V8_ARCHIVE=$DIR" >> "$GITHUB_ENV"
 
       - name: Generate CMake toolchain wrapper
         # btls-sys 调 cmake 时会清掉环境变量，NDK toolchain 读不到 ANDROID_ABI 会回落
