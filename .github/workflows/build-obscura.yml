@@ -136,6 +136,12 @@ jobs:
           v8 = { path = "$RUNNER_TEMP/rusty_v8" }
           EOF
           tail -5 obscura/Cargo.toml
+          # gn 需要 //third_party/android_ndk 来确定 android_ndk_version。
+          # build.rs 只在「该目录不存在」时下载，而恢复 gn_out 缓存后它可能跳过下载，
+          # 导致 gn gen 报 "Undefined identifier android_ndk_version"。这里直接指到已解压的 NDK。
+          ln -sfn "/opt/android-ndk-${NDK_VERSION}" "$RUNNER_TEMP/rusty_v8/third_party/android_ndk"
+          ls -l "$RUNNER_TEMP/rusty_v8/third_party/android_ndk"
+          test -x "$RUNNER_TEMP/rusty_v8/third_party/android_ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 
       - name: Prepare prebuilt V8 bindings
         # V8_FROM_SOURCE 分支会无条件跑 bindgen，而 Android 交叉编译时 bindgen
