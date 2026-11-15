@@ -2,14 +2,11 @@ name: Build Obscura (Android)
 
 # 为 RikkaHub 交叉编译 obscura 无头浏览器（aarch64 / x86_64 Android）。
 #
-# obscura 内嵌 V8，没有 Android 预编译包，必须在 Linux 主机上用 NDK 从源码编译；
-# 这里只负责产出可执行文件，再由 jniLibs 打包进 APK（重命名为 libobscura.so 才能
-# 落在 nativeLibraryDir 里被 exec）。x86_64 主机（ubuntu-22.04）交叉编译，
-# 不能用 Windows 本机直接编。
-#
-# 关键点：crates.io 上发布的 v8 crate 是裁剪版（缺 ICU 数据、chromium_crates_io
-# vendor、部分 v8/tools 脚本），无法从源码编 V8。这里按 rusty_v8 官方 CI 的做法，
-# 把完整的 rusty_v8 仓库（含 V8 子模块）作为 path 依赖 patch 进去。
+# obscura 内嵌 V8。这里不编译 V8 源码（Android 交叉编译下 gn/bindgen 的坑很多），
+# 而是直接使用 rusty_v8 官方发布的「同架构 Linux 预编译静态库 + 预生成 bindings」：
+#   - 静态库只是 .o 集合，用 NDK clang 链接进 Android 可执行文件
+#   - bindings 是 V8 C++ 声明的 FFI 描述，LP64 下与 Android ABI 一致
+# 两者都要求与 v8 crate 同版本、同为 release、无 pointer compression。
 #
 # 产物：obscura-android-arm64-v8a / obscura-android-x86_64 两个 artifact，
 # 各含一个 libobscura.so，下载后放进 app/src/main/jniLibs/<abi>/。
@@ -40,28 +37,27 @@ jobs:
   build:
     name: obscura ${{ matrix.abi }}
     runs-on: ubuntu-22.04
-    # V8 从源码编一次 30–60 分钟，加 BoringSSL 与冷缓存留足余量
-    timeout-minutes: 300
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: aarch64-linux-android
             abi: arm64-v8a
+            linux_arch: aarch64
           - target: x86_64-linux-android
             abi: x86_64
+            linux_arch: x86_64
 
     env:
       OBSCURA_REF: ${{ inputs.obscura_ref || 'v0.2.7' }}
       OBSCURA_FEATURES: ${{ inputs.features || 'render,stealth' }}
-      # NDK r26d 与 rusty_v8 build.rs 自带的 r26c 对齐，避免两套 sysroot 混用
+      # NDK r26d 与 rusty_v8 预编译库的编译环境接近
       NDK_VERSION: r26d
       ANDROID_API: '24'
-      # V8 从源码编（Android 没有预编译的 rusty_v8 静态库）
-      V8_FROM_SOURCE: '1'
+      # 预编译 V8 需要 C++ 标准库；Android 用 NDK 的 libc++ 静态库
+      CXXSTDLIB: c++_static
       CARGO_INCREMENTAL: '0'
-      # V8 链接阶段吃内存，2 并发是 obscura 官方推荐值
-      CARGO_BUILD_JOBS: '2'
       CARGO_TERM_COLOR: always
 
     steps:
@@ -70,19 +66,10 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake unzip python3 curl git
-          # bindgen 需要 libclang 21+（rusty_v8 的硬性要求）
-          sudo apt-get install -y lld-21 clang-21 libclang-21-dev || {
-            echo "llvm-21 not in jammy, adding apt.llvm.org"
-            echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain-jammy-21.list
-            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/llvm-snapshot.gpg > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y lld-21 clang-21 libclang-21-dev
-          }
-          echo "LIBCLANG_PATH=/usr/lib/llvm-21/lib" >> "$GITHUB_ENV"
+          sudo apt-get install -y cmake clang libclang-dev unzip python3 curl git
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
           clang --version
           cmake --version
-          df -h /
 
       - name: Set up Android NDK
         run: |
@@ -91,7 +78,6 @@ jobs:
           sudo unzip -q "/tmp/${ZIP}" -d /opt
           echo "ANDROID_NDK_HOME=/opt/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
           echo "/opt/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-          "/opt/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" --version
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -111,77 +97,23 @@ jobs:
             ~/.cargo/git
           key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
-      - name: Cache V8 build
-        id: v8cache
-        # V8 的编译产物（gn_out）是 cross 编译最耗时的一步；命中后增量构建只需几分钟
-        uses: actions/cache@v4
-        with:
-          path: obscura/target/**/gn_out
-          key: v8-${{ matrix.target }}-${{ env.OBSCURA_REF }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
-
-      - name: Fetch full V8 source (rusty_v8 repo)
-        # crates.io 的 v8 crate 不完整，源码编译必须用 rust_v8 仓库 + 子模块
+      - name: Prepare prebuilt V8 artifacts
+        # 从 rusty_v8 release 取同版本的预编译静态库与 bindings。
+        # 两者都是 release、无 pointer compression，与 deno_core 的 v8 依赖配置一致。
         run: |
           set -euo pipefail
           V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
           echo "v8 crate version: $V8_VER"
-          git clone --depth 1 --branch "v$V8_VER" https://github.com/denoland/rusty_v8 "$RUNNER_TEMP/rusty_v8"
-          git -C "$RUNNER_TEMP/rusty_v8" submodule update --init --recursive --depth 1
-          git -C "$RUNNER_TEMP/rusty_v8" submodule status
-          du -sh "$RUNNER_TEMP/rusty_v8"
-          df -h /
-          cat >> obscura/Cargo.toml <<EOF
-
-          # CI: 用完整源码替换 crates.io 上裁剪过的 v8 crate
-          [patch.crates-io]
-          v8 = { path = "$RUNNER_TEMP/rusty_v8" }
-          EOF
-          tail -5 obscura/Cargo.toml
-          # chromium_build 的 config.gni 期望 //third_party/android_toolchain/ndk，
-          # build.rs 自己检查的是 //third_party/android_ndk；两个路径都指到已解压的 NDK。
-          mkdir -p "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain"
-          ln -sfn "/opt/android-ndk-${NDK_VERSION}" "$RUNNER_TEMP/rusty_v8/third_party/android_ndk"
-          ln -sfn "/opt/android-ndk-${NDK_VERSION}" "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain/ndk"
-          ls -l "$RUNNER_TEMP/rusty_v8/third_party/android_ndk" "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain/ndk"
-          test -x "$RUNNER_TEMP/rusty_v8/third_party/android_toolchain/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
-
-      - name: Prepare prebuilt V8 bindings
-        # V8_FROM_SOURCE 分支会无条件跑 bindgen，而 Android 交叉编译时 bindgen
-        # 解析 V8 自带的 libc++ 会失败（cstdint 的 using_if_exists）。
-        # 直接取 rusty_v8 release 里同架构 Linux 的预生成 bindings：LP64 ABI 一致，
-        # 且同样是无 pointer compression 的 release 配置。
-        run: |
-          set -euo pipefail
-          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
-          case "${{ matrix.abi }}" in
-            arm64-v8a) LINUX_ARCH=aarch64 ;;
-            x86_64) LINUX_ARCH=x86_64 ;;
-            *) echo "unsupported abi: ${{ matrix.abi }}"; exit 1 ;;
-          esac
-          BINDINGS="$RUNNER_TEMP/v8-bindings-${{ matrix.abi }}.rs"
-          curl -fL -o "$BINDINGS" \
-            "https://github.com/denoland/rusty_v8/releases/download/v$V8_VER/src_binding_release_${LINUX_ARCH}-unknown-linux-gnu.rs"
-          wc -l "$BINDINGS"
+          ARCH="${{ matrix.linux_arch }}"
+          BASE="https://github.com/denoland/rusty_v8/releases/download/v${V8_VER}"
+          LIB="$RUNNER_TEMP/librusty_v8.a.gz"
+          BINDINGS="$RUNNER_TEMP/src_binding.rs"
+          curl -fL -o "$LIB" "$BASE/librusty_v8_release_${ARCH}-unknown-linux-gnu.a.gz"
+          curl -fL -o "$BINDINGS" "$BASE/src_binding_release_${ARCH}-unknown-linux-gnu.rs"
+          ls -lh "$LIB" "$BINDINGS"
+          gzip -t "$LIB"
+          echo "RUSTY_V8_ARCHIVE=$LIB" >> "$GITHUB_ENV"
           echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
-
-      - name: Patch rusty_v8 to reuse prebuilt bindings
-        run: |
-          set -euo pipefail
-          BUILD_RS="$RUNNER_TEMP/rusty_v8/build.rs"
-          # V8_FROM_SOURCE 分支里的 build_binding() 是文件里唯一一行 4 空格缩进的调用。
-          # 有 RUSTY_V8_SRC_BINDING_PATH 时直接复用预生成 bindings，跳过 bindgen。
-          # 用 GNU sed 的 \n 插入多行（perl 的 \Q..\E 会把 \n 当字面反斜杠，别用）。
-          sed -i 's|^    build_binding();$|    if let Ok(binding) = env::var("RUSTY_V8_SRC_BINDING_PATH") {\n      println!("cargo:rustc-env=RUSTY_V8_SRC_BINDING_PATH={binding}");\n    } else {\n      build_binding();\n    }|' "$BUILD_RS"
-          sed -n '108,126p' "$BUILD_RS"
-          # 验证 patch 生效：原始单行调用必须消失，且出现 else 分支
-          ! grep -q '^    build_binding();$' "$BUILD_RS"
-          grep -q '} else {' "$BUILD_RS"
-          # 交叉编译到 Android 时，build.rs 有时没把 target_os="android" 传给 gn，
-          # is_android=false 会让 config.gni 不定义 android_ndk_version，gn gen 直接失败。
-          # 这里对 Android 目标硬性补上（host 实例的 TARGET 不含 android，不受影响）。
-          sed -i 's|^  let gn_out = run_gn_gen(&gn_args);$|  if target_triple.contains("android") { gn_args.push("target_os=\\"android\\"".to_string()); }\n  let gn_out = run_gn_gen(\&gn_args);|' "$BUILD_RS"
-          grep -q 'target_triple.contains("android")' "$BUILD_RS"
-          grep -n -A1 'target_triple.contains' "$BUILD_RS"
 
       - name: Configure cargo linker
         run: |
@@ -190,25 +122,10 @@ jobs:
 
           [target.${{ matrix.target }}]
           linker = "$NDK_BIN/${{ matrix.target }}${ANDROID_API}-clang"
-          # Android 15+ 要求 16 KB 页对齐，否则安装/运行会报错
+          # Android 15+ 要求 16 KB 页对齐
           rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
           EOF
           cat obscura/.cargo/config.toml
-
-      - name: Generate CMake toolchain wrapper
-        # boring-sys 调 cmake 时会清掉环境变量，NDK 的 toolchain 读不到 ANDROID_ABI，
-        # 会回落到默认的 armeabi-v7a（x86_64 下直接报 -march=armv7-a 不支持）。
-        # 这里用包装文件在 include 之前把 ABI / API level 固定下来。
-        run: |
-          TOOLCHAIN="$RUNNER_TEMP/android-${{ matrix.abi }}.cmake"
-          cat > "$TOOLCHAIN" <<EOF
-          set(ANDROID_ABI "${{ matrix.abi }}" CACHE STRING "")
-          set(ANDROID_PLATFORM "android-${ANDROID_API}" CACHE STRING "")
-          set(ANDROID_NDK "$ANDROID_NDK_HOME" CACHE PATH "")
-          include("$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake")
-          EOF
-          cat "$TOOLCHAIN"
-          echo "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" >> "$GITHUB_ENV"
 
       - name: Build obscura
         working-directory: obscura
@@ -217,13 +134,6 @@ jobs:
           ANDROID_PLATFORM: android-24
         run: |
           set -o pipefail
-          TRIPLE="${{ matrix.target }}"
-          # bindgen 只在编「目标 crate」时需要 Android target 与 NDK sysroot
-          # （否则 V8 自带 libc++ 的 cstdint using_if_exists 解析不到 bionic 符号）。
-          # 必须用 target 专用变量：全局 BINDGEN_EXTRA_CLANG_ARGS 会污染 V8 的
-          # host 构建工具（clang_x64_for_rust_host_build_tools），
-          # 它带 -msse3，会报 unsupported option '-msse3' for target 'aarch64-linux-android24'。
-          export "BINDGEN_EXTRA_CLANG_ARGS_${TRIPLE//-/_}=--target=${TRIPLE}${ANDROID_API} --sysroot=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           cargo build \
             --profile release-dist \
             --target "${{ matrix.target }}" \
@@ -239,16 +149,6 @@ jobs:
           path: build-${{ matrix.abi }}.log
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Save V8 build cache
-        # V8 编译是最贵的一步；即使本轮失败也把 gn_out 存下来，下一轮直接增量。
-        # 已命中缓存时不再上传（否则会白传几 GB 再报 key 冲突）。
-        if: always() && steps.v8cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: obscura/target/**/gn_out
-          key: v8-${{ matrix.target }}-${{ env.OBSCURA_REF }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Inspect binary
         run: |
