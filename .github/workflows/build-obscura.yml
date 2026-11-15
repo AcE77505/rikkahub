@@ -2,14 +2,19 @@ name: Build Obscura (Android)
 
 # 为 RikkaHub 交叉编译 obscura 无头浏览器（aarch64 / x86_64 Android）。
 #
-# obscura 内嵌 V8。这里不编译 V8 源码（Android 交叉编译下 gn/bindgen 的坑很多），
-# 而是直接使用 rusty_v8 官方发布的「同架构 Linux 预编译静态库 + 预生成 bindings」：
-#   - 静态库只是 .o 集合，用 NDK clang 链接进 Android 可执行文件
-#   - bindings 是 V8 C++ 声明的 FFI 描述，LP64 下与 Android ABI 一致
-# 两者都要求与 v8 crate 同版本、同为 release、无 pointer compression。
+# 不编译 V8 源码：Android 交叉编译下 gn/bindgen 的坑太多（crates.io 的 v8 crate
+# 还裁掉了 icudtl.dat、vendor 和部分 v8/tools）。这里直接用 rusty_v8 官方发布的
+# 「同架构 Linux 预编译静态库 + 预生成 bindings」：
+#   - 静态库是 .o 集合，用 NDK clang 链接进 Android 可执行文件
+#   - bindings 描述 V8 的 C++ 接口，LP64 下与 Android ABI 一致
 #
-# 产物：obscura-android-arm64-v8a / obscura-android-x86_64 两个 artifact，
-# 各含一个 libobscura.so，下载后放进 app/src/main/jniLibs/<abi>/。
+# 关键：RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 是全局环境变量，rusty_v8 还会
+# 为 host（build script 依赖）再构建一份 v8。若不区分，host 侧会拿到 Android 架构的
+# 静态库（rust-lld: incompatible with elf64-x86-64）。所以这里把 crates.io 的 v8 crate
+# 复制出来打补丁：让这两个变量只对 android target 生效，host 走默认下载。
+#
+# 产物：obscura-android-<abi> artifact，含 libobscura.so 与 libc++_shared.so，
+# 下载后放进 app/src/main/jniLibs/<abi>/。
 
 on:
   workflow_dispatch:
@@ -52,11 +57,8 @@ jobs:
     env:
       OBSCURA_REF: ${{ inputs.obscura_ref || 'v0.2.7' }}
       OBSCURA_FEATURES: ${{ inputs.features || 'render,stealth' }}
-      # NDK r26d 与 rusty_v8 预编译库的编译环境接近
       NDK_VERSION: r26d
       ANDROID_API: '24'
-      # 预编译 V8 需要 C++ 标准库；Android 用 NDK 的 libc++ 静态库
-      CXXSTDLIB: c++_static
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
 
@@ -101,32 +103,44 @@ jobs:
           key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
 
       - name: Prepare prebuilt V8 artifacts
-        # rusty_v8 有两套构建：target（Android）和 host（build script 依赖的 v8）。
-        # RUSTY_V8_ARCHIVE 是全局变量，指向单文件会害得 host 侧链接错架构
-        # （rust-lld: incompatible with elf64-x86-64）。改用目录形式：build.rs 会按
-        # 当前 target triple 去目录里找对应文件名，host / target 各取所需。
+        # deno_core 启用了 simdutf feature，必须用 _simdutf_ 变体的库与 bindings。
         run: |
           set -euo pipefail
           V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
           echo "v8 crate version: $V8_VER"
           ARCH="${{ matrix.linux_arch }}"
-          TARGET="${{ matrix.target }}"
           BASE="https://github.com/denoland/rusty_v8/releases/download/v${V8_VER}"
-          DIR="$RUNNER_TEMP/v8-archive"
-          mkdir -p "$DIR"
-          # target：同架构 Linux 的库/绑定，按目标 triple 命名
-          curl -fL -o "$DIR/librusty_v8_release_${TARGET}.a.gz" \
-            "$BASE/librusty_v8_release_${ARCH}-unknown-linux-gnu.a.gz"
-          curl -fL -o "$DIR/src_binding_release_${TARGET}.rs" \
-            "$BASE/src_binding_release_${ARCH}-unknown-linux-gnu.rs"
-          # host（x86_64-unknown-linux-gnu）：真实 x86_64 库/绑定
-          curl -fL -o "$DIR/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz" \
-            "$BASE/librusty_v8_release_x86_64-unknown-linux-gnu.a.gz"
-          curl -fL -o "$DIR/src_binding_release_x86_64-unknown-linux-gnu.rs" \
-            "$BASE/src_binding_release_x86_64-unknown-linux-gnu.rs"
-          ls -lh "$DIR"
-          gzip -t "$DIR/librusty_v8_release_${TARGET}.a.gz"
-          echo "RUSTY_V8_ARCHIVE=$DIR" >> "$GITHUB_ENV"
+          LIB="$RUNNER_TEMP/librusty_v8.a.gz"
+          BINDINGS="$RUNNER_TEMP/src_binding.rs"
+          curl -fL -o "$LIB" "$BASE/librusty_v8_simdutf_release_${ARCH}-unknown-linux-gnu.a.gz"
+          curl -fL -o "$BINDINGS" "$BASE/src_binding_simdutf_release_${ARCH}-unknown-linux-gnu.rs"
+          ls -lh "$LIB" "$BINDINGS"
+          gzip -t "$LIB"
+          echo "RUSTY_V8_ARCHIVE=$LIB" >> "$GITHUB_ENV"
+          echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
+
+      - name: Patch v8 crate to scope prebuilt artifacts to Android
+        # 让 RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 只对 android target 生效；
+        # host（build script 依赖的 v8）继续走默认的 x86_64 预编译下载。
+        run: |
+          set -euo pipefail
+          cargo fetch --target "${{ matrix.target }}"
+          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
+          SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
+          test -n "$SRC"
+          PATCHED="$RUNNER_TEMP/v8-patched"
+          cp -a "$SRC" "$PATCHED"
+          BUILD_RS="$PATCHED/build.rs"
+          perl -pi -e 's/if let Ok\(custom_archive\) = env::var\("RUSTY_V8_ARCHIVE"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_ARCHIVE").is_ok() { let custom_archive = env::var("RUSTY_V8_ARCHIVE").unwrap();/' "$BUILD_RS"
+          perl -pi -e 's/if let Ok\(binding\) = env::var\("RUSTY_V8_SRC_BINDING_PATH"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_SRC_BINDING_PATH").is_ok() { let binding = env::var("RUSTY_V8_SRC_BINDING_PATH").unwrap();/' "$BUILD_RS"
+          grep -c 't.contains("android")' "$BUILD_RS"
+          cat >> obscura/Cargo.toml <<EOF
+
+          # CI: 用打过补丁的 v8 crate（仅 Android 使用预编译产物）
+          [patch.crates-io]
+          v8 = { path = "$PATCHED" }
+          EOF
+          tail -5 obscura/Cargo.toml
 
       - name: Generate CMake toolchain wrapper
         # btls-sys 调 cmake 时会清掉环境变量，NDK toolchain 读不到 ANDROID_ABI 会回落
@@ -183,19 +197,21 @@ jobs:
           test -f "$BIN"
           file "$BIN"
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -h "$BIN"
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$BIN" | grep NEEDED || true
           du -h "$BIN"
-          # 只打包 obscura 主程序：scrape 需要的 obscura-worker 未构建，先不支持 scrape
           mkdir -p "dist/${{ matrix.abi }}"
           cp "$BIN" "dist/${{ matrix.abi }}/libobscura.so"
           chmod 755 "dist/${{ matrix.abi }}/libobscura.so"
-          sha256sum "dist/${{ matrix.abi }}/libobscura.so"
+          # Rust 的 Android 分支链接的是 c++_shared，运行时需要它
+          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.target }}/libc++_shared.so" "dist/${{ matrix.abi }}/"
+          ls -lh "dist/${{ matrix.abi }}"
+          sha256sum "dist/${{ matrix.abi }}"/*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: obscura-android-${{ matrix.abi }}
-          path: dist/${{ matrix.abi }}/libobscura.so
-          # 已经是压缩过的 ELF，再压一遍没意义
+          path: dist/${{ matrix.abi }}/*
           compression-level: 0
           if-no-files-found: error
           retention-days: 30
