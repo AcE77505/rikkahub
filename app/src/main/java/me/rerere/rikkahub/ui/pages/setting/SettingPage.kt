@@ -68,6 +68,7 @@ import me.rerere.hugeicons.stroke.Package
 import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Tools
 import me.rerere.hugeicons.stroke.ServerStack01
+import me.rerere.hugeicons.stroke.Rocket01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.SmartPhone01
@@ -182,7 +183,7 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
             if (settings.isNotConfigured()) {
                 item {
                     ProviderConfigWarningCard(
-                        onClick = { navController.navigate(Screen.SettingProvider) }
+                        onClick = { navController.navigate(Screen.QuickStart) }
                     )
                 }
             }
@@ -405,6 +406,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                             }
                         },
                         headlineContent = { Text(stringResource(R.string.setting_page_about)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.QuickStart) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Rocket01, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text(stringResource(R.string.setting_page_quick_start_desc)) },
+                        headlineContent = { Text(stringResource(R.string.setting_page_quick_start)) },
                     )
                     item(
                         onClick = {

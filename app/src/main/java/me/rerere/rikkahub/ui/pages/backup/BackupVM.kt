@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.backup
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
@@ -12,9 +13,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.BackupItem
 import me.rerere.rikkahub.data.datastore.BackupSelection
-import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.DEFAULT_BACKUP_ITEMS
 import me.rerere.rikkahub.data.datastore.RestoreMode
 import me.rerere.rikkahub.data.datastore.Settings
@@ -30,6 +31,7 @@ import me.rerere.rikkahub.data.sync.importer.DeepSeekImportAction
 import me.rerere.rikkahub.data.sync.importer.DeepSeekImportDecision
 import me.rerere.rikkahub.data.sync.importer.DeepSeekImportResult
 import me.rerere.rikkahub.data.sync.importer.DeepSeekImporter
+import me.rerere.rikkahub.data.sync.importer.DeepSeekMigrator
 import me.rerere.rikkahub.data.sync.webdav.WebDavBackupItem
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.rikkahub.utils.UiState
@@ -45,6 +47,7 @@ class BackupVM(
     private val s3Sync: S3Sync,
     private val conversationRepository: ConversationRepository,
     private val filesManager: FilesManager,
+    private val deepSeekMigrator: DeepSeekMigrator,
 ) : ViewModel() {
     val settings = settingsStore.settingsFlow.stateIn(
         scope = viewModelScope,
