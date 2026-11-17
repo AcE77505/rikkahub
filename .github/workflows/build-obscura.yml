@@ -2,22 +2,22 @@ name: Build Obscura (Android)
 
 # 为 RikkaHub 交叉编译 obscura 无头浏览器（aarch64 / x86_64 Android）。
 #
-# 不编译 V8 源码：Android 交叉编译下 gn/bindgen 的坑太多（crates.io 的 v8 crate
-# 还裁掉了 icudtl.dat、vendor 和部分 v8/tools）。这里直接用 rusty_v8 官方发布的
-# 「同架构 Linux 预编译静态库 + 预生成 bindings」：
-#   - 静态库是 .o 集合，用 NDK clang 链接进 Android 可执行文件
-#   - bindings 描述 V8 的 C++ 接口，LP64 下与 Android ABI 一致
+# 两个 job：
+#   1. snapshot：在原生 arm64 / x86_64 Linux runner 上编译 obscura-js（target == host），
+#      由 obscura 自己的 build.rs 生成架构正确的 OBSCURA_SNAPSHOT.bin。
+#      V8 快照与架构强绑定，x86_64 host 生成的快照不能在 arm64 设备上反序列化。
+#   2. build：用 satouriko/rusty-v8-mobile 的 Android 预编译 V8 静态库交叉编译
+#      obscura，并通过 OBSCURA_SNAPSHOT_FILE 注入第 1 步的快照。
 #
-# 关键 patch：
-#   1) RUSTY_V8_ARCHIVE / RUSTY_V8_SRC_BINDING_PATH 是全局环境变量，而 rusty_v8 还会
-#      为 host（build script 依赖）再构建一份 v8。不区分的话 host 会拿到 Android 架构的
-#      静态库（rust-lld: incompatible with elf64-x86-64）。所以 patch v8 crate 的 build.rs，
-#      让这两个变量只对 android target 生效，host 走默认的 x86_64 预编译下载。
-#   2) deno_core 0.412 的 uv_compat 只为 linux/macos 实现了 errno_location，Android 会命中
-#      compile_error!。补一个 __errno()（bionic 提供）分支。
-#
-# 产物：obscura-android-<abi> artifact，含 libobscura.so 与 libc++_shared.so，
-# 下载后放进 app/src/main/jniLibs/<abi>/。
+# 关键点：
+#   - rusty_v8 官方没有 android 预编译库；denoland 的 linux-gnu 库在 bionic 上会缺
+#     大量 glibc 符号（__errno_location/__xstat64/catopen/...）。必须用 Android 版库。
+#   - satouriko 的 Android 库只有 C++ 形式的 simdutf 实现，而 deno_core 要 simdutf__*
+#     C 接口；链接前用 gen_simdutf_shim.py 生成 43 个转发函数并合并进 V8 归档。
+#   - 从 NDK compiler-rt 取 clear_cache.o；不要自己用 __builtin___clear_cache，
+#     在 aarch64 上会编译成对 __clear_cache 的调用，导致无限递归。
+#   - 删除 obscura-js 的 [build-dependencies] deno_core，避免交叉编译时为 host
+#     构建 V8；快照改由 OBSCURA_SNAPSHOT_FILE 注入。
 
 on:
   workflow_dispatch:
@@ -33,6 +33,7 @@ on:
   push:
     paths:
       - '.github/workflows/build-obscura.yml'
+      - '.github/obscura/**'
 
 permissions:
   contents: read
@@ -41,9 +42,79 @@ concurrency:
   group: build-obscura-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  OBSCURA_REF: ${{ inputs.obscura_ref || 'v0.2.7' }}
+  OBSCURA_FEATURES: ${{ inputs.features || 'render,stealth' }}
+  NDK_VERSION: r26d
+  ANDROID_API: '29'
+  V8_VERSION: '150.4.0'
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+
 jobs:
+  snapshot:
+    name: snapshot ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: arm64
+            os: ubuntu-24.04-arm
+            artifact: obscura-snapshot-arm64
+          - label: x64
+            os: ubuntu-22.04
+            artifact: obscura-snapshot-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out obscura
+        uses: actions/checkout@v4
+        with:
+          repository: h4ckf0r0day/obscura
+          ref: ${{ env.OBSCURA_REF }}
+          path: obscura
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev golang-go ninja-build
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build obscura-js natively (generates the target-arch snapshot)
+        working-directory: obscura
+        run: |
+          set -euo pipefail
+          export LIBCLANG_PATH="$(llvm-config --libdir)"
+          # target == host：build.rs 走 native 分支，用 host V8 生成快照
+          cargo build --release -p obscura-js
+
+      - name: Collect snapshot
+        run: |
+          set -euo pipefail
+          SNAPSHOT=$(find obscura/target/release/build \
+            -path '*obscura-js*/out/OBSCURA_SNAPSHOT.bin' \
+            -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+          test -n "$SNAPSHOT"
+          test -s "$SNAPSHOT"
+          mkdir -p dist
+          cp "$SNAPSHOT" dist/OBSCURA_SNAPSHOT.bin
+          ls -lh dist/OBSCURA_SNAPSHOT.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/OBSCURA_SNAPSHOT.bin
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
   build:
     name: obscura ${{ matrix.abi }}
+    needs: snapshot
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     strategy:
@@ -52,32 +123,22 @@ jobs:
         include:
           - target: aarch64-linux-android
             abi: arm64-v8a
-            linux_arch: aarch64
+            arch: aarch64
+            snapshot_artifact: obscura-snapshot-arm64
           - target: x86_64-linux-android
             abi: x86_64
-            linux_arch: x86_64
-
-    env:
-      OBSCURA_REF: ${{ inputs.obscura_ref || 'v0.2.7' }}
-      OBSCURA_FEATURES: ${{ inputs.features || 'render,stealth' }}
-      NDK_VERSION: r26d
-      ANDROID_API: '24'
-      CARGO_INCREMENTAL: '0'
-      CARGO_TERM_COLOR: always
-
+            arch: x86_64
+            snapshot_artifact: obscura-snapshot-x64
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang libclang-dev llvm-dev unzip python3 curl git
-          # libclang-dev 的库在 /usr/lib/llvm-<ver>/lib；llvm-config 由 llvm-dev 提供
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev golang-go unzip python3 curl git ninja-build
           LIBCLANG_DIR="$(llvm-config --libdir)"
           echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
           test -e "$LIBCLANG_DIR/libclang.so"
-          clang --version
-          cmake --version
 
       - name: Set up Android NDK
         run: |
@@ -85,7 +146,9 @@ jobs:
           curl -fsSL -o "/tmp/${ZIP}" "https://dl.google.com/android/repository/${ZIP}"
           sudo unzip -q "/tmp/${ZIP}" -d /opt
           echo "ANDROID_NDK_HOME=/opt/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "/opt/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          NDK_BIN="/opt/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "NDK_BIN=$NDK_BIN" >> "$GITHUB_ENV"
+          echo "$NDK_BIN" >> "$GITHUB_PATH"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -93,9 +156,47 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Check out obscura
+        uses: actions/checkout@v4
+        with:
+          repository: h4ckf0r0day/obscura
+          ref: ${{ env.OBSCURA_REF }}
+          path: obscura
+
+      - name: Download architecture-correct V8 snapshot
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.snapshot_artifact }}
+          path: snapshot
+
+      - name: Prepare prebuilt V8 (Android) and merge shims
         run: |
-          git clone --depth=1 --branch "$OBSCURA_REF" https://github.com/h4ckf0r0day/obscura.git obscura
-          git -C obscura rev-parse HEAD
+          set -euo pipefail
+          BASE="https://github.com/satouriko/rusty-v8-mobile/releases/download/v${V8_VERSION}"
+          curl -fL -o v8.a.gz "$BASE/librusty_v8_release_${{ matrix.target }}.a.gz"
+          curl -fL -o src_binding.rs "$BASE/src_binding_release_${{ matrix.target }}.rs"
+          gzip -dc v8.a.gz > librusty_v8.a
+          ls -lh librusty_v8.a
+          echo "RUSTY_V8_ARCHIVE=$PWD/librusty_v8.a" >> "$GITHUB_ENV"
+          echo "RUSTY_V8_SRC_BINDING_PATH=$PWD/src_binding.rs" >> "$GITHUB_ENV"
+
+          mkdir -p v8shim
+          cd v8shim
+          "$NDK_BIN/llvm-ar" x ../librusty_v8.a simdutf.o
+          "$NDK_BIN/llvm-nm" simdutf.o > simdutf.syms
+          python3 "$GITHUB_WORKSPACE/.github/obscura/gen_simdutf_shim.py" simdutf.syms simdutf_shim.cc
+          "$NDK_BIN/${{ matrix.target }}${ANDROID_API}-clang++" \
+            -c simdutf_shim.cc -o simdutf_shim.o -O2 -fPIC -std=c++17
+          "$NDK_BIN/${{ matrix.target }}${ANDROID_API}-clang++" \
+            -c "$GITHUB_WORKSPACE/.github/obscura/abort_shim.cc" -o abort_shim.o -O2 -fPIC -std=c++17
+
+          CRT=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" \
+            -name "libclang_rt.builtins-${{ matrix.arch }}-android.a" | head -1)
+          test -n "$CRT"
+          "$NDK_BIN/llvm-ar" x "$CRT" clear_cache.c.o
+          cp ../librusty_v8.a ../librusty_v8_merged.a
+          "$NDK_BIN/llvm-ar" q ../librusty_v8_merged.a simdutf_shim.o abort_shim.o clear_cache.c.o
+          "$NDK_BIN/llvm-ar" s ../librusty_v8_merged.a
+          echo "RUSTY_V8_ARCHIVE=$PWD/../librusty_v8_merged.a" >> "$GITHUB_ENV"
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -103,26 +204,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ vars.OBSCURA_CACHE_REV || '1' }}
+          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ env.V8_VERSION }}
 
-      - name: Prepare prebuilt V8 artifacts
-        # deno_core 启用了 simdutf feature，必须用 _simdutf_ 变体的库与 bindings。
-        run: |
-          set -euo pipefail
-          V8_VER=$(awk -F'"' '/^name = "v8"$/{f=1} f&&/^version = /{print $2; exit}' obscura/Cargo.lock)
-          echo "v8 crate version: $V8_VER"
-          ARCH="${{ matrix.linux_arch }}"
-          BASE="https://github.com/denoland/rusty_v8/releases/download/v${V8_VER}"
-          LIB="$RUNNER_TEMP/librusty_v8.a.gz"
-          BINDINGS="$RUNNER_TEMP/src_binding.rs"
-          curl -fL -o "$LIB" "$BASE/librusty_v8_simdutf_release_${ARCH}-unknown-linux-gnu.a.gz"
-          curl -fL -o "$BINDINGS" "$BASE/src_binding_simdutf_release_${ARCH}-unknown-linux-gnu.rs"
-          ls -lh "$LIB" "$BINDINGS"
-          gzip -t "$LIB"
-          echo "RUSTY_V8_ARCHIVE=$LIB" >> "$GITHUB_ENV"
-          echo "RUSTY_V8_SRC_BINDING_PATH=$BINDINGS" >> "$GITHUB_ENV"
-
-      - name: Patch v8 and deno_core for Android
+      - name: Patch v8 / deno_core / obscura-js for Android
         working-directory: obscura
         run: |
           set -euo pipefail
@@ -131,26 +215,24 @@ jobs:
           DENO_VER=$(awk -F'"' '/^name = "deno_core"$/{f=1} f&&/^version = /{print $2; exit}' Cargo.lock)
           V8_SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "v8-$V8_VER" | head -n1)
           DENO_SRC=$(find "$HOME/.cargo/registry/src" -maxdepth 2 -type d -name "deno_core-$DENO_VER" | head -n1)
-          test -n "$V8_SRC"
-          test -n "$DENO_SRC"
+          test -n "$V8_SRC"; test -n "$DENO_SRC"
+
           V8_PATCHED="$RUNNER_TEMP/v8-patched"
           DENO_PATCHED="$RUNNER_TEMP/deno_core-patched"
           cp -a "$V8_SRC" "$V8_PATCHED"
           cp -a "$DENO_SRC" "$DENO_PATCHED"
 
-          # --- v8：预编译产物只对 android target 生效 ---
+          # v8：预编译产物只对 android target 生效
           BUILD_RS="$V8_PATCHED/build.rs"
           perl -pi -e 's/if let Ok\(custom_archive\) = env::var\("RUSTY_V8_ARCHIVE"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_ARCHIVE").is_ok() { let custom_archive = env::var("RUSTY_V8_ARCHIVE").unwrap();/' "$BUILD_RS"
           perl -pi -e 's/if let Ok\(binding\) = env::var\("RUSTY_V8_SRC_BINDING_PATH"\) \{/if env::var("TARGET").map(|t| t.contains("android")).unwrap_or(false) \&\& env::var("RUSTY_V8_SRC_BINDING_PATH").is_ok() { let binding = env::var("RUSTY_V8_SRC_BINDING_PATH").unwrap();/' "$BUILD_RS"
           grep -c 't.contains("android")' "$BUILD_RS"
 
-          # --- deno_core：Android 的 errno_location ---
+          # deno_core：Android 的 errno_location（bionic 用 __errno）
           TTY_RS="$DENO_PATCHED/uv_compat/tty.rs"
           perl -0pi -e 's/(  #\[cfg\(target_os = "linux"\)\]\n  fn errno_location\(\) -> \*mut c_int \{\n    unsafe extern "C" \{\n      fn __errno_location\(\) -> \*mut c_int;\n    \}\n    unsafe \{ __errno_location\(\) \}\n  \}\n)/$1\n  #[cfg(target_os = "android")]\n  fn errno_location() -> *mut c_int {\n    unsafe extern "C" {\n      fn __errno() -> *mut c_int;\n    }\n    unsafe { __errno() }\n  }\n/' "$TTY_RS"
           perl -pi -e 's/not\(any\(target_os = "macos", target_os = "linux"\)\)/not(any(target_os = "macos", target_os = "linux", target_os = "android"))/' "$TTY_RS"
           grep -q '__errno()' "$TTY_RS"
-          grep -q 'target_os = "linux", target_os = "android"' "$TTY_RS"
-          sed -n '384,418p' "$TTY_RS"
 
           cat >> Cargo.toml <<EOF
 
@@ -159,11 +241,33 @@ jobs:
           v8 = { path = "$V8_PATCHED" }
           deno_core = { path = "$DENO_PATCHED" }
           EOF
-          tail -6 Cargo.toml
+
+          # obscura-js：快照改为由 OBSCURA_SNAPSHOT_FILE 注入，删除 host 侧 deno_core 依赖
+          cat > crates/obscura-js/build.rs <<'RUST'
+          use std::path::PathBuf;
+
+          fn main() {
+              println!("cargo:rustc-check-cfg=cfg(obscura_external_bootstrap)");
+              println!("cargo:rerun-if-changed=build.rs");
+              println!("cargo:rerun-if-env-changed=OBSCURA_SNAPSHOT_FILE");
+
+              let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+              let snapshot_path = out_dir.join("OBSCURA_SNAPSHOT.bin");
+
+              // V8 快照与架构强绑定；交叉编译时由 snapshot job 注入目标架构的快照。
+              let snapshot_file = std::env::var("OBSCURA_SNAPSHOT_FILE")
+                  .expect("OBSCURA_SNAPSHOT_FILE must be set to an architecture-correct V8 snapshot");
+              std::fs::copy(&snapshot_file, &snapshot_path)
+                  .expect("Failed to copy OBSCURA_SNAPSHOT_FILE");
+
+              println!("cargo:rustc-cfg=obscura_external_bootstrap");
+              println!("cargo:rustc-env=OBSCURA_SNAPSHOT_PATH={}", snapshot_path.display());
+          }
+          RUST
+          sed -i '/^\[build-dependencies\]$/,/^$/d' crates/obscura-js/Cargo.toml
+          ! grep -q '^\[build-dependencies\]$' crates/obscura-js/Cargo.toml
 
       - name: Generate CMake toolchain wrapper
-        # btls-sys 调 cmake 时会清掉环境变量，NDK toolchain 读不到 ANDROID_ABI 会回落
-        # 到 armeabi-v7a（x86_64 下直接报 -march=armv7-a 不支持）。用包装文件固定 ABI。
         run: |
           TOOLCHAIN="$RUNNER_TEMP/android-${{ matrix.abi }}.cmake"
           cat > "$TOOLCHAIN" <<EOF
@@ -172,62 +276,46 @@ jobs:
           set(ANDROID_NDK "$ANDROID_NDK_HOME" CACHE PATH "")
           include("$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake")
           EOF
-          cat "$TOOLCHAIN"
           echo "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" >> "$GITHUB_ENV"
-
-      - name: Configure cargo linker
-        run: |
-          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          cat >> obscura/.cargo/config.toml <<EOF
-
-          [target.${{ matrix.target }}]
-          linker = "$NDK_BIN/${{ matrix.target }}${ANDROID_API}-clang"
-          # Android 15+ 要求 16 KB 页对齐
-          rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
-          EOF
-          cat obscura/.cargo/config.toml
 
       - name: Build obscura
         working-directory: obscura
         env:
           ANDROID_ABI: ${{ matrix.abi }}
-          ANDROID_PLATFORM: android-24
+          ANDROID_PLATFORM: android-29
+          CXXSTDLIB: c++_static
+          BORING_BSSL_RUST_CPPLIB: c++_static
+          GO_EXECUTABLE: /usr/bin/go
+          OBSCURA_SNAPSHOT_FILE: ${{ github.workspace }}/snapshot/OBSCURA_SNAPSHOT.bin
         run: |
-          set -o pipefail
-          cargo build \
-            --profile release-dist \
-            --target "${{ matrix.target }}" \
-            -p obscura-cli \
-            --bin obscura \
-            --features "$OBSCURA_FEATURES" 2>&1 | tee "${GITHUB_WORKSPACE}/build-${{ matrix.abi }}.log"
+          set -euo pipefail
+          TARGET="${{ matrix.target }}"
+          TARGET_UPPER=$(echo "$TARGET" | tr 'a-z-' 'A-Z_')
+          export "CC_${TARGET//-/_}=$NDK_BIN/${TARGET}${ANDROID_API}-clang"
+          export "CXX_${TARGET//-/_}=$NDK_BIN/${TARGET}${ANDROID_API}-clang++"
+          export "AR_${TARGET//-/_}=$NDK_BIN/llvm-ar"
+          export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$NDK_BIN/${TARGET}${ANDROID_API}-clang"
+          export "CARGO_TARGET_${TARGET_UPPER}_RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384"
+          export RUSTY_V8_ARCHIVE="$GITHUB_WORKSPACE/librusty_v8_merged.a"
+          export RUSTY_V8_SRC_BINDING_PATH="$GITHUB_WORKSPACE/src_binding.rs"
+          test -s "$OBSCURA_SNAPSHOT_FILE"
+          cargo build --profile release-dist --target "$TARGET" \
+            -p obscura-cli --bin obscura --features "$OBSCURA_FEATURES"
 
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-${{ matrix.abi }}
-          path: build-${{ matrix.abi }}.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Inspect binary
+      - name: Inspect and stage binary
         run: |
+          set -euo pipefail
           BIN="obscura/target/${{ matrix.target }}/release-dist/obscura"
           test -f "$BIN"
           file "$BIN"
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -h "$BIN"
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$BIN" | grep NEEDED || true
+          "$NDK_BIN/llvm-readelf" -d "$BIN" | grep NEEDED || true
           du -h "$BIN"
           mkdir -p "dist/${{ matrix.abi }}"
           cp "$BIN" "dist/${{ matrix.abi }}/libobscura.so"
           chmod 755 "dist/${{ matrix.abi }}/libobscura.so"
-          # Rust 的 Android 分支链接的是 c++_shared，运行时需要它
-          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.target }}/libc++_shared.so" "dist/${{ matrix.abi }}/"
-          ls -lh "dist/${{ matrix.abi }}"
           sha256sum "dist/${{ matrix.abi }}"/*
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: obscura-android-${{ matrix.abi }}
           path: dist/${{ matrix.abi }}/*
