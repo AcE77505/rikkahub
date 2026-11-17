@@ -137,6 +137,16 @@ class McpToolSchemaTest {
     }
 
     @Test
+    fun `duplicate required entries are removed`() {
+        val schema = ToolSchema(
+            properties = json("""{"adds":{"type":"array"},"editSessionId":{"type":"string"},"workspaceId":{"type":"string"}}"""),
+            required = listOf("workspaceId", "editSessionId", "adds", "adds"),
+        ).toSchema() as InputSchema.Obj
+
+        assertEquals(listOf("workspaceId", "editSessionId", "adds"), schema.required)
+    }
+
+    @Test
     fun `unresolvable refs are dropped so no dangling ref is sent`() {
         val result = convert(
             properties = """

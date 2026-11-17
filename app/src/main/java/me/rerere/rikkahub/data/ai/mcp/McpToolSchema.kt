@@ -24,7 +24,9 @@ internal fun ToolSchema.toSchema(): InputSchema {
     })
     return InputSchema.Obj(
         properties = inlineSchemaMap(properties, root, emptySet()),
-        required = required,
+        // 个别 MCP 服务器会在 required 里重复同一个名字；部分 provider 的 schema 校验
+        // 会直接拒绝整个请求（"has non-unique elements"），这里去重兜底。
+        required = required?.distinct(),
     )
 }
 
