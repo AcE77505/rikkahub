@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.model.SubAgent
 import me.rerere.rikkahub.data.model.SubAgentToolDefaults
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.sync.s3.S3Config
+import me.rerere.rikkahub.ui.components.ui.ToolNameDisplay
 import me.rerere.rikkahub.ui.theme.CustomTheme
 import me.rerere.rikkahub.ui.theme.PresetThemes
 import me.rerere.search.SearchCommonOptions
@@ -61,7 +62,7 @@ data class Settings(
     val enableSuggestion: Boolean = true,
     val suggestionPrompt: String = DEFAULT_SUGGESTION_PROMPT,
     // 回复结束后上下文占用达到聊天模型上下文窗口的 autoCompressThreshold 时自动压缩历史
-    val enableAutoCompress: Boolean = false,
+    val enableAutoCompress: Boolean = true,
     val autoCompressThreshold: Float = 0.8f,
     val ocrModelId: Uuid = Uuid.random(),
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
@@ -88,6 +89,8 @@ data class Settings(
     val quickMessages: List<QuickMessage> = emptyList(),
     // 全局工具开关（含 4 个工作区工具），所有助手共用；不再按助手绑定工作区
     val localTools: List<LocalToolOption> = emptyList(),
+    // 工具设置项里工具标识符的展示方式；默认长按查看，避免干扰标题和描述
+    val toolNameDisplay: ToolNameDisplay = ToolNameDisplay.LONG_PRESS,
     // 工具审批的用户覆盖项（toolName -> needsApproval），未覆盖的工具沿用 WorkspaceToolDefaultApprovals
     val toolApprovals: Map<String, Boolean> = emptyMap(),
     // 工具提示词覆盖（工具名 -> 文本）；没列出的工具使用内置默认
@@ -179,6 +182,7 @@ data class DisplaySetting(
     val userNickname: String = "",
     val showUserAvatar: Boolean = true,
     val showAssistantBubble: Boolean = false,
+    val splitAssistantBubbleByParagraph: Boolean = false,
     val bubbleOpacity: Float = 1.0f,
     val showModelIcon: Boolean = true,
     val showModelName: Boolean = true,

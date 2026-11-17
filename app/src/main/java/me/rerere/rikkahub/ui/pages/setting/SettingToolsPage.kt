@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,7 +46,6 @@ import me.rerere.hugeicons.stroke.FileView
 import me.rerere.hugeicons.stroke.FolderCode
 import me.rerere.hugeicons.stroke.FolderOpen
 import me.rerere.hugeicons.stroke.PencilEdit01
-import me.rerere.hugeicons.stroke.QuillWrite01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
 import androidx.compose.runtime.remember
@@ -64,6 +64,9 @@ import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
 import me.rerere.rikkahub.ui.components.ui.CardGroupScope
+import me.rerere.rikkahub.ui.components.ui.ToolNameDialog
+import me.rerere.rikkahub.ui.components.ui.ToolNameDisplay
+import me.rerere.rikkahub.ui.components.ui.ToolNameLabel
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
@@ -124,18 +127,14 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         headlineContent = { Text(stringResource(R.string.setting_tools_workspace)) },
                         trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
                     )
-                    item(
-                        onClick = { navController.navigate(Screen.SettingWorkspacePrompt) },
-                        leadingContent = { CardGroupIcon(HugeIcons.QuillWrite01) },
-                        supportingContent = { Text(stringResource(R.string.setting_tools_workspace_prompt_desc)) },
-                        headlineContent = { Text(stringResource(R.string.setting_tools_workspace_prompt)) },
-                        trailingContent = { CardGroupIcon(HugeIcons.ArrowRight01) },
-                    )
                 }
             }
 
             item("switches") {
-                CardGroup(title = { Text(stringResource(R.string.setting_tools_switches)) }) {
+                CardGroup(
+                    title = { Text(stringResource(R.string.setting_tools_switches)) },
+                    toolNameDisplay = settings.toolNameDisplay,
+                ) {
                     val readEnabled = LocalToolOption.WorkspaceReadFile in settings.localTools
                     toolSwitch(
                         checked = readEnabled,
@@ -143,6 +142,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         icon = HugeIcons.FileView,
                         title = R.string.workspace_tool_read_file,
                         description = R.string.workspace_tool_read_file_desc,
+                        toolNames = listOf("read_file"),
                     )
                     toolSwitch(
                         checked = readEnabled && LocalToolOption.WorkspaceWriteFile in settings.localTools,
@@ -151,6 +151,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         icon = HugeIcons.FileEdit,
                         title = R.string.workspace_tool_write_file,
                         description = R.string.workspace_tool_write_file_desc,
+                        toolNames = listOf("write_file"),
                     )
                     toolSwitch(
                         checked = readEnabled && LocalToolOption.WorkspaceEditFile in settings.localTools,
@@ -159,6 +160,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         icon = HugeIcons.PencilEdit01,
                         title = R.string.workspace_tool_edit_file,
                         description = R.string.workspace_tool_edit_file_desc,
+                        toolNames = listOf("edit_file"),
                     )
                     toolSwitch(
                         checked = LocalToolOption.WorkspaceShell in settings.localTools,
@@ -166,6 +168,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         icon = HugeIcons.ComputerTerminal01,
                         title = R.string.workspace_tool_shell,
                         description = R.string.workspace_tool_shell_desc,
+                        toolNames = listOf("shell", "shell_output", "shell_kill"),
                     )
                     toolSwitch(
                         checked = LocalToolOption.AssistantConfig in settings.localTools,
@@ -173,6 +176,16 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                         icon = HugeIcons.Tools,
                         title = R.string.tool_assistant_config,
                         description = R.string.tool_assistant_config_desc,
+                        toolNames = listOf(
+                            "list_assistants",
+                            "get_assistant",
+                            "update_assistant",
+                            "list_assistant_memories",
+                            "read_assistant_memory",
+                            "write_assistant_memory",
+                            "delete_assistant_memory",
+                            "import_assistant_memory",
+                        ),
                     )
                 }
             }
@@ -346,6 +359,36 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
                     )
                 }
             }
+
+            item("toolNameDisplay") {
+                CardGroup {
+                    formItem(
+                        headlineContent = {
+                            Text(stringResource(R.string.setting_tools_tool_identifier_display_title))
+                        },
+                        supportingContent = {
+                            Text(stringResource(R.string.setting_tools_tool_identifier_display_desc))
+                        },
+                    ) {
+                        ConnectedChoiceButtons(
+                            options = ToolNameDisplay.entries,
+                            selected = settings.toolNameDisplay,
+                            onSelect = { mode ->
+                                vm.updateSettings { it.copy(toolNameDisplay = mode) }
+                            },
+                        ) { mode, selected ->
+                            ConnectedChoiceLabel(
+                                text = when (mode) {
+                                    ToolNameDisplay.OFF -> stringResource(R.string.setting_tools_tool_identifier_display_off)
+                                    ToolNameDisplay.LONG_PRESS -> stringResource(R.string.setting_tools_tool_identifier_display_long_press)
+                                    ToolNameDisplay.ALWAYS -> stringResource(R.string.setting_tools_tool_identifier_display_always)
+                                },
+                                selected = selected,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -372,6 +415,7 @@ fun SettingToolsPage(vm: SettingVM = koinViewModel()) {
     if (approvalDialogVisible) {
         ToolApprovalDialog(
             approvals = settings.toolApprovals,
+            toolNameDisplay = settings.toolNameDisplay,
             onApprovalChange = { toolName, needsApproval ->
                 vm.updateSettings {
                     it.copy(toolApprovals = it.toolApprovals + (toolName to needsApproval))
@@ -400,12 +444,14 @@ private fun CardGroupScope.toolSwitch(
     icon: ImageVector,
     title: Int,
     description: Int,
+    toolNames: List<String>,
     enabled: Boolean = true,
 ) {
     switchItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
         enabled = enabled,
+        toolNames = toolNames,
         // 图标底色跟着开关状态变化
         leadingContent = {
             CardGroupIcon(
@@ -431,9 +477,14 @@ private fun CardGroupScope.toolSwitch(
 @Composable
 private fun ToolApprovalDialog(
     approvals: Map<String, Boolean>,
+    toolNameDisplay: ToolNameDisplay,
     onApprovalChange: (String, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var previewToolNames by remember { mutableStateOf<List<String>?>(null) }
+    if (previewToolNames != null) {
+        ToolNameDialog(toolNames = previewToolNames.orEmpty()) { previewToolNames = null }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.setting_tools_tool_approval)) },
@@ -453,14 +504,33 @@ private fun ToolApprovalDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 4.dp)
+                            .then(
+                                if (toolNameDisplay == ToolNameDisplay.LONG_PRESS) {
+                                    Modifier.combinedClickable(
+                                        onClick = {},
+                                        onLongClick = { previewToolNames = listOf(toolName) },
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = stringResource(labelRes),
-                            modifier = Modifier.padding(end = 12.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = stringResource(labelRes),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (toolNameDisplay == ToolNameDisplay.ALWAYS) {
+                                ToolNameLabel(listOf(toolName))
+                            }
+                        }
                         Switch(
                             checked = needsApproval,
                             onCheckedChange = { onApprovalChange(toolName, it) },

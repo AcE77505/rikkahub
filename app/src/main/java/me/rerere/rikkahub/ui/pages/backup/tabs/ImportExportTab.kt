@@ -41,6 +41,7 @@ import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupScope
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.pages.backup.BackupVM
+import me.rerere.rikkahub.data.sync.importer.DeepSeekAppExportException
 import me.rerere.rikkahub.ui.pages.backup.DeepSeekRestoreResult
 import me.rerere.rikkahub.ui.pages.backup.components.BackupActionIcon
 import me.rerere.rikkahub.ui.pages.backup.components.BackupAssistantPickerDialog
@@ -226,7 +227,7 @@ fun ImportExportTab(
                         }
 
                         "deepseek" -> {
-                            // DeepSeek 官方数据导出：ZIP 内只有 conversations.json 与 user.json
+                            // DeepSeek App 端数据导出：manifest.json + chat_sessions/
                             val tempFile =
                                 File(context.cacheDir, "temp_deepseek_${System.currentTimeMillis()}.zip")
                             var keepTempFile = false
@@ -278,8 +279,14 @@ fun ImportExportTab(
                     }
                 }.onFailure { e ->
                     e.printStackTrace()
+                    // 网页版导出的包没有 manifest，提示用户重新从 App 导出
+                    val message = if (e is DeepSeekAppExportException) {
+                        context.getString(R.string.backup_page_import_deepseek_app_only)
+                    } else {
+                        e.message.orEmpty()
+                    }
                     toaster.show(
-                        context.getString(R.string.backup_page_restore_failed, e.message ?: ""),
+                        context.getString(R.string.backup_page_restore_failed, message),
                         type = ToastType.Error
                     )
                 }

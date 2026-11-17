@@ -39,8 +39,7 @@ import me.rerere.hugeicons.stroke.VolumeHigh
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.ai.tools.local.BROWSER_FETCH_TOOL_NAME
-import me.rerere.rikkahub.data.ai.tools.local.BROWSER_SCREENSHOT_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.OBSCURA_CLI_PROMPT_KEY
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.phoneuse.PhoneUseManager
 import me.rerere.rikkahub.phoneuse.isFloatingChatWindowOn
@@ -159,7 +158,13 @@ private fun AssistantLocalToolContent(
             return
         }
         val newLocalTools = if (enabled) {
-            enabledTools + option
+            // CLI 依赖工作区 shell；截图要靠 read_file 回传图片，一并打开这两个工作区工具
+            enabledTools + option +
+                if (option == LocalToolOption.ObscuraCli) {
+                    setOf(LocalToolOption.WorkspaceShell, LocalToolOption.WorkspaceReadFile)
+                } else {
+                    emptySet()
+                }
         } else {
             enabledTools - option
         }
@@ -270,10 +275,10 @@ private fun AssistantLocalToolContent(
                 description = R.string.assistant_page_local_tools_chart_display_desc,
             )
             toolItem(
-                option = LocalToolOption.Browser,
+                option = LocalToolOption.ObscuraCli,
                 icon = HugeIcons.Internet,
-                title = R.string.assistant_page_local_tools_browser_title,
-                description = R.string.assistant_page_local_tools_browser_desc,
+                title = R.string.assistant_page_local_tools_obscura_cli_title,
+                description = R.string.assistant_page_local_tools_obscura_cli_desc,
             )
             // 只有 github 渠道的 Android 11 及以上才有
             if (PhoneUseManager.isSupported) {
@@ -308,7 +313,8 @@ private fun LocalToolOption.aiToolNames(): List<String> = when (this) {
     LocalToolOption.ScreenTime -> listOf("get_screen_time")
     LocalToolOption.Calendar -> listOf("calendar_query", "calendar_create")
     LocalToolOption.ChartDisplay -> listOf("chart_display")
-    LocalToolOption.Browser -> listOf(BROWSER_FETCH_TOOL_NAME, BROWSER_SCREENSHOT_TOOL_NAME)
+    LocalToolOption.ObscuraCli -> listOf(OBSCURA_CLI_PROMPT_KEY)
+    LocalToolOption.Browser -> emptyList()
     LocalToolOption.JavascriptEngine,
     LocalToolOption.PhoneUse,
     LocalToolOption.WorkspaceReadFile,

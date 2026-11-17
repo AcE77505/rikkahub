@@ -648,7 +648,7 @@
   <string name="safe_mode_crash_report">تقرير التعطل</string>
   <string name="safe_mode_current_assistant">المساعد الحالي: %s</string>
   <string name="safe_mode_default_assistant">المساعد الافتراضي</string>
-  <string name="safe_mode_description">تعطل التطبيق عند آخر تشغيل. يمكنك التبديل إلى مساعد مختلف لحل المشكلة.</string>
+  <string name="safe_mode_description">تعطل التطبيق عند آخر تشغيل.</string>
   <string name="safe_mode_enter_app">دخول التطبيق</string>
   <string name="safe_mode_switch_assistant">تبديل المساعد</string>
   <string name="safe_mode_title">الوضع الآمن</string>
@@ -1878,4 +1878,11 @@
   <string name="chat_message_tool_phone_use_open_app_name">فتح التطبيق: %1$s</string>
   <string name="chat_message_tool_phone_use_list_apps">عرض التطبيقات</string>
   <string name="chat_message_tool_phone_use_wait">انتظر %1$s ثانية</string>
+  <string name="safe_mode_large_fields_title">بيانات ضخمة</string>
+  <string name="safe_mode_large_fields_chars">%1$.1f مليون حرف</string>
+  <string name="safe_mode_clear">مسح</string>
+  <string name="safe_mode_clear_title">مسح %1$s؟</string>
+  <string name="safe_mode_clear_message">هذه البيانات كبيرة بما يكفي لاستنفاد ذاكرة التطبيق. المسح يعيدها إلى القيمة الافتراضية ولا يمكن التراجع عنه.</string>
+  <string name="setting_display_page_split_assistant_bubble_title">تقسيم الفقاعات حسب الفقرة</string>
+  <string name="setting_display_page_split_assistant_bubble_desc">إظهار كل فقرة من رد المساعد في فقاعة منفصلة</string>
 </resources>

@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.backup
 
+import android.app.Application
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
@@ -13,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.BackupItem
 import me.rerere.rikkahub.data.datastore.BackupSelection
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.DEFAULT_BACKUP_ITEMS
 import me.rerere.rikkahub.data.datastore.RestoreMode
 import me.rerere.rikkahub.data.datastore.Settings
@@ -37,6 +39,7 @@ import kotlin.uuid.Uuid
 private const val TAG = "BackupVM"
 
 class BackupVM(
+    private val context: Application,
     private val settingsStore: SettingsStore,
     private val webDavSync: WebDavSync,
     private val s3Sync: S3Sync,
@@ -276,13 +279,38 @@ class BackupVM(
             assistantId = assistantId,
             decisions = decisions,
             existingIds = preview.existingIds,
+            saveAttachment = { attachment ->
+                // 单个附件保存失败时保留占位文本，不让整次导入失败
+                runCatching {
+                    val entity = filesManager.saveUploadFromBytes(
+                        bytes = attachment.bytes,
+                        displayName = attachment.fileName,
+                        mimeType = attachment.mimeType,
+                    )
+                    filesManager.getFile(entity).toUri().toString()
+                }.onFailure {
+                    Log.e(TAG, "restoreFromDeepSeek: save attachment ${attachment.fileName} failed", it)
+                }.getOrNull()
+            },
+            formatMissingAttachment = { name ->
+                context.getString(R.string.backup_page_import_deepseek_missing_attachment, name)
+            },
             onConversation = { conversation, action ->
-                // 覆盖：先删掉本地会话（节点、收藏、FTS 一并清理），再写入导出内容
-                if (action == DeepSeekImportAction.OVERWRITE) {
-                    conversationRepository.deleteConversation(conversation)
+                runCatching {
+                    // 覆盖：先删掉本地会话（节点、收藏、FTS 一并清理），再写入导出内容
+                    if (action == DeepSeekImportAction.OVERWRITE) {
+                        conversationRepository.deleteConversation(conversation)
+                    }
+                    conversationRepository.insertConversation(conversation)
+                    importedConversations++
+                }.onFailure {
+                    Log.e(
+                        TAG,
+                        "restoreFromDeepSeek: import conversation failed: ${conversation.id} ${conversation.title}",
+                        it,
+                    )
+                    throw it
                 }
-                conversationRepository.insertConversation(conversation)
-                importedConversations++
             },
         )
 

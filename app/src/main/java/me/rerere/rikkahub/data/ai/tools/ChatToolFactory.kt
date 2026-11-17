@@ -65,9 +65,17 @@ class ChatToolFactory(
     ): List<Tool> {
         // 工作区工具不再依赖助手绑定：开关在设置里，目标是被声明的工作区
         val declaredLocal = workspaceRepository.getDeclaredLocal()
+        // 过长的输出存成文件让模型按需读取；没有声明本地工作区时落到沙箱，
+        // 本地的 read_file / shell 仍然够得着
+        val workspaceDir = declaredLocal
+            ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
+            ?.takeIf { it.isDirectory }
+            ?: workspaceRepository.sandboxDir()
         val tools = buildList {
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
+                // 搜索/导出/导入也是记忆库工具，跟随助手的「记忆」开关
+                addAll(buildMemoryFileTools(memoryRepository, assistant.memoryId, workspaceDir))
             }
             if (shouldUseExternalWebSearch(assistant, model)) {
                 addAll(createSearchTools(settings))
@@ -106,12 +114,6 @@ class ChatToolFactory(
                 )
             }
         }
-        // 过长的输出存成文件让模型按需读取；没有声明本地工作区时落到沙箱，
-        // 本地的 read_file / shell 仍然够得着
-        val workspaceDir = declaredLocal
-            ?.let { runCatching { workspaceRepository.workingDirectory(it.id) }.getOrNull() }
-            ?.takeIf { it.isDirectory }
-            ?: workspaceRepository.sandboxDir()
         val allTools = if (conversationId != null) {
             val taskTool = createTaskTool(
                 runner = subAgentRunner,

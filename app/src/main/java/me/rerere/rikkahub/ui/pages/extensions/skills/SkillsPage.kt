@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.extensions.skills
 
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.annotation.StringRes
 import androidx.activity.result.contract.ActivityResultContracts
@@ -75,6 +76,8 @@ import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
 import me.rerere.rikkahub.ui.components.ui.ItemAction
 import me.rerere.rikkahub.ui.components.ui.ItemActionMenu
+import me.rerere.rikkahub.ui.activity.SkillImportPreviewActivity
+import me.rerere.rikkahub.ui.activity.SkillImportSession
 import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -120,6 +123,31 @@ fun SkillsPage() {
                 toaster.show(context.getString(R.string.skills_page_import_success, message))
             } else {
                 toaster.show(context.getString(R.string.skills_page_import_failed, message))
+            }
+        }
+    }
+    val skillImportPreviewLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val session = SkillImportSession
+        val candidates = session.candidates.orEmpty()
+        val selectedNames = if (result.resultCode == Activity.RESULT_OK) {
+            session.selectedNames.orEmpty()
+        } else {
+            emptySet()
+        }
+        session.clear()
+        if (selectedNames.isEmpty()) return@rememberLauncherForActivityResult
+        vm.installSkills(candidates, selectedNames) { imported ->
+            if (imported.isEmpty()) {
+                toaster.show(
+                    context.getString(
+                        R.string.skills_page_import_failed,
+                        context.getString(R.string.skills_page_unknown_error),
+                    )
+                )
+            } else {
+                toaster.show(context.getString(R.string.skills_page_import_success, imported.joinToString()))
             }
         }
     }
@@ -267,12 +295,35 @@ fun SkillsPage() {
         ImportSkillDialog(
             onDismiss = { showImportDialog = false },
             onConfirm = { repoUrl ->
-                vm.importSkillFromGitHub(repoUrl) { success, message ->
+                vm.previewSkillsFromGitHub(repoUrl) { candidates, error ->
                     showImportDialog = false
-                    if (success) {
-                        toaster.show(context.getString(R.string.skills_page_import_success, message))
+                    if (candidates == null) {
+                        toaster.show(context.getString(R.string.skills_page_import_failed, error.orEmpty()))
+                        return@previewSkillsFromGitHub
+                    }
+                    if (candidates.size == 1) {
+                        // 单个技能不需要挑选，保持原来的直接导入体验
+                        vm.installSkills(candidates, setOf(candidates.first().name)) { imported ->
+                            if (imported.isEmpty()) {
+                                toaster.show(
+                                    context.getString(
+                                        R.string.skills_page_import_failed,
+                                        context.getString(R.string.skills_page_unknown_error),
+                                    )
+                                )
+                            } else {
+                                toaster.show(
+                                    context.getString(
+                                        R.string.skills_page_import_success,
+                                        imported.joinToString(),
+                                    )
+                                )
+                            }
+                        }
                     } else {
-                        toaster.show(context.getString(R.string.skills_page_import_failed, message))
+                        SkillImportSession.candidates = candidates
+                        SkillImportSession.selectedNames = null
+                        skillImportPreviewLauncher.launch(SkillImportPreviewActivity.intent(context))
                     }
                 }
             },

@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.files.FileUtils
 import me.rerere.rikkahub.data.skills.InvalidSkillDir
+import me.rerere.rikkahub.data.skills.SkillFrontmatterParser
 import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.rikkahub.data.skills.SkillMetadata
 import me.rerere.rikkahub.data.skills.SkillValidationException
@@ -25,6 +26,14 @@ import java.net.URLEncoder
 import java.util.LinkedHashMap
 import java.util.zip.ZipInputStream
 import kotlin.collections.iterator
+
+/** 从 GitHub 解析出来、等待用户挑选的技能。文件内容先放内存，确认后再写盘。 */
+data class SkillImportCandidate(
+    val name: String,
+    val description: String,
+    val files: Map<String, ByteArray>,
+    val alreadyInstalled: Boolean,
+)
 
 class SkillsVM(
     private val context: Application,
@@ -115,35 +124,61 @@ class SkillsVM(
         private const val MAX_FILE_BYTES = 10 * 1024 * 1024
     }
 
-    fun importSkillFromGitHub(repoUrl: String, onResult: (Boolean, String) -> Unit) {
+    /**
+     * 只下载并解析 GitHub 仓库里的技能，不直接安装。
+     *
+     * 多个技能时由预览页让用户挑选，单个技能由调用方直接安装。
+     */
+    fun previewSkillsFromGitHub(
+        repoUrl: String,
+        onResult: (List<SkillImportCandidate>?, String?) -> Unit,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val info = parseGitHubUrl(repoUrl) ?: run {
                     withContext(
                         Dispatchers.Main
-                    ) { onResult(false, context.getString(R.string.skills_page_import_error_invalid_github_url)) }
+                    ) { onResult(null, context.getString(R.string.skills_page_import_error_invalid_github_url)) }
                     return@launch
                 }
 
                 // 先用 Git Trees API 一次拿到整棵树；被截断或失败时退回逐目录的 Contents API
                 val tree = runCatching { fetchRepoTree(info) }.getOrNull()
-                val importedNames = if (tree != null) {
-                    importSkillsFromTree(info, tree)
+                val candidates = if (tree != null) {
+                    previewSkillsFromTree(info, tree)
                 } else {
-                    importSkillFromContents(info)
+                    previewSkillFromContents(info)
                 }
 
-                refreshSkills()
-                withContext(Dispatchers.Main) { onResult(true, importedNames.joinToString()) }
+                withContext(Dispatchers.Main) { onResult(candidates, null) }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
                     onResult(
-                        false,
+                        null,
                         e.message ?: context.getString(R.string.skills_page_unknown_error)
                     )
                 }
             }
+        }
+    }
+
+    /** 安装用户在预览页选中的技能 */
+    fun installSkills(
+        candidates: List<SkillImportCandidate>,
+        selectedNames: Set<String>,
+        onResult: (List<String>) -> Unit,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val imported = candidates
+                .filter { it.name in selectedNames }
+                .mapNotNull { candidate ->
+                    candidate.name.takeIf {
+                        skillManager.saveSkillFileBytesAtomically(candidate.name, candidate.files)
+                    }
+                }
+            refreshSkills()
+            withContext(Dispatchers.Main) { onResult(imported.distinct()) }
         }
     }
 
@@ -171,7 +206,7 @@ class SkillsVM(
     }
 
     /** 从整棵树里找出所有 `SKILL.md`，每个父目录是一个技能，文件用 raw 下载（不耗 API 配额）。 */
-    private fun importSkillsFromTree(info: GitHubRepoInfo, tree: List<GitHubTreeFile>): List<String> {
+    private fun previewSkillsFromTree(info: GitHubRepoInfo, tree: List<GitHubTreeFile>): List<SkillImportCandidate> {
         val scopePrefix = info.path.trim('/')
         val skillMdPaths = tree
             .map { it.path }
@@ -183,7 +218,8 @@ class SkillsVM(
         }
 
         val basePaths = skillMdPaths.map { it.substringBeforeLast('/', missingDelimiterValue = "") }.distinct()
-        val importedNames = mutableListOf<String>()
+        val installedNames = skillManager.listSkills().mapTo(HashSet()) { it.name }
+        val candidates = LinkedHashMap<String, SkillImportCandidate>()
         for (basePath in basePaths.take(MAX_SKILLS_PER_IMPORT)) {
             // 一个技能目录里可能还嵌套了另一个技能，外层技能不包含内层技能的文件
             val nestedBases = basePaths.filter { other ->
@@ -202,9 +238,10 @@ class SkillsVM(
             } ?: continue
 
             val skillMdBytes = downloadRaw(info, skillMdFile.path) ?: continue
+            val skillMdContent = skillMdBytes.toString(Charsets.UTF_8)
             // 合集里可能有格式不完整的技能，跳过而不是让整次导入失败
-            val name = SkillValidator.validate(skillMdBytes.toString(Charsets.UTF_8)).getOrNull()
-                ?: continue
+            val name = SkillValidator.validate(skillMdContent).getOrNull() ?: continue
+            if (name in candidates) continue
 
             val skillFiles = LinkedHashMap<String, ByteArray>()
             var complete = true
@@ -223,19 +260,22 @@ class SkillsVM(
                 skillFiles[targetPath] = bytes
             }
             if (!complete || skillFiles.isEmpty()) continue
-            if (skillManager.saveSkillFileBytesAtomically(name, skillFiles)) {
-                importedNames += name
-            }
+            candidates[name] = SkillImportCandidate(
+                name = name,
+                description = SkillFrontmatterParser.parse(skillMdContent)["description"].orEmpty(),
+                files = skillFiles,
+                alreadyInstalled = name in installedNames,
+            )
         }
 
-        if (importedNames.isEmpty()) {
-            error(context.getString(R.string.skills_page_import_error_save_failed, info.path))
+        if (candidates.isEmpty()) {
+            error(context.getString(R.string.skills_page_import_error_no_valid_skill))
         }
-        return importedNames.distinct()
+        return candidates.values.toList()
     }
 
-    /** 兼容路径：树接口不可用时逐目录列文件，只导入根目录的 SKILL.md。 */
-    private fun importSkillFromContents(info: GitHubRepoInfo): List<String> {
+    /** 兼容路径：树接口不可用时逐目录列文件，只处理根目录的 SKILL.md。 */
+    private fun previewSkillFromContents(info: GitHubRepoInfo): List<SkillImportCandidate> {
         // Collect all files recursively via GitHub Contents API
         val files = mutableListOf<Pair<String, String>>() // relativePath -> downloadUrl
         val listed = listFilesRecursively(info.owner, info.repo, info.branch, info.path, info.path, files)
@@ -249,11 +289,12 @@ class SkillsVM(
         val skillMdBytes = downloadBytes(skillMdEntry.second)
             ?: error(context.getString(R.string.skills_page_import_error_download_skill_md))
 
-        val name = SkillValidator.validate(skillMdBytes.toString(Charsets.UTF_8)).getOrElse {
+        val skillMdContent = skillMdBytes.toString(Charsets.UTF_8)
+        val name = SkillValidator.validate(skillMdContent).getOrElse {
             error(invalidFormatMessage("SKILL.md", it))
         }
 
-        // 按字节下载保存，避免图片等二进制附属文件被当作 UTF-8 文本解码而损坏
+        // 按字节下载，避免图片等二进制附属文件被当作 UTF-8 文本解码而损坏
         val fileContents = LinkedHashMap<String, ByteArray>()
         for ((relativePath, downloadUrl) in files) {
             val content = if (relativePath == "SKILL.md") skillMdBytes else downloadBytes(downloadUrl)
@@ -261,10 +302,14 @@ class SkillsVM(
             fileContents[relativePath] = content
         }
 
-        if (!skillManager.saveSkillFileBytesAtomically(name, fileContents)) {
-            error(context.getString(R.string.skills_page_import_error_save_failed, name))
-        }
-        return listOf(name)
+        return listOf(
+            SkillImportCandidate(
+                name = name,
+                description = SkillFrontmatterParser.parse(skillMdContent)["description"].orEmpty(),
+                files = fileContents,
+                alreadyInstalled = skillManager.findSkill(name) != null,
+            )
+        )
     }
 
     private fun relativeToBase(path: String, basePath: String): String? {

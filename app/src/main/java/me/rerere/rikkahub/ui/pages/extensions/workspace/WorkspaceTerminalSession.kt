@@ -37,13 +37,15 @@ internal fun createWorkspaceTerminalSession(
     workspace?.sshTarget()?.let { target ->
         return createSshTerminalSession(appContext, workspace, target, client)
     }
-    // 工作区目录可能是用户指定的绝对路径，取不到时回落到默认 files 目录
-    val workingDir = workspace?.let { it.directory?.takeIf { dir -> dir.startsWith("/") } }
+    // 工作区目录可能是用户指定的绝对路径，取不到时回落到默认 files 目录；
+    // HOME / TMPDIR 也跟随这个目录，避免终端和工作区工具写回默认沙箱
+    val customDir = workspace?.let { it.directory?.takeIf { dir -> dir.startsWith("/") } }
         ?.let { File(it) }
-        ?: File(workspaceDir, "files")
+    val workingDir = customDir ?: File(workspaceDir, "files")
     workingDir.mkdirs()
-    val homeDir = File(workspaceDir, "home").apply { mkdirs() }
-    val tempDir = File(workspaceDir, "tmp").apply { mkdirs() }
+    val baseDir = customDir ?: workspaceDir
+    val homeDir = File(baseDir, "home").apply { mkdirs() }
+    val tempDir = File(baseDir, "tmp").apply { mkdirs() }
     val toolchain = workspace?.let { ws ->
         runBlocking { runCatching { repository.toolchainEnvironment(ws.id) }.getOrNull() }
     }
@@ -123,9 +125,18 @@ private fun createSshTerminalSession(
 /** 终端启动前只保证目录存在；命令环境本身总是可用的（Android 原生 shell） */internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
-    File(workspaceDir, "files").mkdirs()
-    File(workspaceDir, "home").mkdirs()
-    File(workspaceDir, "tmp").mkdirs()
+    val repository: WorkspaceRepository = GlobalContext.get().get()
+    val workspace = runBlocking { repository.getByRoot(root) }
+    val customDir = workspace?.let { it.directory?.takeIf { dir -> dir.startsWith("/") } }
+        ?.let { File(it) }
+    if (customDir != null) {
+        File(customDir, "home").mkdirs()
+        File(customDir, "tmp").mkdirs()
+    } else {
+        File(workspaceDir, "files").mkdirs()
+        File(workspaceDir, "home").mkdirs()
+        File(workspaceDir, "tmp").mkdirs()
+    }
 }
 
 private const val DEFAULT_SHELL = "/system/bin/sh"

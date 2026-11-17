@@ -1,8 +1,5 @@
 package me.rerere.rikkahub.data.ai.tools
 
-import me.rerere.rikkahub.data.ai.tools.local.BROWSER_FETCH_TOOL_NAME
-import me.rerere.rikkahub.data.ai.tools.local.BROWSER_SCREENSHOT_TOOL_NAME
-
 /**
  * 「设置 → 工具提示词」里可编辑的工具分类。
  *
@@ -30,6 +27,31 @@ internal data class ToolPromptEntry(
 private fun desc(text: String): String = text.trimIndent().replace("\n", " ")
 
 private fun prompt(text: String): String = text.trimIndent()
+
+internal const val OBSCURA_CLI_PROMPT_KEY = "obscura_cli"
+
+/**
+ * 不在工具列表里注册 obscura，只在系统提示里声明这个 CLI；模型通过工作区 shell 自己拼命令。
+ * 截图只能写成文件，不能作为图片内容返回，因此提示词里明确说明这一点。
+ */
+internal val DEFAULT_OBSCURA_CLI_PROMPT = """
+    **Built-in browser CLI (obscura)**
+    A real headless browser is available as the `obscura` command inside the workspace shell. Use it for
+    JavaScript-rendered pages, a specific URL the user provided, or a screenshot. Use search_web/scrape_web
+    for discovery; do not guess URLs.
+    - Readable page content: `obscura fetch <url> --dump markdown --timeout 30 --quiet`
+    - Other output: `--dump text|html|links|assets|cookies|original`
+    - Evaluate JavaScript: `obscura fetch <url> --eval 'document.title' --quiet` (wrap multi-statement code in an IIFE)
+    - Wait for content: `--selector '#main'`; `--wait-until load|domcontentloaded|networkidle0`
+    - Screenshot: `obscura fetch <url> -s shot.png --quiet`. This writes a PNG file. To look at it, call `read_file`
+      with the same path (absolute paths are safest; relative paths resolve against the workspace root, not the shell's
+      current directory). Image files come back as image content, so this works when the model supports images.
+    - Network: loopback and LAN addresses are blocked by default; use `--allow-private-network` only when the
+      user explicitly asks for a local page.
+    - Large pages: pipe through `head -c 20000` or narrow the page with a selector.
+    - One invocation handles one page; there is no persistent session, clicking, or login.
+""".trimIndent()
+
 
 internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
     // 技能
@@ -98,6 +120,31 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
         ToolPromptCategory.MEMORY,
         defaultDescription = "List memory files (path, size, update time), optionally filtered by path prefix.".let(::desc),
     ),
+    ToolPromptEntry(
+        MemoryToolNames.SEARCH,
+        ToolPromptCategory.MEMORY,
+        defaultDescription = """
+            Search the memory library for a keyword. Returns matching files with a short snippet around each match,
+            so you can locate what the user stored before reading the full file.
+        """.let(::desc),
+    ),
+    ToolPromptEntry(
+        MemoryToolNames.EXPORT,
+        ToolPromptCategory.MEMORY,
+        defaultDescription = """
+            Export one or more memory files to a file or directory. Relative destination paths resolve against the
+            workspace directory. Existing destination files are not overwritten unless overwrite is true.
+        """.let(::desc),
+    ),
+    ToolPromptEntry(
+        MemoryToolNames.IMPORT,
+        ToolPromptCategory.MEMORY,
+        defaultDescription = """
+            Import .md files from a file or directory into the memory library. Relative source paths resolve against
+            the workspace directory. The whole import is rejected if any target memory path already exists;
+            existing memory files are never overwritten.
+        """.let(::desc),
+    ),
 
     // 搜索
     ToolPromptEntry(
@@ -155,6 +202,12 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
     ),
 
     // 本地工具
+    ToolPromptEntry(
+        OBSCURA_CLI_PROMPT_KEY,
+        ToolPromptCategory.LOCAL_TOOLS,
+        defaultDescription = "Declare the built-in obscura headless-browser CLI for the workspace shell.".let(::desc),
+        defaultSystemPrompt = DEFAULT_OBSCURA_CLI_PROMPT,
+    ),
     ToolPromptEntry(
         "get_time_info",
         ToolPromptCategory.LOCAL_TOOLS,
@@ -231,28 +284,6 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
             so x_axis 'min'/'max' and log scale are not allowed; use y_axis for range and log scale.
             Axis 'data' labels are only allowed on x_axis for line and bar charts.
             The chart is rendered for the user directly; you don't need to repeat the raw data in your reply.
-        """.let(::desc),
-    ),
-    ToolPromptEntry(
-        BROWSER_FETCH_TOOL_NAME,
-        ToolPromptCategory.LOCAL_TOOLS,
-        defaultDescription = """
-            Open a web page in a real headless browser, including JavaScript execution, and return its content.
-            dump=markdown for readable text (default), text for plain text, html for the DOM, links for anchors,
-            assets for sub-resource URLs, cookies for the cookie jar, original for the raw response body.
-            eval runs a JavaScript expression in the page and returns its value (wrap multi-statement code in an IIFE).
-            Loopback and LAN addresses are blocked unless allow_private_network is true.
-            One-shot: no session, no clicking, no login flow.
-        """.let(::desc),
-    ),
-    ToolPromptEntry(
-        BROWSER_SCREENSHOT_TOOL_NAME,
-        ToolPromptCategory.LOCAL_TOOLS,
-        defaultDescription = """
-            Render a web page in a real headless browser and return a PNG screenshot as image content.
-            Use when layout, images, charts or visual state matter and the text dump is not enough.
-            Loopback and LAN addresses are blocked unless allow_private_network is true.
-            Text uses the fonts bundled with the engine; CJK glyphs may render as boxes.
         """.let(::desc),
     ),
     ToolPromptEntry(

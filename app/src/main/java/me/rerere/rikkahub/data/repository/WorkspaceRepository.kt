@@ -272,24 +272,26 @@ class WorkspaceRepository(
 
     suspend fun homeDir(id: String): File {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        return withContext(Dispatchers.IO) { manager.homeDir(workspace.root).apply { mkdirs() } }
+        return withContext(Dispatchers.IO) {
+            manager.homeDir(workspace.root, workspace.directory).apply { mkdirs() }
+        }
     }
 
     suspend fun listFiles(id: String, path: String): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: return@withContext emptyList()
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         manager.listFiles(workspace.root, path, workspace.directory)
     }
 
     suspend fun readText(id: String, path: String): String = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         manager.readText(workspace.root, path, workspace.directory)
     }
 
     suspend fun readBytes(id: String, path: String): ByteArray = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         val file = manager.resolveFile(workspace.root, path, workspace.directory)
         require(file.length() <= MAX_READ_BYTES) {
             "File is too large to read: $path (${file.length() / 1024 / 1024}MB, max ${MAX_READ_BYTES / 1024 / 1024}MB). Use shell commands like head, tail, or grep to read parts of it."
@@ -304,7 +306,7 @@ class WorkspaceRepository(
         overwrite: Boolean,
     ): WorkspaceFileEntry = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         manager.writeText(workspace.root, path, text, workspace.directory, overwrite)
     }
 
@@ -315,7 +317,7 @@ class WorkspaceRepository(
         inputStream: InputStream,
     ): WorkspaceFileEntry = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         manager.importFile(workspace.root, destinationPath, fileName, inputStream, workspace.directory)
     }
 
@@ -326,7 +328,7 @@ class WorkspaceRepository(
 
     suspend fun resolveFile(id: String, path: String): File = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         manager.resolveFile(workspace.root, path, workspace.directory)
     }
 
@@ -354,7 +356,7 @@ class WorkspaceRepository(
         overwrite: Boolean,
     ): WorkspaceFileEntry = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        manager.ensureWorkspace(workspace.root)
+        manager.ensureWorkspace(workspace.root, workspace.directory)
         manager.moveFile(workspace.root, source, target, overwrite, workspace.directory)
     }
 
@@ -403,7 +405,7 @@ class WorkspaceRepository(
         val toolchain = toolchainEnvironment(id)
         // runInterruptible 让协程取消转化为线程中断，从而打断阻塞的等待并杀掉进程
         return runInterruptible(Dispatchers.IO) {
-            manager.ensureWorkspace(workspace.root)
+            manager.ensureWorkspace(workspace.root, workspace.directory)
             manager.executeCommand(
                 root = workspace.root,
                 command = command,
@@ -494,7 +496,7 @@ class WorkspaceRepository(
         if (workspace.isSsh) return null
         val toolchain = toolchainEnvironment(id)
         return withContext(Dispatchers.IO) {
-            manager.ensureWorkspace(workspace.root)
+            manager.ensureWorkspace(workspace.root, workspace.directory)
             manager.startBackgroundCommand(
                 root = workspace.root,
                 command = command,
@@ -515,6 +517,17 @@ class WorkspaceRepository(
         val dir = sandboxDir()
         return withContext(Dispatchers.IO) {
             manager.startBackgroundCommandIn(dir, command, cwd, null, taskId)
+        }
+    }
+
+    /** 清理所有工作区的 tmp：默认沙箱目录与自定义工作区目录下的都要清 */
+    suspend fun cleanupAllTempDirs() = withContext(Dispatchers.IO) {
+        manager.cleanupAllTempDirs()
+        dao.getAll().forEach { workspace ->
+            if (workspace.isSsh) return@forEach
+            val custom = workspace.directory?.trim()?.takeIf { it.startsWith("/") }
+                ?: return@forEach
+            manager.tempDir(workspace.root, custom).let { if (it.exists()) it.deleteRecursively() }
         }
     }
 

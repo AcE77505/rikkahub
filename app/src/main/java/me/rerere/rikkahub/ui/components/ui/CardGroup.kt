@@ -3,7 +3,7 @@ package me.rerere.rikkahub.ui.components.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
@@ -35,7 +35,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +58,8 @@ private data class CardGroupItem(
     val modifier: Modifier,
     val overlineContent: (@Composable () -> Unit)?,
     val headlineContent: (@Composable () -> Unit)?,
+    // AI 可见工具的英文名；按 CardGroup 的 toolNameDisplay 决定始终显示还是长按查看
+    val toolNames: List<String>,
     val supportingContent: (@Composable () -> Unit)?,
     val leadingContent: (@Composable () -> Unit)?,
     val trailingContent: (@Composable () -> Unit)?,
@@ -77,6 +81,7 @@ interface CardGroupScope {
         leadingContent: (@Composable () -> Unit)? = null,
         trailingContent: (@Composable () -> Unit)? = null,
         colors: ListItemColors? = null,
+        toolNames: List<String> = emptyList(),
         headlineContent: @Composable () -> Unit,
     )
 
@@ -87,6 +92,7 @@ interface CardGroupScope {
         supportingContent: (@Composable () -> Unit)? = null,
         leadingContent: (@Composable () -> Unit)? = null,
         trailingContent: (@Composable () -> Unit)? = null,
+        toolNames: List<String> = emptyList(),
         content: @Composable ColumnScope.() -> Unit,
     )
 }
@@ -102,6 +108,7 @@ private class CardGroupScopeImpl : CardGroupScope {
         leadingContent: (@Composable () -> Unit)?,
         trailingContent: (@Composable () -> Unit)?,
         colors: ListItemColors?,
+        toolNames: List<String>,
         headlineContent: @Composable () -> Unit,
     ) {
         items.add(
@@ -110,6 +117,7 @@ private class CardGroupScopeImpl : CardGroupScope {
                 modifier = modifier,
                 overlineContent = overlineContent,
                 headlineContent = headlineContent,
+                toolNames = toolNames,
                 supportingContent = supportingContent,
                 leadingContent = leadingContent,
                 trailingContent = trailingContent,
@@ -124,6 +132,7 @@ private class CardGroupScopeImpl : CardGroupScope {
         supportingContent: (@Composable () -> Unit)?,
         leadingContent: (@Composable () -> Unit)?,
         trailingContent: (@Composable () -> Unit)?,
+        toolNames: List<String>,
         content: @Composable ColumnScope.() -> Unit,
     ) {
         items.add(
@@ -132,6 +141,7 @@ private class CardGroupScopeImpl : CardGroupScope {
                 modifier = modifier,
                 overlineContent = null,
                 headlineContent = headlineContent,
+                toolNames = toolNames,
                 supportingContent = supportingContent,
                 leadingContent = leadingContent,
                 trailingContent = trailingContent,
@@ -149,6 +159,7 @@ fun CardGroupScope.switchItem(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     supportingContent: (@Composable () -> Unit)? = null,
+    toolNames: List<String> = emptyList(),
     leadingContent: (@Composable () -> Unit)? = null,
     headlineContent: @Composable () -> Unit,
 ) = item(
@@ -157,6 +168,7 @@ fun CardGroupScope.switchItem(
     } else null,
     modifier = modifier,
     supportingContent = supportingContent,
+    toolNames = toolNames,
     leadingContent = leadingContent,
     trailingContent = {
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
@@ -230,6 +242,7 @@ private fun CardGroupFormItem(
     formContent: @Composable ColumnScope.() -> Unit,
     count: Int,
     index: Int,
+    toolNameDisplay: ToolNameDisplay,
 ) {
     Surface(
         modifier = item.modifier.fillMaxWidth(),
@@ -254,6 +267,9 @@ private fun CardGroupFormItem(
                         item.headlineContent?.let { headline ->
                             ProvideTextStyle(MaterialTheme.typography.bodyLarge, headline)
                         }
+                        if (toolNameDisplay == ToolNameDisplay.ALWAYS && item.toolNames.isNotEmpty()) {
+                            ToolNameLabel(item.toolNames)
+                        }
                         item.supportingContent?.let { supporting ->
                             CompositionLocalProvider(
                                 LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant
@@ -275,6 +291,7 @@ private fun CardGroupListItem(
     item: CardGroupItem,
     count: Int,
     index: Int,
+    toolNameDisplay: ToolNameDisplay,
 ) {
     val isFirst = index == 0
     val isLast = index == count - 1
@@ -291,6 +308,16 @@ private fun CardGroupListItem(
         animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
     )
 
+    val showToolNames = toolNameDisplay == ToolNameDisplay.ALWAYS && item.toolNames.isNotEmpty()
+    val longPressToShowToolNames =
+        toolNameDisplay == ToolNameDisplay.LONG_PRESS && item.toolNames.isNotEmpty()
+    var toolNameDialogVisible by remember { mutableStateOf(false) }
+
+    if (toolNameDialogVisible) {
+        ToolNameDialog(toolNames = item.toolNames) { toolNameDialogVisible = false }
+    }
+
+    val supportingContent = item.supportingContent
     ListItem(
         headlineContent = item.headlineContent ?: {},
         modifier = item.modifier
@@ -304,16 +331,34 @@ private fun CardGroupListItem(
                 )
             )
             .then(
-                if (item.onClick != null) {
-                    Modifier.clickable(
+                when {
+                    item.onClick != null || longPressToShowToolNames -> Modifier.combinedClickable(
                         interactionSource = interactionSource,
                         indication = LocalIndication.current,
-                        onClick = item.onClick,
+                        onClick = { item.onClick?.invoke() },
+                        onLongClick = if (longPressToShowToolNames) {
+                            { toolNameDialogVisible = true }
+                        } else null,
                     )
-                } else Modifier
+
+                    else -> Modifier
+                }
             ),
         overlineContent = item.overlineContent,
-        supportingContent = item.supportingContent,
+        supportingContent = when {
+            !showToolNames -> supportingContent
+            supportingContent == null -> {
+                { ToolNameLabel(item.toolNames) }
+            }
+            else -> {
+                {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        ToolNameLabel(item.toolNames)
+                        supportingContent.invoke()
+                    }
+                }
+            }
+        },
         leadingContent = item.leadingContent,
         trailingContent = item.trailingContent,
         colors = item.colors ?: CustomColors.listItemColors,
@@ -324,6 +369,7 @@ private fun CardGroupListItem(
 fun CardGroup(
     modifier: Modifier = Modifier,
     title: (@Composable () -> Unit)? = null,
+    toolNameDisplay: ToolNameDisplay = ToolNameDisplay.LONG_PRESS,
     content: CardGroupScope.() -> Unit,
 ) {
     val scope = CardGroupScopeImpl()
@@ -343,9 +389,20 @@ fun CardGroup(
         scope.items.fastForEachIndexed { index, item ->
             val formContent = item.formContent
             if (formContent != null) {
-                CardGroupFormItem(item = item, formContent = formContent, count = count, index = index)
+                CardGroupFormItem(
+                    item = item,
+                    formContent = formContent,
+                    count = count,
+                    index = index,
+                    toolNameDisplay = toolNameDisplay,
+                )
             } else {
-                CardGroupListItem(item = item, count = count, index = index)
+                CardGroupListItem(
+                    item = item,
+                    count = count,
+                    index = index,
+                    toolNameDisplay = toolNameDisplay,
+                )
             }
             if (index != count - 1) {
                 Spacer(modifier = Modifier.height(CardGroupItemSpacing))

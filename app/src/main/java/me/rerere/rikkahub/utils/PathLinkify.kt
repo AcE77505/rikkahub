@@ -24,10 +24,29 @@ private val BARE_PATH_SCHEME = Regex("""(?:${PATH_LINK_SCHEME}|rikkahub-path=)\s
  * 前面紧跟单词字符/URL 片段的不算路径，避免把 `example.com/a` 的路径部分当路径。
  */
 private val PATH_PATTERN =
-    Regex("""(?<![\p{L}\p{N}_/:.@~-])(?:~|\.{1,2})?/(?=\S)[^<>"'`|*()\[\]{}，。、；：！？（）【】《》「」“”‘’\r\n]+""")
+    Regex(
+        """(?<![\p{L}\p{N}_/:.@~-])(?:~|\.{1,2})?/(?=\S)""" +
+            """[^<>"'`|*()\[\]{}，。、；：！？（）【】《》「」“”‘’\r\n→←↑↓⇒⇐⇔]+"""
+    )
 
 /** 路径末尾的标点不属于路径本身，链接时留在外面。 */
 private const val TRAILING_PUNCTUATION = ".,;:!?。，、；：！？"
+
+/** 路径后面的说明文字通常从这些分隔符开始。 */
+private val PATH_STOPS = listOf("  ", " →")
+
+/**
+ * 从正则匹配结果里截出路径本体。
+ *
+ * 正则允许路径含空格（带空格的文件名），所以这里再用连续空格和箭头/箭头式说明
+ * 截断，避免把 `/path → 说明` 整段当成路径。
+ */
+private fun pathCandidate(raw: String): String {
+    val stop = PATH_STOPS.map { raw.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: -1
+    val value = if (stop >= 0) raw.substring(0, stop) else raw
+    val trailing = value.takeLastWhile { it in TRAILING_PUNCTUATION }
+    return value.dropLast(trailing.length).trimEnd()
+}
 
 private const val PLACEHOLDER_START = '\u0000'
 private const val PLACEHOLDER_END = '\u0001'
@@ -80,10 +99,13 @@ private fun linkifyLine(line: String): String {
     // 4. 正文里的路径
     text = PATH_PATTERN.replace(text) { match ->
         val raw = match.value
-        val trailing = raw.takeLastWhile { it in TRAILING_PUNCTUATION }
-        // 两个连续空格通常是路径后面的说明文字
-        val candidate = raw.dropLast(trailing.length).substringBefore("  ").trimEnd()
-        if (looksLikeOpenablePath(candidate)) hold(renderPathLink(candidate)) + trailing else raw
+        val candidate = pathCandidate(raw)
+        if (looksLikeOpenablePath(candidate)) {
+            // 保留路径后面被截掉的空格和标点，避免链接和说明文字粘在一起
+            hold(renderPathLink(candidate)) + raw.substring(candidate.length)
+        } else {
+            raw
+        }
     }
     // 4. 还原占位符
     return buildString {
@@ -127,9 +149,7 @@ private fun renderPathLink(path: String): String {
 /** 纯文本里可打开的路径范围，供带点击的 Text 使用（不处理 Markdown 结构）。 */
 internal fun findPathRanges(text: String): List<IntRange> =
     PATH_PATTERN.findAll(text).mapNotNull { match ->
-        val raw = match.value
-        val trailing = raw.takeLastWhile { it in TRAILING_PUNCTUATION }
-        val candidate = raw.dropLast(trailing.length).substringBefore("  ").trimEnd()
+        val candidate = pathCandidate(match.value)
         if (looksLikeOpenablePath(candidate)) {
             match.range.first until (match.range.first + candidate.length)
         } else {

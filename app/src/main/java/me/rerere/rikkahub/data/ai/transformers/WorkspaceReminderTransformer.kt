@@ -6,6 +6,8 @@ import kotlinx.coroutines.CancellationException
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.ai.tools.DEFAULT_OBSCURA_CLI_PROMPT
+import me.rerere.rikkahub.data.ai.tools.OBSCURA_CLI_PROMPT_KEY
 import me.rerere.rikkahub.data.ai.tools.SSH_TOOL_PREFIX
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.data.datastore.Settings
@@ -126,6 +128,14 @@ internal suspend fun buildWorkspacePromptSections(
                         WorkspacePromptPlaceholders.UPLOAD_DIR,
                     ),
                 )
+            )
+        }
+        // 只声明 CLI，不注册工具：模型通过工作区 shell 自己拼 obscura 命令
+        if (LocalToolOption.ObscuraCli in enabledTools && LocalToolOption.WorkspaceShell in enabledTools) {
+            add(
+                settings.toolSystemPromptOverrides[OBSCURA_CLI_PROMPT_KEY]
+                    ?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT_OBSCURA_CLI_PROMPT
             )
         }
     }.filter { it.isNotBlank() }

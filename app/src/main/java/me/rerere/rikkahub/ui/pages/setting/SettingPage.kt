@@ -24,6 +24,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +53,7 @@ import me.rerere.hugeicons.stroke.Book01
 import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Bookshelf01
 import me.rerere.hugeicons.stroke.Brain02
+import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Clapping01
 import me.rerere.hugeicons.stroke.Database02
 import me.rerere.hugeicons.stroke.GlobalSearch
@@ -62,6 +65,7 @@ import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Megaphone01
 import me.rerere.hugeicons.stroke.Moon02
 import me.rerere.hugeicons.stroke.Package
+import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Tools
 import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Settings03
@@ -105,6 +109,8 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
     val filesManager: FilesManager = koinInject()
     val localNetworkPermission = rememberLocalNetworkPermissionState()
     val notificationPermission = rememberNotificationPermissionState()
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val searchEntries = rememberSettingSearchEntries(settings.assistantId)
 
     if (!settings.init && launchCount > 100 && (launchCount - settings.sponsorAlertDismissedAt) >= 50) {
         AlertDialog(
@@ -153,6 +159,26 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
             contentPadding = innerPadding + PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            item("settingSearch") {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("搜索设置项") },
+                    leadingIcon = { Icon(HugeIcons.Search01, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(HugeIcons.Cancel01, contentDescription = "清除搜索")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                )
+            }
+
+            if (searchQuery.isBlank()) {
             if (settings.isNotConfigured()) {
                 item {
                     ProviderConfigWarningCard(
@@ -420,6 +446,37 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = { Text(stringResource(R.string.setting_page_share_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_share)) },
                     )
+                }
+            }
+            } else {
+                item("settingSearchResults") {
+                    val results = searchEntries.filterBySettingQuery(searchQuery)
+                    if (results.isEmpty()) {
+                        Text(
+                            text = "没有找到匹配的设置项",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    } else {
+                        CardGroup {
+                            results.forEach { entry ->
+                                item(
+                                    onClick = {
+                                        if (entry.target != Screen.Setting) {
+                                            navController.navigate(entry.target)
+                                        }
+                                        searchQuery = ""
+                                    },
+                                    headlineContent = { Text(entry.title) },
+                                    supportingContent = { Text(entry.path) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

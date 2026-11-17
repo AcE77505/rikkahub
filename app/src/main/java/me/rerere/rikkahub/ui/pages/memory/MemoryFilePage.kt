@@ -273,7 +273,8 @@ fun MemoryFilePage(memoryId: String, path: String?) {
                     }
                 },
                 actions = {
-                    if (editSection != MemoryEditSection.NONE) {
+                    // 正文编辑（条目增删改、拖动排序、原始文本）都在发生时就写回了，顶部不需要再放一个保存按钮
+                    if (editSection == MemoryEditSection.METADATA) {
                         TextButton(
                             enabled = canSave,
                             onClick = {
@@ -289,7 +290,7 @@ fun MemoryFilePage(memoryId: String, path: String?) {
                         ) {
                             Text(stringResource(R.string.assistant_page_save))
                         }
-                    } else if (file != null) {
+                    } else if (editSection == MemoryEditSection.NONE && file != null) {
                         IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
                                 imageVector = HugeIcons.Delete01,

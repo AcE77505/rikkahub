@@ -544,7 +544,7 @@
   <string name="safe_mode_crash_report">Отчёт о сбое</string>
   <string name="safe_mode_current_assistant">Текущий ассистент: %s</string>
   <string name="safe_mode_default_assistant">Ассистент по умолчанию</string>
-  <string name="safe_mode_description">При последнем запуске приложение завершилось с ошибкой. Вы можете переключиться на другого ассистента, чтобы решить проблему.</string>
+  <string name="safe_mode_description">При последнем запуске приложение завершилось с ошибкой.</string>
   <string name="safe_mode_switch_assistant">Переключить помощника</string>
   <string name="safe_mode_title">Безопасный режим</string>
   <string name="search_ability_scrape">Собрать</string>
@@ -1880,4 +1880,11 @@
   <string name="chat_message_tool_phone_use_open_app_name">Открыть приложение: %1$s</string>
   <string name="chat_message_tool_phone_use_list_apps">Список приложений</string>
   <string name="chat_message_tool_phone_use_wait">Ожидание %1$s сек.</string>
+  <string name="safe_mode_large_fields_title">Огромные данные</string>
+  <string name="safe_mode_large_fields_chars">%1$.1f млн символов</string>
+  <string name="safe_mode_clear">Очистить</string>
+  <string name="safe_mode_clear_title">Очистить «%1$s»?</string>
+  <string name="safe_mode_clear_message">Эти данные настолько велики, что приложению может не хватить памяти. Очистка сбросит их до значения по умолчанию, отменить это нельзя.</string>
+  <string name="setting_display_page_split_assistant_bubble_title">Разделять пузыри по абзацам</string>
+  <string name="setting_display_page_split_assistant_bubble_desc">Показывать каждый абзац ответа ассистента в отдельном пузыре</string>
 </resources>

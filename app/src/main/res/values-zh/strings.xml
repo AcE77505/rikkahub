@@ -203,6 +203,8 @@
   <string name="backup_page_import_from_cherry_studio">从Cherry Studio导入</string>
   <string name="backup_page_import_from_deepseek">从DeepSeek导入</string>
   <string name="backup_page_import_deepseek_desc">导入DeepSeek官网数据导出中的聊天记录</string>
+  <string name="backup_page_import_deepseek_app_only">请确保导出的 zip 来源于 DeepSeek App，网页版导出不受支持。</string>
+  <string name="backup_page_import_deepseek_missing_attachment">[附件未包含在导出包中或无法导入：%1$s]</string>
   <string name="backup_page_deepseek_import_done_title">DeepSeek 导入完成</string>
   <string name="backup_page_deepseek_import_summary_new">新增 %1$d 个对话</string>
   <string name="backup_page_deepseek_import_summary_overwritten">已覆盖 %1$d 个对话</string>
@@ -607,7 +609,7 @@
   <string name="safe_mode_crash_report">崩溃报告</string>
   <string name="safe_mode_current_assistant">当前助手：%s</string>
   <string name="safe_mode_default_assistant">默认助手</string>
-  <string name="safe_mode_description">应用上次启动时崩溃了。您可以切换到其他助手来解决此问题。</string>
+  <string name="safe_mode_description">应用上次启动时崩溃了。</string>
   <string name="safe_mode_switch_assistant">切换助手</string>
   <string name="safe_mode_title">安全模式</string>
   <string name="search_ability_scrape">抓取</string>
@@ -1105,10 +1107,21 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="skills_page_empty_hint">点击右下角的 + 按钮以添加技能</string>
   <string name="skills_page_empty_title">无技能</string>
   <string name="skills_page_import_confirm">导入</string>
-  <string name="skills_page_import_description">输入 GitHub 仓库 URL，将自动下载根目录中的 SKILL.md 文件。</string>
+  <string name="skills_page_import_description">输入 GitHub 仓库 URL，会自动识别仓库里的所有技能；有多个时可以挑选要安装的技能。</string>
   <string name="skills_page_import_failed">导入失败：%s</string>
   <string name="skills_page_import_from_github">从 GitHub 导入</string>
   <string name="skills_page_import_success">技能已导入：%s</string>
+  <string name="skills_page_import_select_title">选择要安装的技能</string>
+  <string name="skills_page_import_select_all">全选</string>
+  <string name="skills_page_import_clear_all">取消全选</string>
+  <string name="skills_page_import_install_selected">安装所选</string>
+  <string name="skills_page_import_selected_count">已选 %1$d / %2$d</string>
+  <string name="skills_page_import_search_hint">搜索技能</string>
+  <string name="skills_page_import_no_match">没有匹配的技能</string>
+  <string name="skills_page_import_already_installed">已安装，将覆盖</string>
+  <string name="skills_page_import_help_title">关于导入技能</string>
+  <string name="skills_page_import_help_body">默认全选。取消勾选不需要的技能。所选技能会安装到本地技能库，同名技能会被替换。</string>
+  <string name="skills_page_import_error_no_valid_skill">没有找到可安装的技能</string>
   <string name="skills_page_more_actions">更多操作</string>
   <string name="skills_page_name_error">找不到名称字段，请检查 frontmatter 格式</string>
   <string name="skills_page_paste_hint">粘贴完整的SKILL.md文件内容</string>
@@ -1425,8 +1438,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="skills_page_search_no_result">没有匹配的技能</string>
   <string name="assistant_page_local_tools_chart_display_title">图表显示</string>
   <string name="assistant_page_local_tools_chart_display_desc">让 AI 显示折线图、柱状图和散点图</string>
-  <string name="assistant_page_local_tools_browser_title">浏览器</string>
-  <string name="assistant_page_local_tools_browser_desc">用内置无头浏览器抓取渲染后的网页内容或截图</string>
+  <string name="assistant_page_local_tools_obscura_cli_title">Obscura CLI</string>
+  <string name="assistant_page_local_tools_obscura_cli_desc">在工作区 shell 中声明 obscura 无头浏览器命令，由模型自行拼命令行。会自动开启工作区 shell 和 read_file，截图可通过 read_file 作为图片内容读回。</string>
   <string name="chat_message_tool_chart_display">显示图表</string>
   <string name="chat_message_tool_chart_display_with_title">显示图表：%1$s</string>
   <string name="error_fast_model_not_found">未找到快速模型。请在设置中选择一个。</string>
@@ -2211,4 +2224,11 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="tool_prompts_category_local_tools">本地工具</string>
   <string name="tool_prompts_category_workspace_tools">工作区工具</string>
   <string name="tool_prompts_category_assistant_config">助手配置</string>
+  <string name="safe_mode_large_fields_title">超大设置数据</string>
+  <string name="safe_mode_large_fields_chars">%1$.1f 百万字符</string>
+  <string name="safe_mode_clear">清除</string>
+  <string name="safe_mode_clear_title">清除「%1$s」？</string>
+  <string name="safe_mode_clear_message">这份数据大到足以让应用内存不足。清除会把它恢复成默认值，且无法撤销。</string>
+  <string name="setting_display_page_split_assistant_bubble_title">按段落拆分气泡</string>
+  <string name="setting_display_page_split_assistant_bubble_desc">将助手回复的每个段落显示在独立气泡中</string>
 </resources>

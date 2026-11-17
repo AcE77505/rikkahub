@@ -203,6 +203,8 @@
   <string name="backup_page_import_from_cherry_studio">Import from Cherry Studio</string>
   <string name="backup_page_import_from_deepseek">Import from DeepSeek</string>
   <string name="backup_page_import_deepseek_desc">Import chat history from DeepSeek\'s official data export</string>
+  <string name="backup_page_import_deepseek_app_only">Make sure the ZIP was exported from the DeepSeek app. Web exports are not supported.</string>
+  <string name="backup_page_import_deepseek_missing_attachment">[Attachment missing from the export or unable to be imported: %1$s]</string>
   <string name="backup_page_deepseek_import_done_title">DeepSeek import finished</string>
   <string name="backup_page_deepseek_import_summary_new">New conversations: %1$d</string>
   <string name="backup_page_deepseek_import_summary_overwritten">Overwritten conversations: %1$d</string>
@@ -613,7 +615,7 @@
   <string name="safe_mode_crash_report">Crash Report</string>
   <string name="safe_mode_current_assistant">Current assistant: %s</string>
   <string name="safe_mode_default_assistant">Default Assistant</string>
-  <string name="safe_mode_description">The app crashed on the last launch. You can switch to a different assistant to resolve the issue.</string>
+  <string name="safe_mode_description">The app crashed on the last launch.</string>
   <string name="safe_mode_enter_app">Enter App</string>
   <string name="safe_mode_switch_assistant">Switch Assistant</string>
   <string name="safe_mode_title">Safe Mode</string>
@@ -1138,10 +1140,21 @@
   <string name="skills_page_empty_hint">Tap the + button at the bottom right to add a Skill</string>
   <string name="skills_page_empty_title">No Skills</string>
   <string name="skills_page_import_confirm">Import</string>
-  <string name="skills_page_import_description">Enter a GitHub repository URL, and the SKILL.md file in the root directory will be downloaded automatically.</string>
+  <string name="skills_page_import_description">Enter a GitHub repository URL. All skills in the repository are detected automatically; when there are several, you can choose which ones to install.</string>
   <string name="skills_page_import_failed">Import failed: %s</string>
   <string name="skills_page_import_from_github">Import from GitHub</string>
   <string name="skills_page_import_success">Skill imported: %s</string>
+  <string name="skills_page_import_select_title">Select skills</string>
+  <string name="skills_page_import_select_all">Select all</string>
+  <string name="skills_page_import_clear_all">Clear all</string>
+  <string name="skills_page_import_install_selected">Install selected</string>
+  <string name="skills_page_import_selected_count">%1$d of %2$d selected</string>
+  <string name="skills_page_import_search_hint">Search skills</string>
+  <string name="skills_page_import_no_match">No matching skills</string>
+  <string name="skills_page_import_already_installed">Already installed; will be replaced</string>
+  <string name="skills_page_import_help_title">About skill import</string>
+  <string name="skills_page_import_help_body">All skills are selected by default. Clear the ones you do not need. Selected skills are installed into the local skill library, and skills with the same name are replaced.</string>
+  <string name="skills_page_import_error_no_valid_skill">No installable skills found</string>
   <string name="skills_page_more_actions">More actions</string>
   <string name="skills_page_name_error">Cannot find the name field, please check the frontmatter format</string>
   <string name="skills_page_paste_hint">Paste the full SKILL.md file content</string>
@@ -1485,8 +1498,8 @@
   <string name="skills_page_search_no_result">No matching skills</string>
   <string name="assistant_page_local_tools_chart_display_title">Chart Display</string>
   <string name="assistant_page_local_tools_chart_display_desc">Let the AI display line, bar, and scatter charts</string>
-  <string name="assistant_page_local_tools_browser_title">Browser</string>
-  <string name="assistant_page_local_tools_browser_desc">Fetch rendered web pages and take screenshots with the built-in headless browser</string>
+  <string name="assistant_page_local_tools_obscura_cli_title">Obscura CLI</string>
+  <string name="assistant_page_local_tools_obscura_cli_desc">Declare the obscura headless-browser command in the workspace shell and let the model compose commands itself. Opens the workspace shell and read_file automatically so screenshots can be read back as images.</string>
   <string name="chat_message_tool_chart_display">Display chart</string>
   <string name="chat_message_tool_chart_display_with_title">Display chart: %1$s</string>
   <string name="error_fast_model_not_found">Fast model not found. Please select one in settings.</string>
@@ -2212,4 +2225,11 @@
   <string name="tool_prompts_category_local_tools">Local tools</string>
   <string name="tool_prompts_category_workspace_tools">Workspace tools</string>
   <string name="tool_prompts_category_assistant_config">Assistant config</string>
+  <string name="safe_mode_large_fields_title">Oversized data</string>
+  <string name="safe_mode_large_fields_chars">%1$.1f million characters</string>
+  <string name="safe_mode_clear">Clear</string>
+  <string name="safe_mode_clear_title">Clear %1$s?</string>
+  <string name="safe_mode_clear_message">This data is large enough to make the app run out of memory. Clearing resets it to the default and cannot be undone.</string>
+  <string name="setting_display_page_split_assistant_bubble_title">Split Bubbles by Paragraph</string>
+  <string name="setting_display_page_split_assistant_bubble_desc">Show each paragraph of an assistant reply in its own bubble</string>
 </resources>

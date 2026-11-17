@@ -528,16 +528,19 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
             .sortedBy { it.name.lowercase() }
             .forEach { ws ->
                 val workspaceDir = File(File(ctx.filesDir, WORKSPACES_DIR), ws.root)
+                val baseDir = ws.directory?.trim()?.takeIf { it.startsWith("/") }
+                    ?.let { File(it) }
+                    ?: workspaceDir
                 bases += TerminalBase(
                     key = "home:${ws.root}",
                     displayName = "${ws.name} · HOME",
-                    dir = File(workspaceDir, "home"),
+                    dir = File(baseDir, "home"),
                     readOnly = false,
                 )
                 bases += TerminalBase(
                     key = "tmp:${ws.root}",
                     displayName = "${ws.name} · TMP",
-                    dir = File(workspaceDir, "tmp"),
+                    dir = File(baseDir, "tmp"),
                     readOnly = false,
                 )
             }

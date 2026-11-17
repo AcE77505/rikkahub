@@ -27,9 +27,12 @@ object MemoryToolNames {
     const val APPEND = "memory_append"
     const val DELETE = "memory_delete"
     const val LIST = "memory_list"
+    const val SEARCH = "memory_search"
+    const val EXPORT = "memory_export"
+    const val IMPORT = "memory_import"
 
     /** 会改动记忆库的工具 */
-    val WRITES = setOf(WRITE, STR_REPLACE, APPEND, DELETE)
+    val WRITES = setOf(WRITE, STR_REPLACE, APPEND, DELETE, IMPORT)
 }
 
 private const val MAX_READ_PATHS = 20
@@ -215,15 +218,15 @@ fun UIMessagePart.Tool.memoryWritePath(): String? {
     return (result["path"] as? JsonPrimitive)?.contentOrNull
 }
 
-private fun stringSchema(description: String) = buildJsonObject {
+internal fun stringSchema(description: String) = buildJsonObject {
     put("type", "string")
     put("description", description)
 }
 
-private fun JsonElement.string(key: String): String =
+internal fun JsonElement.string(key: String): String =
     (jsonObject[key] as? JsonPrimitive)?.contentOrNull ?: error("$key is required")
 
-private fun toolOutput(builder: JsonObjectBuilder.() -> Unit): List<UIMessagePart> =
+internal fun toolOutput(builder: JsonObjectBuilder.() -> Unit): List<UIMessagePart> =
     listOf(UIMessagePart.Text(buildJsonObject(builder).toString()))
 
 private inline fun guarded(content: String, write: () -> MemoryWriteResult): MemoryWriteResult {

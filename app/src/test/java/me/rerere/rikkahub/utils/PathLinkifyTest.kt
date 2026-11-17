@@ -46,6 +46,17 @@ class PathLinkifyTest {
     }
 
     @Test
+    fun `arrow after path is not part of the path`() {
+        val result = linkifyPaths("L11：对象 /data/sdext2/tool/droidimg/kernel_new → 同样改为")
+        // 下划线在 Markdown 标签里会被转义，只校验链接目标和后面的说明
+        assertTrue(
+            result,
+            result.contains("]($PATH_LINK_SCHEME/data/sdext2/tool/droidimg/kernel_new)"),
+        )
+        assertTrue(result, result.endsWith(" → 同样改为"))
+    }
+
+    @Test
     fun `path before chinese comma stops at the comma`() {
         val result = linkifyPaths("文件在 /data/a.txt，请查看")
         assertTrue(result, result.contains("[/data/a.txt](" + PATH_LINK_SCHEME + "/data/a.txt)"))

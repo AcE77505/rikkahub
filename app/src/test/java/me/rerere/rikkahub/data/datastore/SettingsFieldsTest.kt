@@ -17,6 +17,7 @@ import me.rerere.rikkahub.data.model.QuickMessage
 import me.rerere.rikkahub.data.model.SubAgent
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.sync.s3.S3Config
+import me.rerere.rikkahub.ui.components.ui.ToolNameDisplay
 import me.rerere.rikkahub.ui.theme.CustomTheme
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchServiceOptions
@@ -138,7 +139,7 @@ private val SAMPLE = Settings(
     suggestionPrompt = "suggestion",
     ocrModelId = id(5),
     ocrPrompt = "ocr",
-    enableAutoCompress = true,
+    enableAutoCompress = false,
     autoCompressThreshold = 0.9f,
     assistantId = id(20),
     providers = listOf(ProviderSetting.OpenAI(id = id(31), name = "Provider")),
@@ -164,6 +165,7 @@ private val SAMPLE = Settings(
     lorebooks = listOf(Lorebook(id = id(12), name = "lorebook")),
     quickMessages = listOf(QuickMessage(id = id(13), title = "hi")),
     localTools = listOf(LocalToolOption.TimeInfo),
+    toolNameDisplay = ToolNameDisplay.ALWAYS,
     toolApprovals = mapOf("workspace_shell" to false),
     toolDescriptionOverrides = mapOf("search_web" to "custom description"),
     toolSystemPromptOverrides = mapOf("view_skill" to "custom prompt"),
@@ -240,6 +242,7 @@ private val STORED_KEYS = setOf(
     "lorebooks",
     "quick_messages",
     "local_tools",
+    "tool_name_display",
     "tool_approvals",
     "tool_description_overrides",
     "tool_system_prompt_overrides",

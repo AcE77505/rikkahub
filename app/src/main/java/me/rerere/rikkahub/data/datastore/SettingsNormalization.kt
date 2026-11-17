@@ -6,7 +6,17 @@ import me.rerere.rikkahub.data.model.SubAgent
 /** 读盘后和每次修改后都要过一遍，保证内存里的设置始终是规整的。 */
 internal fun Settings.normalized(): Settings =
     withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies()
-        .withValidSubAgents().withToolPromptKeyMigration()
+        .withValidSubAgents().withToolPromptKeyMigration().withLocalToolMigration()
+
+/** 旧版结构化浏览器工具已改为「只声明 obscura CLI」的提示词开关。 */
+internal fun Settings.withLocalToolMigration(): Settings {
+    if (LocalToolOption.Browser !in localTools) return this
+    return copy(
+        localTools = localTools
+            .map { if (it == LocalToolOption.Browser) LocalToolOption.ObscuraCli else it }
+            .distinct()
+    )
+}
 
 /**
  * 技能读取工具从 `use_skill` 改名为 `view_skill`。

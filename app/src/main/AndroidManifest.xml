@@ -86,6 +86,12 @@
       android:label="@string/backup_page_deepseek_preview_title"
       android:theme="@style/Theme.Rikkahub" />
     <activity
+      android:name=".ui.activity.SkillImportPreviewActivity"
+      android:configChanges="keyboardHidden|orientation|screenSize"
+      android:exported="false"
+      android:label="@string/skills_page_import_select_title"
+      android:theme="@style/Theme.Rikkahub" />
+    <activity
       android:name=".RouteActivity"
       android:configChanges="keyboardHidden|orientation|screenSize"
       android:exported="true"

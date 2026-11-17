@@ -15,7 +15,6 @@ import me.rerere.rikkahub.phoneuse.PhoneUseManager
 import me.rerere.rikkahub.phoneuse.isFloatingChatWindowOn
 import me.rerere.rikkahub.service.BackgroundShellManager
 import me.rerere.tts.provider.TTSManager
-import me.rerere.workspace.BundledExecutables
 import me.rerere.workspace.SshRunner
 import kotlin.uuid.Uuid
 
@@ -48,24 +47,6 @@ class LocalTools(
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
     val chartDisplayTool by lazy { buildChartDisplayTool() }
-
-    val browserFetchTool by lazy {
-        buildBrowserFetchTool(context) { workspaceRepository.bundledExecutable(BundledExecutables.OBSCURA) }
-    }
-
-    val browserScreenshotTool by lazy {
-        buildBrowserScreenshotTool(
-            context = context,
-            resolveBinary = { workspaceRepository.bundledExecutable(BundledExecutables.OBSCURA) },
-            saveScreenshot = { bytes ->
-                filesManager.createChatFilesByByteArrays(
-                    byteArrays = listOf(bytes),
-                    displayName = "screenshot.png",
-                    mimeType = "image/png",
-                ).first().toString()
-            },
-        )
-    }
 
     val phoneUseTool by lazy {
         buildPhoneUseTool(
@@ -119,10 +100,6 @@ class LocalTools(
         }
         if (options.contains(LocalToolOption.ChartDisplay)) {
             tools.add(chartDisplayTool)
-        }
-        if (options.contains(LocalToolOption.Browser)) {
-            tools.add(browserFetchTool)
-            tools.add(browserScreenshotTool)
         }
         // 不支持的渠道和系统版本上，之前在别处开过（比如导入的备份）也不提供
         if (options.contains(LocalToolOption.PhoneUse) && PhoneUseManager.isSupported) {

@@ -37,11 +37,15 @@ sealed class LocalToolOption {
     @SerialName("chart_display")
     data object ChartDisplay : LocalToolOption()
 
-    // 内置无头浏览器（obscura）：抓取页面文本 / 截图，单次调用无状态
-
+    // 旧版的结构化浏览器工具开关；仅用于反序列化旧设置，normalized() 会迁移到 ObscuraCli
     @Serializable
     @SerialName("browser")
     data object Browser : LocalToolOption()
+
+    // obscura CLI：不注册工具，只在系统提示中声明命令，由模型在工作区 shell 中自行调用
+    @Serializable
+    @SerialName("obscura_cli")
+    data object ObscuraCli : LocalToolOption()
 
     @Serializable
     @SerialName("phone_use")

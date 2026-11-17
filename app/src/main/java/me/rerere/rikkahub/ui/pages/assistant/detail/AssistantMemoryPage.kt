@@ -62,6 +62,7 @@ import me.rerere.rikkahub.ui.components.ui.ItemAction
 import me.rerere.rikkahub.ui.components.ui.ItemActionMenu
 import me.rerere.rikkahub.ui.components.ui.PagerTab
 import me.rerere.rikkahub.ui.components.ui.PagerTabs
+import me.rerere.rikkahub.ui.components.ui.ToolNameDisplay
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.memory.resultText
@@ -91,6 +92,7 @@ fun AssistantMemoryPage(id: String) {
             parametersOf(id)
         }
     )
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val memories by vm.memories.collectAsStateWithLifecycle()
     val consolidation by vm.memoryConsolidation.collectAsStateWithLifecycle()
@@ -154,6 +156,7 @@ fun AssistantMemoryPage(id: String) {
 
                     MemoryTab.SETTINGS -> MemorySettingsTab(
                         assistant = assistant,
+                        toolNameDisplay = settings.toolNameDisplay,
                         onUpdateAssistant = { vm.update(it) },
                     )
                 }
@@ -165,6 +168,7 @@ fun AssistantMemoryPage(id: String) {
 @Composable
 private fun MemorySettingsTab(
     assistant: Assistant,
+    toolNameDisplay: ToolNameDisplay,
     onUpdateAssistant: (Assistant) -> Unit,
 ) {
     var showTimeReminderIntervalDialog by remember(assistant.id) { mutableStateOf(false) }
@@ -214,7 +218,7 @@ private fun MemorySettingsTab(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        CardGroup {
+        CardGroup(toolNameDisplay = toolNameDisplay) {
             switchItem(
                 checked = assistant.enableMemory,
                 onCheckedChange = {
@@ -225,6 +229,17 @@ private fun MemorySettingsTab(
                     )
                 },
                 supportingContent = { Text(stringResource(R.string.assistant_page_memory_desc)) },
+                toolNames = listOf(
+                    "memory_read",
+                    "memory_write",
+                    "memory_str_replace",
+                    "memory_append",
+                    "memory_delete",
+                    "memory_list",
+                    "memory_search",
+                    "memory_export",
+                    "memory_import",
+                ),
                 headlineContent = { Text(stringResource(R.string.assistant_page_memory)) },
             )
             switchItem(
@@ -263,6 +278,7 @@ private fun MemorySettingsTab(
                     )
                 },
                 supportingContent = { Text(stringResource(R.string.assistant_page_recent_chats_desc)) },
+                toolNames = listOf("recent_chats", "conversation_search", "conversation_read"),
                 headlineContent = { Text(stringResource(R.string.assistant_page_recent_chats)) },
             )
         }

@@ -186,6 +186,7 @@ class SettingsStore internal constructor(
 
         // 工具开关与审批（全局，所有助手共用）
         val LOCAL_TOOLS = stringPreferencesKey("local_tools")
+        val TOOL_NAME_DISPLAY = stringPreferencesKey("tool_name_display")
         val TOOL_APPROVALS = stringPreferencesKey("tool_approvals")
         val TOOL_DESCRIPTION_OVERRIDES = stringPreferencesKey("tool_description_overrides")
         val TOOL_SYSTEM_PROMPT_OVERRIDES = stringPreferencesKey("tool_system_prompt_overrides")
@@ -285,6 +286,26 @@ class SettingsStore internal constructor(
     val launchCountFlow: Flow<Int> = preferencesFlow
         .map { preferences -> preferences[LAUNCH_COUNT] ?: 0 }
         .distinctUntilChanged()
+
+    /**
+     * 盘上占用不小于 [minChars] 个字符的字段：key 名和字符数，从大到小。
+     *
+     * 只看盘上的原始字符串长度，不做解码，给安全模式找出撑爆内存的数据用。
+     */
+    fun largeStoredFieldsFlow(minChars: Int): Flow<List<Pair<String, Int>>> = preferencesFlow
+        .map { preferences ->
+            SETTINGS_FIELDS
+                .mapNotNull { field -> (preferences[field.key] as? String)?.let { field.key.name to it.length } }
+                .filter { (_, chars) -> chars >= minChars }
+                .sortedByDescending { (_, chars) -> chars }
+        }
+        .distinctUntilChanged()
+
+    /** 把 [keyName] 对应的字段恢复成默认值，返回时已经落盘。认不出的 key 不做任何事。 */
+    suspend fun resetStoredField(keyName: String) {
+        val field = SETTINGS_FIELDS.find { it.key.name == keyName } ?: return
+        update { field.reset(it) }
+    }
 
     /**
      * 基于最新的设置做修改，返回时修改已经落盘。

@@ -7,6 +7,7 @@
 - 本批次（2026-11-08）：36 个已跟踪文件修改（`+976 / -189`），另有 4 个新增 Kotlin 文件和 1 个 issue 草稿；不含构建产物，详见第 5 节。
 - 本批次（2026-11-10）：新增 DeepSeek 官方导出导入（含变动识别与独立预览页）、备份时间按渠道拆分、助手列表「当前使用」标识；数据库版本 33 → 34。详见第 13 节。
 - 本批次（2026-11-11）：在「修改其他助手」工具组新增记忆管理（列出/读取/写入/删除/按文件或目录导入），复用原有开关，不新增设置项。详见第 14 节。
+- 本批次（2026-11-17）：上游 3.3.0 同步分析 + 第一批无冲突纳入；同时把 DeepSeek 导入切换为 App 导出格式（网页版实现移到 `app/src/legacy`，保留但不编译）。19 个上游提交、90 个文件；本次已合入 ai / speech / Provider / Phone Use / 自动压缩默认值，message_node 索引、SafeMode、段落气泡与工作区共享存储仍未适配。详见第 18、19、20 节。
 - 维护策略（2026-11-12）：**Phone Use（AI 操作屏幕）永远不会纳入修改范围，除了从上游按例同步的情况。** 功能兼容性（支持的 Android 版本、渠道、动作集合）完全由上游项目决定，本 fork 不主动改造。详见第 4 节第 13 条与第 15.2 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
@@ -772,3 +773,331 @@ README / README_ZH_CN / README_ZH_TW 补 Phone Use 一行；中文 README 继续
 - 未开放：子代理（`task`/`fleet` 的描述会动态列出当前启用的子代理，覆盖会丢列表；子代理自身提示词在子代理配置里）、MCP（描述由服务端提供）、Phone Use（跟随上游）。
 - 编辑页：默认值直接预填并可编辑；右上角保存（无二次确认）与重置（二次确认）；未保存退出时弹窗询问保存还是丢弃，丢弃后直接返回上一级。
 - 工作区工具默认值用 `{workspace_root}`、本地时间类工具用 `{timezone}` 占位符展示；保存覆盖后按用户文本原样注入，占位符不会自动替换。
+
+---
+
+## 18. 上游 3.3.0 同步分析（2026-11-17）
+
+> 本次只完成调查与分类，**尚未合并代码**。冲突次数以 `3.2.0..HEAD` 的已提交历史统计，工作树里尚未提交的改动另计。
+
+上游 `3.3.0`（`eb33917e chore: bump version to 3.3.0`）相对 `3.2.0` 共 19 个提交、90 个文件 `+5917 / -401`；版本号 3.3.0 / 197，minSdk 仍是 26（fork 为 24）。
+
+数据库是本次最大的冲突点：
+
+| | fork | 上游 3.3.0 |
+|---|---|---|
+| Room 版本 | 34 | 34 |
+| 32 → 33 | fork 的工作区字段（`declared` / `directory` / `toolchain*` / SSH 字段） | `message_node` 复合索引 `(conversation_id, node_index)` |
+| 33 → 34 | AutoMigration：`conversation.source_updated_at`（DeepSeek 导入） | AutoMigration：工作区 `storage_mounts` / `ssh_config` |
+| 34 schema identityHash | `df49b7df...` | `4c94f9b4...` |
+
+两边版本号相同但 schema 不同，不能把上游 `34.json` / `Migration_32_33` 直接拷进来。
+
+### 18.1 可直接纳入（冲突低）
+
+| 上游提交 | 内容 | 备注 |
+|---|---|---|
+| `3adeba47` | 请求体日志只在 debug 构建打印 | ai 模块；本地无改动 |
+| `2898c3de`、`d3f128f3`、`14d60e44` | Gemini 单独下发的 thoughtSignature part 兼容 + trace 回放测试 | `GoogleProvider` / `GoogleStreamDecoder` 本地无改动；`ChatMessageCot.kt` 本地改过 1 次，约 3 行小适配 |
+| `90ef90b7` | Vertex 服务账号支持 Interactions API | `ProviderSetting` / `GoogleProvider` / `InteractionsAPI` / `ProviderConfigure` 本地无改动 |
+| `a75f3f9c` | Provider 测试连接弹窗点击模型搜索框后自动关闭 | `ProviderConnectionTester` / `SettingProviderDetailPage` 本地无改动，可整文件取上游 |
+| `f361bbc1` | DeepSeek 语音合成与语音识别 | speech 模块、`SettingSpeechPage`、ASR/TTS 配置组件本地无改动；`ui/hooks/ASR.kt` 本地改过 1 次（AudioFocus / API 24），需保留 |
+| `7677f649`、`64452581`、`b10c1685` | Phone Use 后台亮屏、截图位图回收、微信禁操作 | 按 fork 政策整块接受；相关文件本地无改动 |
+| `66149047` | 自动压缩上下文默认开启 | `Settings.enableAutoCompress` 默认值 false → true；`Settings.kt` 本地改过 9 次，单行手工改，并同步测试断言 |
+| `90269e39` | README 功能列表 | 可同步；fork README 的工作区描述保留 |
+| `eb33917e` | 版本号 3.3.0 / 197 | 按 fork 发布策略决定 |
+
+### 18.2 需要额外适配
+
+1. **`c1c3c4d1` message_node 复合索引**
+   - 上游把它放在 `Migration_32_33`；fork 的 32→33 已被工作区字段占用，不能改。
+   - 新建 `Migration_34_35`：创建 `index_message_node_conversation_id_node_index (conversation_id, node_index)`，删除 `index_message_node_conversation_id`。
+   - 同步 `MessageNodeEntity` 索引、`AppDatabase.version = 35`、生成 `35.json`；保留 fork 的 33/34 schema。
+   - 不要合并上游 `34.json`（字段和 identityHash 都不同）。
+
+2. **`cfb7d961` 助手回复按段落拆分气泡**
+   - `MarkdownParagraphs.kt` 与测试可直接新增。
+   - `ChatMessage.kt` 本地改过 2 次（路径链接、工具/气泡渲染），只移植“开启分段后按段落生成多个 `ChatMessageBubble`”的分支，保留 fork 的其余逻辑。
+   - `DisplaySetting` 新增 `splitAssistantBubbleByParagraph`（`Settings.kt` 本地改过 9 次，注意与现有字段合并）。
+   - `SettingPreferencesUIPage` 本地无改动，可直接加上游设置项。
+   - 流式生成时只有最后一段使用 `streaming = true`。
+
+3. **`27976e4d` 安全模式清除超大设置**
+   - `SafeModeActivity` 本地无改动，UI 可直接取上游。
+   - `PreferencesStore` 本地改过 8 次、`SettingsFields` 改过 7 次：需要机械合入 `largeStoredFieldsFlow(minChars)`、`resetStoredField(keyName)`、`SettingsField.reset(settings)`，并确认 fork 的 `SETTINGS_FIELDS` / `MISSING_KEY_DEFAULTS` 覆盖所有字段。
+   - 新增文案上游暂为硬编码英文，可按 fork 的 i18n 规范补 key。
+
+4. **`8e2afbd3` 后台任务详情长命令滚动**
+   - `BackgroundTasksSheet.kt` 本地改过 1 次（fork 的后台 shell 与上游同源），手工移植 `BoxWithConstraints` + 命令区最高一半高度 + 内部滚动。
+
+5. **`f361bbc1` 的 `ui/hooks/ASR.kt`**
+   - 上游新增 DeepSeek ASR 分支；fork 在该文件保留 `AudioFocusController` / API 24 兼容，需要逐段合并。
+
+6. **字符串资源**
+   - 上游 3.3.0 在全部语言新增/修改约 27 个 key；fork 的 `strings.xml` 有 23 个本地提交。
+   - 用 `tools/i18n` 按 key 合并，不要整文件覆盖；新增文案需补齐 fork 支持的语言目录。
+
+### 18.3 不建议直接纳入
+
+1. **`fab0c077` 本地工作区挂载共享存储**
+   - 依赖上游的 PRoot + Rootfs + `WorkspaceBackend` + bind mount：新增 `WorkspaceStorageMount`、`WorkspaceEntity.storage_mounts` / `ssh_config`、`WorkspaceStorageMountCard`，`WorkspaceManager` / `WorkspaceRepository` / `LocalWorkspaceBackend` 大改，github 源集声明 `MANAGE_EXTERNAL_STORAGE`。
+   - fork 的工作区已重构为 Android 原生 + termex，`WorkspaceManager` 的目录、HOME/TMP、SSH 字段与上游完全不同，直接合并会破坏工作区功能。
+   - 如需要该能力，应基于 fork 架构另做设计（例如把外部目录作为工作目录或额外可读写根），不要引入 Rootfs 挂载表。
+
+2. **`f93764e6` DeepSeek 当前分支导入**
+   - 上游新增独立 `DeepSeekImporter.kt`，只沿 `current_message_id` 的祖先链导入当前分支。
+   - fork 已有自己的 `DeepSeekImporter`（分支展开、变动识别、独立预览页、覆盖/保留/并存），语义和数据结构都不同，不能替换。
+   - 可选后续增强：在 fork 的预览页增加“只导入当前分支”选项，复用上游 `currentBranch` 的思路。
+
+3. **上游 34 schema / `Migration_32_33`**
+   - 与 fork 的迁移链、字段、identityHash 冲突；已安装用户会触发 Room 校验失败，不能直接使用（见 18.4）。
+
+### 18.4 数据库迁移建议
+
+- 保留 fork 的 `Migration_32_33`（工作区字段）与 `AutoMigration(33,34)`（`source_updated_at`）。
+- 只把 message_node 索引作为新的 `Migration_34_35` 引入；版本号升到 35，生成 `app/schemas/.../35.json`。
+- 若以后引入共享存储等其他字段，另起 `Migration_35_36`，不要和索引迁移混在一起。
+- 验证两条路径：已有 34 库升级到 35；全新安装直接建 35。
+
+### 18.5 建议合并顺序
+
+1. ai（Gemini / Vertex / RequestLog）+ ProviderConnectionTester。
+2. speech（DeepSeek TTS / ASR）+ SafeMode + 自动压缩默认值。
+3. Phone Use（按政策整块接受）。
+4. message_node 索引迁移（34 → 35）。
+5. 段落气泡（`MarkdownParagraphs` + `ChatMessage` + `DisplaySetting` + 设置页 + 字符串）。
+6. 暂不做：工作区共享存储、上游 DeepSeek 导入替换。
+
+验证：`./gradlew test`（Windows 上 Datastore 测试的既有失败除外）、`./gradlew assembleGithubRelease`、旧库升级、全新安装、Phone Use 在 Android 11+ 的行为、fork `minSdk 24` 下新代码的 API 检查。
+
+### 18.6 结论
+
+- 约一半上游改动（ai、speech、Provider、SafeMode、Phone Use、自动压缩）可以低冲突纳入。
+- 段落气泡需要改 `ChatMessage` / `Settings` / 字符串，属于中等适配。
+- message_node 索引必须新开迁移，不能复用上游 34 迁移。
+- 工作区共享存储和 DeepSeek 导入实现与 fork 架构/既有功能冲突，暂不纳入。
+- 下一步可按 18.5 的顺序继续合并，每批单独验证。
+
+### 18.7 本次已纳入（2026-11-17 第一批）
+
+已直接取 `3.3.0` 版本或手工合并以下无冲突改动：
+
+- **ai**：`RequestLog`、Claude/OpenAI/Gemini 的调试日志条件打印、Gemini thoughtSignature、Vertex Interactions API、`ai/build.gradle.kts` 的 `buildConfig`。
+- **Provider**：`ProviderConnectionTester` 重构、`SettingProviderDetailPage` 的弹窗修复、`ProviderConfigure` 的 Vertex 服务账号配置。
+- **Phone Use**：`ChatFloatingWindows` 亮屏、`PhoneUseAccessibilityService` 位图回收、`PhoneUseTool` 微信禁操作。
+- **Speech**：DeepSeek TTS/ASR（`ASRProviderSetting`、`TTSProviderSetting`、`Wav`、`DeepSeekASRController`、`DeepSeekTTSProvider`、`MiMoASRController`、`TTSManager`、设置页与配置组件）；`ui/hooks/ASR.kt` 手工补 DeepSeek 分支，保留 AudioFocus/API 24 逻辑。
+- **自动压缩**：`Settings.enableAutoCompress` 默认值改为 `true`，`SettingsFieldsTest` 样本同步。
+- **Gemini 空文本**：`ChatMessageCot` 忽略只带 thoughtSignature 的空文本，不打断思考块。
+- 顺手修复 `SettingsFieldsTest` 对既有 `toolNameDisplay` 字段的期望（样本值和 `STORED_KEYS`），这是本 fork 之前新增设置项遗留的测试缺口。
+
+**未纳入**：段落气泡、SafeMode、`message_node` 索引、工作区共享存储、README/版本号。DeepSeek 导入并未直接替换为上游版本，而是以 App 导出解析为基础重新适配，见第 19 节。
+
+验证：`:app:compileGithubReleaseKotlin` BUILD SUCCESSFUL；`SettingsFieldsTest` 与 `PathLinkifyTest` 共 24 个用例通过。
+
+---
+
+## 19. DeepSeek 导入切换为 App 导出（2026-11-17）
+
+### 19.1 背景
+
+上游 3.3.0 新增的 `DeepSeekImporter` 面向 **DeepSeek App 端导出**：
+
+```
+manifest.json                 {"export_format_version":3}
+chat_session_index.json       会话摘要列表
+chat_sessions/<id>.json       messages 通过 parent_id 组成分支树
+chat_sessions/<id>_files/     附件
+```
+
+fork 之前的实现面向网页版导出的 `conversations.json`，只支持网页版格式。现改为以 App 导出为主，同时保留 fork 原有的预览、覆盖/保留/并存、分支展开和稳定 id。
+
+### 19.2 新实现
+
+`app/.../data/sync/importer/DeepSeekImporter.kt`（主源集）：
+
+- 校验 `manifest.json` 存在且 `export_format_version >= 3`；缺失或版本过低抛 `DeepSeekAppExportException`。
+- `scan` 优先读 `chat_session_index.json`，没有 index 时回退逐个读会话元信息；预览不解析消息、不保存附件。
+- 以 `message.id` + `parent_id` 构建树，`current_message_id` 回溯出主链。
+- 同一父节点下的多条 ASSISTANT 回复合并为 `MessageNode` 候选列表，`selectIndex` 指向当前分支。
+- 主链之外的分支继续展开追加，统计 `branchMessages`。
+- fragment 映射：`THINK`、`FILE`、`TOOL_SEARCH/OPEN/IMAGE_SEARCH/FIND`、`REQUEST/RESPONSE/CONTENT_RISK/PARTIAL_FILE_READ/TEMPLATE_RESPONSE/TIP`。
+- 附件按 `export_path` 从 ZIP 读取，通过 `saveAttachment` 存入上传目录；缺失时保留文件名占位。
+- 沿用 fork 的稳定 id：`deepseek:conversation:<sessionId>`、`deepseek:node:<sessionId>:<messageId>`、`deepseek:branch:<sessionId>:<messageId>`。
+
+共享数据模型提取到 `DeepSeekImportModels.kt`（`DeepSeekImportResult`、`DeepSeekConversationSummary`、`DeepSeekImportDecision`、`DeepSeekImportAction`、`DeepSeekAttachment`、异常）。
+
+### 19.3 网页版实现保留但不编译
+
+- 旧 `DeepSeekImporter.kt` 移到 `app/src/legacy/java/.../DeepSeekImporterWeb.kt`。
+- 旧测试移到 `app/src/legacy/test/.../DeepSeekImporterWebTest.kt`。
+- `app/src/legacy` 不在 Android Gradle 默认 sourceSets 中，因此保留代码供参考，不参与编译，也不会进入 APK。
+
+### 19.4 UI/错误提示
+
+- `BackupVM` 构造新增 `Application`，附件保存改用 `FilesManager.saveUploadFromBytes`。
+- `ImportExportTab` 捕获 `DeepSeekAppExportException`，提示「请确保导出的 zip 来源于 DeepSeek App，网页版导出不受支持。」
+- 新增字符串 `backup_page_import_deepseek_app_only`、`backup_page_import_deepseek_missing_attachment`。
+- 预览页、覆盖/保留/并存流程不变。
+
+### 19.5 真机问题与修复
+
+导入 App 导出时曾报 `String index out of range: -24`，Logcat 堆栈定位到：
+
+```
+java.net.DefaultFileNameMap.getContentTypeFor
+java.net.URLConnection.guessContentTypeFromName
+DeepSeekImporter.parseMessage
+```
+
+Android 的 `URLConnection.guessContentTypeFromName` 对少数附件文件名会抛 `StringIndexOutOfBoundsException`。已改为 `runCatching` 包住，并按常见扩展名兜底；单个附件保存失败也只保留占位文本，不再中断整次导入。
+
+### 19.6 验证
+
+- 新增 `DeepSeekImporterTest`（5 个用例）：manifest 缺失/版本过低、index 扫描、当前分支 + 候选回复 + 分支展开、附件与缺失占位。
+- `:app:testGithubDebugUnitTest --tests "...DeepSeekImporterTest"` BUILD SUCCESSFUL。
+- `:app:compileGithubReleaseKotlin`、`assembleGithubRelease` BUILD SUCCESSFUL。
+- 真机导入 `deepseek_data-2026-11-17.zip` 成功：1989 个会话中新增 176、无变化 1813、有变化 0；没有预览决策是因为来源时间全部一致。
+
+---
+
+## 20. 上游 3.3.0 当前同步状态（2026-11-17）
+
+### 20.1 已合入
+
+- ai：Gemini thoughtSignature、Vertex Interactions API、请求体日志仅 debug、相关 trace 依赖。
+- Provider：测试连接弹窗修复、`ProviderConnectionTester` 重构。
+- Phone Use：后台亮屏、截图位图回收、微信禁操作（按 fork 政策整块接受）。
+- Speech：DeepSeek TTS / ASR 及设置页适配。
+- 自动压缩默认开启。
+- DeepSeek 导入切换为 App 导出解析，保留预览/覆盖/保留/并存、分支展开、候选回复、附件与稳定 id。
+- 网页版 DeepSeek 导入实现与测试移到 `app/src/legacy`，保留但不参与编译。
+- 真机导入大包验证通过；`String index out of range` 已定位为 `URLConnection.guessContentTypeFromName` 的 Android 异常并修复。
+
+### 20.2 尚未适配的上游 3.3.0 项目
+
+| 项目 | 上游提交 | 当前状态 | 原因 / 下一步 |
+|---|---|---|---|
+| 助手回复按段落拆分气泡 | `cfb7d961` | 已合入（第 21 节） | 新增 `MarkdownParagraphs` 与单测，`ChatMessage` 只替换助手气泡渲染分支，展示设置里新增「按段落拆分气泡」开关 |
+| 安全模式清除超大设置 | `27976e4d` | 已合入（第 21 节） | 按 fork 的字段表机械合入 `largeStoredFieldsFlow`、`resetStoredField`、`SettingsField.reset`；`SafeModeActivity` 取上游 UI，文案改为字符串资源 |
+| `message_node` 复合索引 | `c1c3c4d1` | 已合入（第 21 节） | 新开 `Migration_34_35`，`MessageNodeEntity`、`AppDatabase.version = 35`、生成 `35.json`，并补 `Migration_34_35_Test`；保留 fork 的 33/34 schema |
+| 本地工作区挂载共享存储 | `fab0c077` | 不纳入 | 依赖上游 PRoot/Rootfs + `WorkspaceBackend` + bind mount，与 fork 的 Android 原生 + termex 工作区架构不兼容；如需要应在 fork 架构上重做 |
+| 上游 DeepSeek 当前分支导入实现 | `f93764e6` | 不直接替换 | fork 已按 App 导出格式重新适配（第 19 节），保留自己的预览/覆盖/并存和分支展开；上游的 `currentBranch` 只导当前分支，不能直接替换 |
+| 上游 33/34 schema 与 `Migration_32_33` | `fab0c077`、`c1c3c4d1` | 不能使用 | 与 fork 的迁移链、Workspace 字段和 identityHash 冲突，直接使用会让已安装用户的 Room 校验失败 |
+| github 源集 `MANAGE_EXTERNAL_STORAGE` 与共享存储提示词 | `fab0c077` | 未采用 | 随工作区共享存储功能一起暂不纳入 |
+| 版本号与 README 功能列表 | `eb33917e`、`90269e39` | 已更新（第 21 节） | 版本号升到 3.3.0 / 197；README 补 SillyTavern 角色卡导入，暗色模式与多模态输入按 fork 现状保留 |
+| 上游新增的 Gemini trace / DeepSeek 导入测试 | `d3f128f3`、`14d60e44`、`f93764e6` | 场景已覆盖，录制资源未移植 | 混用本地函数与 Google Search 的签名保留由 `GoogleToolCombinationTest` 覆盖；上游录制 trace 与 `GoogleThoughtSignaturePartTest` 未移植（第 21.4 节） |
+| 上游 SafeMode 新增文案本地化 | `27976e4d` | 已处理（第 21 节） | 新增 `safe_mode_large_fields_*` / `safe_mode_clear*` 键，8 个语言目录全部补齐；「取消」复用现有 `cancel` |
+
+---
+
+## 21. 上游 3.3.0 剩余适配（2026-11-17 第二批）
+
+第 20.2 节里剩余的三项代码适配与 SafeMode 文案本地化已完成，仍保留的「不纳入」项见 21.4。
+
+### 21.1 `message_node` 复合索引（`c1c3c4d1`）
+
+- `MessageNodeEntity` 的索引改为 `Index("conversation_id", "node_index")`。
+- 新增手写 `Migration_34_35`：建 `index_message_node_conversation_id_node_index`、删 `index_message_node_conversation_id`，不动表数据（非唯一索引，重复 `node_index` 不影响迁移）。
+- `AppDatabase.version = 35`，`Migration_34_35` 注册在 `AppDatabaseFactory.addMigrations`；`AutoMigration(33, 34)` 保持原样。
+- 由 KSP 生成 `app/schemas/.../35.json`（version 35，identityHash `fb921f9c...`），没有采用上游 `33.json` / `34.json`。
+- 新增 `Migration_34_35_Test`（androidTest）：顺序分页命中新索引且无 `TEMP B-TREE`；同一会话重复 `node_index` 迁移后可完整分页。
+
+### 21.2 助手回复按段落拆分气泡（`cfb7d961`）
+
+- 新增 `ui/components/message/MarkdownParagraphs.kt`：空行拆段，代码块、`$$` / `\[` 公式块内不拆，列表项的缩进续行归回上一段；配 8 个单测。
+- `ChatMessage`：只替换「助手气泡」分支，按段落生成多个 `ChatMessageBubble`，仅最后一段 `streaming = true`；fork 的 `onOpenPath`、`SelectableContent`、路径链接等逻辑保留。消息本身仍是一条，复制 / 分支 / 导出不受影响。
+- `DisplaySetting.splitAssistantBubbleByParagraph`（默认 `false`），`SettingPreferencesUIPage` 在开启助手气泡后显示该开关。
+- 8 个语言目录补齐 `setting_display_page_split_assistant_bubble_*`。
+
+### 21.3 安全模式清除超大设置（`27976e4d`）
+
+- `SettingsStore.largeStoredFieldsFlow(minChars)` 直接看盘上原始字符串长度；`resetStoredField(keyName)` 走 `update`，内存与盘同时清理，避免启动后第一次写入又把超大值写回去。
+- `SettingsField.reset(settings)` 回落到 `MISSING_KEY_DEFAULTS`（如未选模型仍指向内置自动模型）；认不出的 key 不做任何事。
+- `SafeModeActivity` 取上游 UI：列出 ≥500 万字符的字段、二次确认清除、清除时禁用按钮；「进入应用」改主按钮并排在第一位，「切换助手」改描边按钮；说明文案去掉「可以切换助手解决问题」。
+- 文案改为字符串资源 `safe_mode_large_fields_title` / `safe_mode_large_fields_chars` / `safe_mode_clear` / `safe_mode_clear_title` / `safe_mode_clear_message`，8 个语言目录全部补齐（不再保留上游的硬编码英文）。
+- `SettingsStoreTest` 增加「清除超大字段后盘上变小、其他字段保留」用例。
+
+### 21.4 仍未纳入
+
+| 项目 | 原因 |
+|---|---|
+| 本地工作区挂载共享存储（`fab0c077`） | 依赖上游 PRoot/Rootfs + bind mount，与 fork 的 Android 原生 + termex 工作区架构不兼容，需在 fork 架构上重做 |
+| github 源集 `MANAGE_EXTERNAL_STORAGE` | 随共享存储功能一起暂不引入 |
+| 上游 DeepSeek 当前分支导入实现（`f93764e6`） | fork 已按 App 导出格式重新适配（第 19 节），语义与数据结构不同，不替换 |
+| 上游 33/34 schema 与 `Migration_32_33` | 与 fork 迁移链、Workspace 字段、identityHash 冲突 |
+| 上游 Gemini 搜索 trace 录制资源（`d3f128f3`、`14d60e44`） | 混用函数 + Google Search 的签名场景已由 fork 的 `GoogleToolCombinationTest` 手写覆盖（流式解析、toolCall/toolResponse 原样回传、续轮 buildContents）；录制 trace 与 `GoogleThoughtSignaturePartTest` 属可选回归资产，需要时再取 |
+
+### 21.5 版本号与 README
+
+- `app/build.gradle.kts`：`versionCode 197` / `versionName "3.3.0"`，与上游 `eb33917e` 对齐。
+- README（中/繁）补「SillyTavern 角色卡导入」；上游删掉的暗色模式、多模态输入两行按 fork 现状保留，工作区描述继续用 fork 的 Android 原生 + termex 版本。
+- 上游 README 的英文版差异（Phone Use、供应商顺序）fork 已具备，不再改动。
+
+### 21.6 验证
+
+- `:app:compileGithubDebugKotlin`、`:app:compileGithubDebugAndroidTestKotlin` BUILD SUCCESSFUL。
+- `MarkdownParagraphsTest`（8 例）、`SettingsFieldsTest` 通过。
+- `SettingsStoreTest` 在 Windows 上仍是既有的 `FileStorage` 重命名失败（7 例，含新增用例），与本次改动无关；新增用例逻辑与上游一致，需在 Linux/macOS 或真机验证。
+- `:app:assembleGithubRelease`（含 `lintVitalGithubRelease`）BUILD SUCCESSFUL，3.3.0 / 197 的 APK 可正常打包。
+- 真机需验证：旧库 34 → 35 升级、全新安装建 35、段落气泡在流式生成中的表现、安全模式清除超大世界书后不再闪退。
+
+---
+
+## 22. obscura Android 构建与浏览器 CLI（2026-11-17）
+
+### 22.1 发布位置
+
+- 源码与补丁：`https://github.com/AcE77505/obscura` 的 `android` 分支（fork 自 `h4ckf0r0day/obscura`，基于 `v0.2.7`）。
+- 预编译产物：Release `android-v0.2.7`：
+  - `libobscura-arm64-v8a.so`（约 74 MB）
+  - `libobscura-x86_64.so`（约 78 MB）
+  - `obscura-snapshot-arm64-v8a.bin` / `obscura-snapshot-x86_64.bin`（约 2.4 MB）
+  - `SHA256SUMS`
+- 上游源码不能直接交叉编译，修改清单见 22.2。
+
+### 22.2 源码修改
+
+1. `android/patched/v8`：`RUSTY_V8_ARCHIVE` / `RUSTY_V8_SRC_BINDING_PATH` 只对 android target 生效，避免 host build script 下载不存在的 Windows/Linux V8 归档。
+2. `android/patched/deno_core`：Android 的 `errno_location()` 使用 bionic `__errno()`。
+3. `crates/obscura-js/build.rs`：交叉编译改为读取 `OBSCURA_SNAPSHOT_FILE`，不再用 host V8 生成快照。
+4. `crates/obscura-js/Cargo.toml`：删除 `[build-dependencies] deno_core`，避免为 host 构建 V8。
+5. V8 归档：`android/prepare-v8.sh` 下载 `satouriko/rusty-v8-mobile@v150.4.0` 的 Android 静态库，合并 43 个 `simdutf__*` 转发、`__libcpp_verbose_abort`、compiler-rt 的 `clear_cache.o`。
+6. 构建参数：NDK API 29、`sysroot`、`libunwind`、`c++_static`、BoringSSL 的 CMake/Go、16 KB 页对齐。
+
+### 22.3 构建方式
+
+- Linux/WSL/macOS：`./android/build.sh --abi arm64-v8a`（或 `x86_64`）。
+- Windows：`.\android\build.ps1 -Abi arm64-v8a`（需要 Git Bash、Rust、NDK、Go、LLVM/libclang、CMake、Python、curl）。
+- CI：`.github/workflows/android.yml`；`snapshot` job 在原生 arm64/x64 runner 生成快照，`build` job 交叉编译，tag `android-v*` 触发 release。
+- 快照：`android/snapshots/obscura-snapshot-<abi>.bin`，缺失时从 Release 下载；arm64/x64 host 可用 `android/make-snapshot.sh` 生成。
+- 输出：`android/dist/<abi>/libobscura.so`。
+
+### 22.4 rikkahub 接入
+
+- `app/src/main/jniLibs/{arm64-v8a,x86_64}/libobscura.so` 已放入仓库；`BundledExecutables` 把它链接成 `obscura` 并加入工作区 shell 的 `PATH`。
+- 不再注册 `browser_fetch` / `browser_screenshot`；`BrowserTool.kt` 与对应测试已删除。
+- 新增 `LocalToolOption.ObscuraCli`（旧 `browser` 值在 `normalized()` 中迁移），开关只影响系统提示是否声明 `obscura` CLI，不注册工具 schema。
+- 开启 `ObscuraCli` 会自动开启 `WorkspaceShell` 和 `WorkspaceReadFile`。
+- `WorkspaceReminderTransformer` 注入 `DEFAULT_OBSCURA_CLI_PROMPT`（可在「设置 → 工具提示词 → 本地工具 → obscura_cli」覆盖）。
+- 提示词包含 `fetch` / `--dump` / `--eval` / `--selector` / `-s` / `--allow-private-network` / `--obey-robots` / `--stealth` 的用法和限制。
+- 看图：`obscura fetch <url> -s shot.png --quiet` 后用 `read_file` 读取 PNG；`read_file` 对图片返回 `UIMessagePart.Image`（上限 8 MB），模型需支持图片。
+
+### 22.5 APK 打包
+
+- 保持原有逻辑：`ndk.abiFilters = arm64-v8a, x86_64`；`splits.abi` 生成 arm64/x86 split + universal；`useLegacyPackaging = true`，native lib 继续压缩。
+- 未采用 `.apks` / `noCompress`：`libobscura.so` 需要 `extractNativeLibs=true` 才能进入 `nativeLibraryDir` 执行；split APK 若 Stored 则 `nativeLibraryDir` 为空，obscura 无法运行。临时添加的 bundletool 任务已移除。
+- 版本：`versionCode 197` / `versionName "3.3.0"`。
+
+### 22.6 验证
+
+- obscura fork CI：`snapshot arm64/x64`、`build arm64/x64`、`release` 全部成功；Release `android-v0.2.7` 资产齐全。
+- 真机（arm64 Android 10+）：`libobscura.so --version`、`fetch https://example.com --eval 'document.title'` 正常。
+- rikkahub：`:app:compileGithubDebugKotlin`、`:app:assembleGithubRelease`（3.3.0/197）成功；APK 包含 `lib/arm64-v8a/libobscura.so` 与 `lib/x86_64/libobscura.so`。
+- 待真机验证：工作区 shell 中 `obscura` 命令、`read_file` 读截图、提示词开关的实际调用。
+
+### 22.7 注意
+
+- `libobscura.so` 约 74/79 MB，两个 ABI 合计约 153 MB；universal APK 会明显变大，建议分发 arm64 split。
+- 当前是“CLI + 提示词”方案，没有 `browser_fetch` 的参数 schema；模型需要按提示词自行拼命令，长页面要用 `head -c` 或 `--selector`。
+- 交叉编译必须有目标架构快照；Windows 不能本地生成 arm64 快照，需从 Release 下载。
+- 交互式浏览（点击/填表/登录）尚未接入；后续可考虑 `obscura mcp` 复用现有 MCP 体系。

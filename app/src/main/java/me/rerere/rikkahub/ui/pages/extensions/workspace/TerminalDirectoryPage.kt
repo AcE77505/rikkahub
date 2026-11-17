@@ -85,7 +85,11 @@ fun TerminalDirectoryPage(workspaceId: String? = null) {
             val ordered = workspaces.sortedBy { it.name.lowercase() }
             val preferred = ordered.firstOrNull { it.id == workspaceId } ?: ordered.firstOrNull()
             ordered.forEach { workspace ->
-                val base = java.io.File(java.io.File(context.filesDir, "workspaces"), workspace.root)
+                // 自定义工作区目录时，HOME / TMP 也跟着放在该目录下
+                val customDir = workspace.directory?.trim()?.takeIf { it.startsWith("/") }
+                    ?.let { java.io.File(it) }
+                val base = customDir
+                    ?: java.io.File(java.io.File(context.filesDir, "workspaces"), workspace.root)
                 add(TerminalNode("${workspace.name}/home", java.io.File(base, "home"), false))
                 add(TerminalNode("${workspace.name}/tmp", java.io.File(base, "tmp"), false))
             }

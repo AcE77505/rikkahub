@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.datastore
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import me.rerere.ai.core.ReasoningLevel
+import me.rerere.rikkahub.ui.components.ui.ToolNameDisplay
 import me.rerere.rikkahub.utils.JsonInstant
 import kotlin.reflect.KProperty1
 import kotlin.uuid.Uuid
@@ -26,6 +27,9 @@ internal class SettingsField<T, P : Any>(
         val stored = preferences[key] ?: return settings
         return settings.set(decode(stored))
     }
+
+    /** 把这个字段恢复成 key 不存在时的取值。 */
+    fun reset(settings: Settings): Settings = settings.set(property.get(MISSING_KEY_DEFAULTS))
 
     /** 编码结果为 null 时删除 key。 */
     fun write(preferences: MutablePreferences, settings: Settings) {
@@ -175,6 +179,15 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
 
         // 工具开关与审批
         json(LOCAL_TOOLS, Settings::localTools) { copy(localTools = it) },
+        SettingsField(
+            TOOL_NAME_DISPLAY,
+            Settings::toolNameDisplay,
+            { copy(toolNameDisplay = it) },
+            encode = { it.name },
+            decode = { name ->
+                ToolNameDisplay.entries.find { it.name == name } ?: ToolNameDisplay.LONG_PRESS
+            },
+        ),
         json(TOOL_APPROVALS, Settings::toolApprovals) { copy(toolApprovals = it) },
         json(TOOL_DESCRIPTION_OVERRIDES, Settings::toolDescriptionOverrides) { copy(toolDescriptionOverrides = it) },
         json(TOOL_SYSTEM_PROMPT_OVERRIDES, Settings::toolSystemPromptOverrides) { copy(toolSystemPromptOverrides = it) },

@@ -17,6 +17,9 @@ import java.nio.charset.StandardCharsets
  *   tmp/       # TMPDIR，工作区私有
  *   linux/     # 旧版 rootfs，已废弃，代码不再读取（保留用户数据不删）
  * ```
+ *
+ * 指定了自定义工作区目录时，工作目录、HOME 与 TMPDIR 都放到该目录下
+ * （`<directory>/home`、`<directory>/tmp`），未指定时仍使用上面的默认布局。
  */
 class WorkspaceManager(
     private val baseDir: File,
@@ -35,11 +38,12 @@ class WorkspaceManager(
         baseDir.mkdirs()
     }
 
-    fun ensureWorkspace(root: String): File {
+    fun ensureWorkspace(root: String, directory: String? = null): File {
         val dir = workspaceDir(root)
-        filesDir(root).mkdirs()
-        homeDir(root).mkdirs()
-        tempDir(root).mkdirs()
+        // 使用自定义目录时不再创建默认 files/，避免旧沙箱目录被重新写活
+        if (customDir(directory) == null) filesDir(root).mkdirs()
+        homeDir(root, directory).mkdirs()
+        tempDir(root, directory).mkdirs()
         return dir
     }
 
@@ -51,9 +55,29 @@ class WorkspaceManager(
     /** 默认工作区目录（未指定自定义目录时） */
     fun filesDir(root: String): File = File(workspaceDir(root), FILES_DIR)
 
-    fun homeDir(root: String): File = File(workspaceDir(root), HOME_DIR)
+    /**
+     * 工作区 HOME。
+     *
+     * 指定了自定义目录时，HOME 跟着工作区目录走（`<directory>/home`），
+     * 否则仍在 app 私有目录 `workspaces/<root>/home`。
+     */
+    fun homeDir(root: String, directory: String? = null): File =
+        File(customDir(directory) ?: workspaceDir(root), HOME_DIR)
 
-    fun tempDir(root: String): File = File(workspaceDir(root), TEMP_DIR)
+    /**
+     * 工作区 TMPDIR。
+     *
+     * 与 [homeDir] 一样，指定自定义目录时用 `<directory>/tmp`，
+     * 这样临时文件、后台命令日志和输出溢出文件不会再落到默认目录。
+     */
+    fun tempDir(root: String, directory: String? = null): File =
+        File(customDir(directory) ?: workspaceDir(root), TEMP_DIR)
+
+    /** 自定义工作区目录；未指定或不是绝对路径时返回 null */
+    private fun customDir(directory: String?): File? {
+        val custom = directory?.trim().orEmpty()
+        return if (custom.startsWith("/")) File(custom) else null
+    }
 
     /**
      * 工作区实际目录：[directory] 非空且是绝对路径时用它，否则回落到默认 [filesDir]。
@@ -176,7 +200,7 @@ class WorkspaceManager(
         require(workingDir.exists()) { "Working directory does not exist: $cwd" }
         require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
 
-        val tempDir = tempDir(root).also { it.mkdirs() }
+        val tempDir = tempDir(root, directory).also { it.mkdirs() }
         val wrappedCommand = if (toolchain?.shellPath != null) {
             // 有 bash 时用它执行，保留命令文本原样（位置参数传入，避免二次转义）
             "${toolchain.shellPath.shellQuote()} -lc ${command.shellQuote()}"
@@ -190,7 +214,7 @@ class WorkspaceManager(
                 command = wrappedCommand,
                 cwd = cwd,
                 workingDir = workingDir,
-                homeDir = homeDir(root),
+                homeDir = homeDir(root, directory),
                 tempDir = tempDir,
                 overtimeMillis = overtimeMillis,
                 autoStopOnOvertime = autoStopOnOvertime,
@@ -276,14 +300,14 @@ class WorkspaceManager(
         val workingDir = fileSystem.resolve(workspaceDir, cwd)
         require(workingDir.exists()) { "Working directory does not exist: $cwd" }
         require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
-        val tempDir = tempDir(root).also { it.mkdirs() }
+        val tempDir = tempDir(root, directory).also { it.mkdirs() }
         return shellRunner.startBackground(
             WorkspaceShellContext(
                 root = root,
                 command = backgroundCommand(command, toolchain),
                 cwd = cwd,
                 workingDir = workingDir,
-                homeDir = homeDir(root),
+                homeDir = homeDir(root, directory),
                 tempDir = tempDir,
                 overtimeMillis = 0,
                 extraEnv = toolchain?.extraEnv.orEmpty(),
