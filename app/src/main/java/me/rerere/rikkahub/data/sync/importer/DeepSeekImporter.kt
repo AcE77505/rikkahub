@@ -23,9 +23,9 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.guessMimeTypeFromFileName
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.URLConnection
 import java.time.Instant
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -374,7 +374,7 @@ object DeepSeekImporter {
                     val name = attachment["file_name"].text?.takeIf { it.isNotBlank() } ?: "attachment"
                     // Android 的 URLConnection.guessContentTypeFromName 对部分文件名会抛
                     // StringIndexOutOfBoundsException，这里必须兜底，不能让它中断整次导入
-                    val mime = guessMimeType(name)
+                    val mime = guessMimeTypeFromFileName(name)
                     val exportPath = attachment["export_path"].text?.takeIf { it.isNotBlank() }
                     val url = if (exportPath == null) {
                         null
@@ -523,27 +523,6 @@ object DeepSeekImporter {
                 output.write(buffer, 0, count)
             }
             output.toByteArray()
-        }
-    }
-
-    /** Android 的 DefaultFileNameMap 对少数文件名会抛 StringIndexOutOfBoundsException。 */
-    private fun guessMimeType(fileName: String): String {
-        val fromName = runCatching { URLConnection.guessContentTypeFromName(fileName) }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-        if (fromName != null) return fromName
-        return when (fileName.substringAfterLast('.', "").lowercase()) {
-            "png" -> "image/png"
-            "jpg", "jpeg" -> "image/jpeg"
-            "webp" -> "image/webp"
-            "gif" -> "image/gif"
-            "pdf" -> "application/pdf"
-            "txt" -> "text/plain"
-            "md" -> "text/markdown"
-            "json" -> "application/json"
-            "csv" -> "text/csv"
-            "zip" -> "application/zip"
-            else -> "application/octet-stream"
         }
     }
 

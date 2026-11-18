@@ -110,7 +110,8 @@ class DeepSeekImporterTest {
                 {"id":"m1","parent_id":null,"role":"USER","inserted_at":"2026-11-17T00:00:01.000Z",
                  "fragments":[{"type":"FILE","files":[
                    {"file_name":"a.png","export_path":"chat_sessions/s1_files/a.png","is_image":true},
-                   {"file_name":"b.txt","export_path":"chat_sessions/s1_files/missing.txt","is_image":false}
+                   {"file_name":"b.txt","export_path":"chat_sessions/s1_files/missing.txt","is_image":false},
+                   {"file_name":"C#入门笔记.pdf","export_path":"chat_sessions/s1_files/c.pdf","is_image":false}
                  ]}]},
                 {"id":"m2","parent_id":"m1","role":"ASSISTANT","inserted_at":"2026-11-17T00:00:02.000Z",
                  "fragments":[{"type":"RESPONSE","content":"ok"}]}
@@ -122,6 +123,7 @@ class DeepSeekImporterTest {
                 "manifest.json" to """{"export_format_version":3}""",
                 "chat_sessions/s1.json" to json,
                 "chat_sessions/s1_files/a.png" to "PNG",
+                "chat_sessions/s1_files/c.pdf" to "PDF",
             )
         )
         var imported: me.rerere.rikkahub.data.model.Conversation? = null
@@ -132,10 +134,12 @@ class DeepSeekImporterTest {
         ) { conversation, _ -> imported = conversation }
 
         assertEquals(1, result.newConversations)
-        assertEquals(2, result.attachmentParts)
+        assertEquals(3, result.attachmentParts)
         val parts = requireNotNull(imported).messageNodes.first().messages.first().parts
         assertTrue(parts.any { it is UIMessagePart.Image })
         assertTrue(parts.any { it is UIMessagePart.Text && "b.txt" in it.text })
+        // 文件名里的 '#' 在 Android 9/10 会让 URLConnection 抛异常，必须能正常导入
+        assertTrue(parts.any { it is UIMessagePart.Document && it.fileName == "C#入门笔记.pdf" })
     }
 
     private fun archive(entries: Map<String, String>): java.io.File {
