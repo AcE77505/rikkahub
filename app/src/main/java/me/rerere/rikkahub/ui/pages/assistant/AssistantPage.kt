@@ -70,7 +70,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
-import me.rerere.rikkahub.data.datastore.DEFAULT_ASSISTANTS_IDS
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.export.AssistantSerializer
 import me.rerere.rikkahub.data.model.Assistant
@@ -559,7 +558,7 @@ private fun AssistantItem(
                         text = stringResource(R.string.assistant_page_delete),
                         icon = HugeIcons.Delete01,
                         destructive = true,
-                        enabled = assistant.id !in DEFAULT_ASSISTANTS_IDS,
+                        enabled = settings.assistants.size > 1,
                         onClick = onDelete,
                     ),
                 )
