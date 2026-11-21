@@ -22,6 +22,25 @@ internal object DatabaseBackup {
     /** SQL 字符串字面量，路径里的单引号要转义。 */
     internal fun sqlLiteral(value: String): String = "'" + value.replace("'", "''") + "'"
 
+    /**
+     * 不经过 Room，直接从库文件拍快照：Room 打不开库（迁移失败、装了更旧的版本）时也能导出。
+     * 快照保留盘上原来的 schema 版本，恢复时再走迁移。只读打开，不会改动库文件（日志模式、android_metadata 都不碰）。
+     */
+    fun createFileSnapshot(context: Context, databaseFile: File, destination: File) {
+        check(!destination.exists()) { "Backup snapshot already exists" }
+        require(databaseFile.isFile) { "Database file not found" }
+        val configuration = SQLiteConfiguration.configure(
+            context,
+            SQLiteDatabaseConfiguration(databaseFile.absolutePath, SQLiteDatabase.OPEN_READONLY)
+        )
+        SQLiteDatabase.openDatabase(configuration, null) {
+            error("Database is corrupt")
+        }.use { database ->
+            // 与 createSnapshot 一致：路径写进 SQL 字面量，requery 对 VACUUM 的参数绑定不可靠
+            database.execSQL("VACUUM main INTO ${sqlLiteral(destination.absolutePath)}")
+        }
+    }
+
     /** Only opens the staged copy. The caller must place its matching WAL beside it first. */
     fun normalize(context: Context, databaseFile: File) {
         require(databaseFile.isFile && databaseFile.length() > 0) { "Backup database is missing or empty" }

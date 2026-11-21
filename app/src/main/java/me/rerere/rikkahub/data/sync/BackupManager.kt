@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.sync
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -84,12 +85,22 @@ class BackupManager(
                 )
                 if (resources.any { DatabaseBackupTables.hasTables(it) }) {
                     val snapshot = File(staging, TABLES_DATABASE)
-                    if (DatabaseBackupTables.export(
+                    // 迁移失败、降级安装时 Room 打不开库，openHelper.writableDatabase 会抛；
+                    // 这时直接从库文件拍快照，安全模式仍能导出（快照保留盘上原 schema，恢复时再走迁移）
+                    val exported = runCatching {
+                        DatabaseBackupTables.export(
                             context,
                             database.openHelper.writableDatabase,
                             resources,
                             snapshot
-                        )) {
+                        )
+                    }.getOrElse { error ->
+                        Log.w(TAG, "Table export failed, falling back to the database file", error)
+                        snapshot.delete()
+                        createDatabaseSnapshot(snapshot)
+                        true
+                    }
+                    if (exported) {
                         addFile(
                             zip,
                             snapshot,
@@ -316,6 +327,27 @@ class BackupManager(
         )
     }
 
+    private fun createDatabaseSnapshot(destination: File) {
+        try {
+            DatabaseBackup.createSnapshot(database.openHelper.writableDatabase, destination)
+        } catch (e: Exception) {
+            // 迁移失败、降级安装时 Room 打不开库，应用一碰数据库就崩，只能进安全模式导出。
+            // 迁移在事务里，失败会回滚，盘上还是迁移前的完整数据，直接从文件拍快照
+            Log.w(TAG, "Room snapshot failed, falling back to the database file", e)
+            check(!destination.exists() || destination.delete()) { "Cannot remove partial snapshot" }
+            try {
+                DatabaseBackup.createFileSnapshot(
+                    context,
+                    context.getDatabasePath(SQLiteConfiguration.DATABASE_NAME),
+                    destination
+                )
+            } catch (fallback: Exception) {
+                e.addSuppressed(fallback)
+                throw e
+            }
+        }
+    }
+
     private fun isAttachment(name: String): Boolean {
         val folder = name.substringBefore('/')
         if (folder !in ATTACHMENT_FOLDERS || '/' !in name) return false
@@ -345,6 +377,8 @@ class BackupManager(
     }
 
     companion object {
+        private const val TAG = "BackupManager"
+
         private const val MANIFEST = "backup.json"
         private const val SETTINGS_JSON = "settings.json"
         private const val TABLES_DATABASE = "tables.db"
