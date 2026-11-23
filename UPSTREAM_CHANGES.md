@@ -1300,3 +1300,49 @@ obscura 的 `libobscura.so` 在 `jniLibs/arm64-v8a` 与 `jniLibs/x86_64` 合计�
 
 - 两个版本使用同一个 `versionCode`，不能同时安装；切换安装前需卸载或覆盖安装。
 - 从带 obscura 的版本覆盖安装到不带版本时，数据库里的 `obscura_cli` 开关会在设置归一化时被移除，不会留下无效开关。
+
+---
+
+## 26. 上游 3.3.1 同步（2026-11-24）
+
+### 26.1 范围
+
+`upstream/master` 从 `e033a47d` 前进到 `2435dbdf`（3.3.1），共 35 个提交。其中 3.3.0 的 19 个（`e033a47d..eb33917e`）此前已按第 20、21 节手工适配合入 fork，本次只处理 3.3.0 之后的 16 个。
+
+### 26.2 已引入（无冲突，10 个）
+
+| 上游提交 | 内容 |
+|---|---|
+| `bfac2440` | 发布时压缩 mapping 再上传 |
+| `2cd6acac` | 修复开启 VPN 时应用内更新包无法下载 |
+| `ce0e3607` | 允许删除内置默认助手，至少保留一个 |
+| `a9e9e53a` | 移除自动关闭未使用模板 Issue 的工作流 |
+| `1ed0a77c` | 新增商汤日日新图标并扩展 NVIDIA 匹配规则 |
+| `358e2931` | bettertext 升级至 v0.1.6 |
+| `e4646a77` | Markdown 导出写入消息时间 |
+| `48a68f87` | 模型名最多显示两行 |
+| `fbfb9926` | Google 模型列表缺 displayName 时回退到 modelId |
+| `2435dbdf` | 版本号 3.3.1（`versionCode 198` / `versionName "3.3.1"`） |
+
+统一用 `git cherry-pick -x` 逐个引入，保留了上游提交号。全部无冲突。
+
+### 26.3 待适配（有冲突，6 个）
+
+| 上游提交 | 冲突文件 | 说明 |
+|---|---|---|
+| `63a5192d` 消息概览标出压缩点 | `ChatListPreview.kt` | 小：加 `PreviewRound.checkpoint` 与分组条件 |
+| `b7cf74dd` 识别被系统停掉的无障碍服务 | `LocalTools.kt` | 小：新增 `isCheckedInSystem` 回调参数 |
+| `a8508e23` Android 9/10 导入含 `#` 文件名附件崩溃 | `DeepSeekImporter.kt`、测试 | 中：fork 导入已改为 App 导出格式，需迁移修复 |
+| `a2479770a` 打 tag 自动发布工作流 | `.agents/skills/publish-release/SKILL.md` | 小：工作流本身新增，冲突只在被 fork 改过的 skill 文档 |
+| `2d93676e` 安全模式页导出/导入备份 | `BackupManager.kt`、`DatabaseBackup.kt` | 中：需接到 fork 的备份分项模型 |
+| `41d77f1e` 快速入门页 | 11 处（DI、备份页、8 个 strings.xml） | 大：7 个新文件可直取；其 `DeepSeekMigrator` 依赖上游导入实现，不兼容 fork |
+
+### 26.4 顺带修复
+
+- `BackupSettingsFields`（`data/datastore/BackupItem.kt`）缺少 `toolNameDisplay` 字段，导致 `BackupSettingsFieldsTest` 一直失败。该问题由 `c6c08d90` 引入 `toolNameDisplay` 时漏更新备份资源清单造成，与本次同步无关；本次补上并让测试通过。
+
+### 26.5 验证
+
+- `:app:compileGithubDebugKotlin` BUILD SUCCESSFUL。
+- `:app:testGithubDebugUnitTest`：582 个测试，9 个失败，全部是 Windows 上 `FileStorage` 的 `atomicMoveTo` 重命名失败（与第 7.4 节记录的同类问题一致）；`BackupSettingsFieldsTest` 的失败已修复。
+- 待办：6 个冲突提交的适配，见 26.3。

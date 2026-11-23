@@ -148,6 +148,7 @@ internal object BackupSettingsFields {
             "shellBackgroundMaxRunning", "shellBackgroundNotify", "workspacePrompt", "webServerEnabled",
             "webServerPort", "webServerJwtEnabled", "webServerAccessPassword", "webServerLocalhostOnly",
             "backupReminderConfig", "sponsorAlertDismissedAt", "pathOpenPreference", "pathOpenMtPackage",
+            "toolNameDisplay",
         ),
         BackupResource.MCP to setOf("mcpServers"),
         BackupResource.SEARCH to setOf("searchServices", "searchCommonOptions", "searchServiceSelected"),
