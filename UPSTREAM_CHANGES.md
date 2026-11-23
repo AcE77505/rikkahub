@@ -14,7 +14,43 @@
 
 ---
 
-## 0. 快速总览
+## 0. 如何判断上游提交能否直接引入（先读这一节）
+
+同步上游时**不要**用下面这些方法判断冲突，它们都会给出错误结论：
+
+| 错误做法 | 为什么错 |
+|---|---|
+| `git merge-tree --write-tree HEAD <commit>` | 合的是两条完整历史，fork 与上游的所有历史差异都会算成冲突，结果恒为「全部冲突」 |
+| `git merge-tree --write-tree --merge-base=<mergeBase> HEAD <commit>` | 仍然以 fork 的历史为一方，同样会把整批历史差异算进来 |
+| 按「该提交触及的文件 fork 是否改过」过滤 | 粒度太粗：同文件不同区域 git 能自动合并，会误报大量「需适配」 |
+| `git log --all --grep=<主题>` | `--all` 包含 `upstream/master`，命中的往往是上游自己的提交，并非 fork 已实现 |
+| 在 fork 代码里 grep 关键词 | 关键词可能来自上游合并或无关代码，不能证明该功能已引入 |
+
+**正确做法**：把单个上游提交当成一次 cherry-pick，只用该提交自己的父提交当 merge-base。
+
+```bash
+# 能直接引入：无输出
+git merge-tree --write-tree --merge-base=<commit>^ HEAD <commit>
+
+# 有冲突：输出 CONFLICT 行，并列出冲突文件与类型
+git merge-tree --write-tree --merge-base=<commit>^ HEAD <commit> | grep CONFLICT
+```
+
+- `--merge-base=<commit>^` 让 git 只比较「该提交带来的改动」与「fork 当前的树」，这才是 cherry-pick 的真实冲突。
+- 注意 `merge-tree --write-tree` 即使无冲突也可能返回非 0，**必须以输出里有没有 `CONFLICT` 行判断**，不能看退出码。
+- 冲突类型要看清：`content` 需要手工合并；`modify/delete` 说明一方删了文件、另一方改过，要判断是「上游删的过期测试」还是「fork 删的上游新增文件」。
+- 遍历整批提交的脚本模板见第 26 节末尾。
+
+**另外两步必查**（判断「是否已引入」而不是「是否冲突」）：
+
+1. 先读本文档后面记录的上次同步章节（如第 20、21 节）。手工适配合入的提交在 git 层面永远显示冲突，实际已经在 fork 里。
+2. 用 `git log <fork-head> --grep=<提交主题>`（**不加 `--all`**）确认 fork 自己的历史里有没有同主题的提交。
+
+一句话结论：**是否冲突看 `merge-tree --merge-base=<commit>^`；是否已引入看本文档记录 + fork 自己的 `git log --grep`。两者不能互相替代。**
+
+---
+
+## 0.1 快速总览
 
 | 模块 | 主要内容 | 主要文件 |
 |---|---|---|
