@@ -2,11 +2,14 @@ package me.rerere.rikkahub.ui.pages.log
 
 import android.content.ClipData
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ClipEntry
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Delete01
+import me.rerere.hugeicons.stroke.Download01
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
@@ -37,13 +40,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
 import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.R
@@ -108,7 +115,44 @@ private fun UnifiedLogList(
     var selectedLog by remember { mutableStateOf<LogEntry.RequestLog?>(null) }
     val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val sortedLogs = remember(logs) { logs.sortedByDescending { it.timestamp } }
+
+    // 待写入的 (文件名, 内容)：CreateDocument 返回后才真正写盘
+    var pendingExport by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val saveLogsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val pending = pendingExport
+        pendingExport = null
+        if (uri == null || pending == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(pending.second.toByteArray())
+                    } ?: error("Unable to open output stream")
+                }
+            }
+            Toast.makeText(
+                context,
+                if (result.isSuccess) R.string.log_page_save_logs_success else R.string.log_page_save_logs_failed,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+    val saveLogs = {
+        if (sortedLogs.isEmpty()) {
+            Toast.makeText(context, R.string.log_page_save_logs_empty, Toast.LENGTH_SHORT).show()
+        } else {
+            val fileName = "rikkahub-logs-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.json"
+            pendingExport = fileName to JsonInstantPretty.encodeToString(
+                ListSerializer(LogEntry.serializer()),
+                sortedLogs
+            )
+            saveLogsLauncher.launch(fileName)
+        }
+    }
 
     LazyColumn(
         modifier = modifier,
@@ -120,6 +164,10 @@ private fun UnifiedLogList(
                 enabled = requestLoggingEnabled,
                 onEnabledChange = onRequestLoggingChange
             )
+        }
+
+        item {
+            SaveLogsCard(onClick = saveLogs)
         }
 
         items(sortedLogs, key = { it.id }, contentType = { it.javaClass.simpleName }) { log ->
@@ -178,6 +226,38 @@ private fun RequestLoggingSwitchCard(
                 checked = enabled,
                 onCheckedChange = onEnabledChange
             )
+        }
+    }
+}
+
+@Composable
+private fun SaveLogsCard(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.log_page_save_logs),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = stringResource(R.string.log_page_save_logs_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(HugeIcons.Download01, contentDescription = null)
         }
     }
 }

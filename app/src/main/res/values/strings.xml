@@ -1389,6 +1389,11 @@
   <string name="setting_mcp_page_name_invalid">Name can only contain English letters and numbers</string>
   <string name="log_page_record_requests">Record requests</string>
   <string name="log_page_record_requests_desc">Capture request headers, bodies, and response metadata</string>
+  <string name="log_page_save_logs">Save logs to file</string>
+  <string name="log_page_save_logs_desc">Export all logs as JSON through the system file picker</string>
+  <string name="log_page_save_logs_empty">No logs to save</string>
+  <string name="log_page_save_logs_success">Logs saved</string>
+  <string name="log_page_save_logs_failed">Failed to save logs</string>
   <string name="chat_message_tool_recent_chats">View recent chats</string>
   <string name="chat_message_tool_conversation_search">Search history: %1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">Screen Time</string>

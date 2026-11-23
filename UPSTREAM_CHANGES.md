@@ -1101,3 +1101,33 @@ Android 的 `URLConnection.guessContentTypeFromName` 对少数附件文件名会
 - 当前是“CLI + 提示词”方案，没有 `browser_fetch` 的参数 schema；模型需要按提示词自行拼命令，长页面要用 `head -c` 或 `--selector`。
 - 交叉编译必须有目标架构快照；Windows 不能本地生成 arm64 快照，需从 Release 下载。
 - 交互式浏览（点击/填表/登录）尚未接入；后续可考虑 `obscura mcp` 复用现有 MCP 体系。
+
+---
+
+## 23. 日志导出到本地（2026-11-23）
+
+### 23.1 背景
+
+「请求日志」页面展示的内容只存在于 `common/.../android/Logging.kt` 的 `recentLogs` 内存列表（最多 100 条），进程被回收或重启后全部丢失，也没法把日志拿给别人排查。本次在页面里补一个导出入口，不改动日志本身的存储方式。
+
+### 23.2 实现
+
+`app/.../ui/pages/log/LogPage.kt`：
+
+- 在「记录请求」开关卡片下方新增「保存到本地」卡片（`SaveLogsCard`，`Download01` 图标，整行可点）。
+- 点击时对 `Logging.getRecentLogs()` 按时间倒序取快照，用 `JsonInstantPretty` + `ListSerializer(LogEntry.serializer())` 编码为 JSON（条目带 `type` 判别字段），再通过 `ActivityResultContracts.CreateDocument("application/json")` 让用户选择保存位置。
+- 默认文件名 `rikkahub-logs-yyyyMMdd-HHmmss.json`；真正的写入发生在 `CreateDocument` 回调里，用 `contentResolver.openOutputStream(uri)` 在 `Dispatchers.IO` 写入，成功/失败以 Toast 提示。
+- 没有日志时只提示「暂无可保存的日志」，不弹文件选择器。
+- 导出内容包含完整请求头与请求体（可能含 API Key 等敏感信息），只写到用户自己选定的位置，不做任何上传；导出后内存日志保持不变。
+
+### 23.3 新增字符串
+
+`log_page_save_logs`、`log_page_save_logs_desc`、`log_page_save_logs_empty`、`log_page_save_logs_success`、`log_page_save_logs_failed`（`values` / `values-zh`，其余语言回退英文）。
+
+### 23.4 验证
+
+- `:app:compileGithubDebugKotlin` BUILD SUCCESSFUL。
+- `:app:assembleGithubRelease` BUILD SUCCESSFUL。
+- 待真机验证：系统文件选择器落盘、导出的 JSON 可正常打开、导出的请求体/响应头内容完整。
+
+---
