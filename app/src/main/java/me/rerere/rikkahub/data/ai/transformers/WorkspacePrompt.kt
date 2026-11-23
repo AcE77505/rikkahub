@@ -35,16 +35,11 @@ object WorkspacePromptPlaceholders {
 val DEFAULT_WORKSPACE_PROMPT: String = """
     <workspace>
     You are working in a workspace named "{{workspace_name}}".
-    - The workspace directory is `{{workspace_dir}}`. It persists across turns of this conversation.
-    - Paths passed to workspace tools are relative to that directory unless they are absolute.
+    - Workspace directory: `{{workspace_dir}}` (persistent across turns; relative tool paths resolve against it, absolute paths are used as-is).
     {{shell_env}}
     {{tool_list}}
-    - Prefer the shell tool for tasks that standard Unix tools handle well, and prefer `edit_file` for targeted edits over rewriting whole files.
-    - Skills are stored at `{{skills_dir}}`. Each skill is a subdirectory `{{skills_dir}}/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.
-    - Use the `view_skill` tool with the optional `path` argument to read supporting files inside `{{skills_dir}}/<skill-name>/`. Text files are returned as text; images (png/jpeg/webp/gif) are returned as image content so you can view them when the model supports images.
-    - To run a skill's scripts or handle binary files, use `export_skill` to copy the skill (or part of it) from `{{skills_dir}}/<skill-name>/` into the workspace, by default to `skills/<skill-name>/`, then use the shell and file tools there.
-    - Built-in skills shipped with the app are at `{{builtin_skills_dir}}/<skill-name>/` with the same layout. Treat that directory as READ-ONLY: you may read files and run scripts there, but never modify, overwrite, or delete anything. A skill in the skills directory with the same name overrides the built-in one.
-    - Files the user uploaded are at `{{upload_dir}}`. Treat it as READ-ONLY: read uploaded files from there, but never modify, overwrite, or delete anything. If you need to change an uploaded file, copy it into the workspace directory first and edit the copy.
+    - Skills live in `{{skills_dir}}` (`<skill-name>/SKILL.md`); built-in skills are in `{{builtin_skills_dir}}` (read-only; the same name in `{{skills_dir}}` overrides). Read a skill's `SKILL.md` before using it.
+    - Uploads are in `{{upload_dir}}` (read-only; copy a file into the workspace before editing it).
     {{cwd_line}}
     </workspace>
 """.trimIndent()

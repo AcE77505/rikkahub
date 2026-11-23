@@ -36,6 +36,7 @@ import me.rerere.hugeicons.stroke.MessageQuestion
 import me.rerere.hugeicons.stroke.SmartPhone01
 import me.rerere.hugeicons.stroke.Tap01
 import me.rerere.hugeicons.stroke.VolumeHigh
+import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -274,12 +275,14 @@ private fun AssistantLocalToolContent(
                 title = R.string.assistant_page_local_tools_chart_display_title,
                 description = R.string.assistant_page_local_tools_chart_display_desc,
             )
-            toolItem(
-                option = LocalToolOption.ObscuraCli,
-                icon = HugeIcons.Internet,
-                title = R.string.assistant_page_local_tools_obscura_cli_title,
-                description = R.string.assistant_page_local_tools_obscura_cli_desc,
-            )
+            if (BuildConfig.INCLUDE_OBSCURA) {
+                toolItem(
+                    option = LocalToolOption.ObscuraCli,
+                    icon = HugeIcons.Internet,
+                    title = R.string.assistant_page_local_tools_obscura_cli_title,
+                    description = R.string.assistant_page_local_tools_obscura_cli_desc,
+                )
+            }
             // 只有 github 渠道的 Android 11 及以上才有
             if (PhoneUseManager.isSupported) {
                 toolItem(

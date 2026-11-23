@@ -16,6 +16,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.temporal.Temporal
@@ -62,6 +63,11 @@ object DefaultPlaceholderProvider : PlaceholderProvider {
             LocalDate.now().toDateString()
         }
 
+        // 精确到分钟；写在 system prompt 里会让前缀每请求变化，进而降低 prompt cache 命中
+        placeholder("cur_datetime", { Text(stringResource(R.string.placeholder_current_datetime)) }) {
+            LocalDateTime.now().toDateTimeString()
+        }
+
         placeholder("model_id", { Text(stringResource(R.string.placeholder_model_id)) }) {
             it.model.modelId
         }
@@ -105,6 +111,11 @@ object DefaultPlaceholderProvider : PlaceholderProvider {
 
     private fun Temporal.toDateString() = DateTimeFormatter
         .ofLocalizedDate(FormatStyle.MEDIUM)
+        .withLocale(Locale.getDefault())
+        .format(this)
+
+    private fun LocalDateTime.toDateTimeString() = DateTimeFormatter
+        .ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
         .withLocale(Locale.getDefault())
         .format(this)
 

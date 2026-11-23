@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.data.ai.tools
 
+import me.rerere.rikkahub.BuildConfig
+
 /**
  * 「设置 → 工具提示词」里可编辑的工具分类。
  *
@@ -382,12 +384,8 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
             as an absolute local file path via system_prompt_file, prompt_file, or messages_file.
         """.let(::desc),
         defaultSystemPrompt = """
-            You may manage other assistants with update_assistant only when the user asks.
-            Use list_assistants or get_assistant first, and never modify the current assistant.
-            Array fields are upserts by id/title, not replacements. Write at most one long preset or dialogue
-            group per call; provider tool-call arguments have a size limit. If a prompt or dialogue group is
-            too large, pass an absolute local file path via system_prompt_file, prompt_file, or messages_file
-            instead of inlining the text. Use the replace_* flags only when you intentionally want to clear the existing list.
+            Only when the user asks, use update_assistant to manage other assistants; never modify the current assistant, and call list_assistants or get_assistant first.
+            Array fields are upserts by id/title, not replacements. Send at most one long preset or dialogue group per call; for large text pass system_prompt_file, prompt_file, or messages_file instead of inlining it. Use replace_* only when you intentionally want to clear a list.
         """.let(::prompt),
     ),
     ToolPromptEntry(
@@ -436,3 +434,5 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
         """.let(::desc),
     ),
 )
+    // 不带 obscura 的编译版本不在「工具提示词」里显示这个条目
+    .filterNot { !BuildConfig.INCLUDE_OBSCURA && it.name == OBSCURA_CLI_PROMPT_KEY }

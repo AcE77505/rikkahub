@@ -22,7 +22,9 @@ class MemoryPromptTest {
         updatedAt = 0,
     )
 
-    private fun String.block(tag: String) = substringAfter("<$tag").substringAfter(">").substringBefore("</$tag>").trim()
+    private fun String.block(tag: String) = substringAfter(
+        "<$tag"
+    ).substringAfter(">").substringBefore("</$tag>").trim()
 
     @Test
     fun `profile is injected in full with its version and other files only appear in the listing`() {
@@ -32,7 +34,9 @@ class MemoryPromptTest {
         assertEquals("- [stated] Name is Lin", prompt.block("profile"))
 
         val listing = prompt.block("memory_listing")
-        assertTrue(listing.startsWith("/topics/food.md | What the user eats and avoids | aliases: diet, 饮食 | updated: "))
+        assertTrue(
+            listing.startsWith("/topics/food.md | What the user eats and avoids | aliases: diet, 饮食 | updated: ")
+        )
         assertFalse(listing.contains(MemoryFile.PROFILE_PATH))
         assertFalse(prompt.contains("Allergic to peanuts"))
     }
@@ -74,6 +78,16 @@ class MemoryPromptTest {
 
         assertTrue(input.endsWith("(no new conversation turns)"))
         assertFalse(input.contains("<conversation"))
+    }
+
+    @Test
+    fun `main prompt uses the compact write rules and leaves the full format to the organizer`() {
+        val prompt = buildMemoryPrompt(listOf(profile, food))
+
+        assertTrue(prompt.contains("<memory_write_rules>"))
+        assertFalse(prompt.contains("<memory_format>"))
+        assertFalse(prompt.contains("## Calibration"))
+        assertTrue(buildMemoryConsolidationPrompt(fullReview = false).contains("<memory_format>"))
     }
 
     @Test

@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.datastore
 
+import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.data.model.SubAgent
 
@@ -8,14 +9,21 @@ internal fun Settings.normalized(): Settings =
     withBuiltInDefaults().withoutInvalidReferences().withValuesInRange().withToolDependencies()
         .withValidSubAgents().withToolPromptKeyMigration().withLocalToolMigration()
 
-/** 旧版结构化浏览器工具已改为「只声明 obscura CLI」的提示词开关。 */
+/** 旧版结构化浏览器工具已改为「只声明 obscura CLI」的提示词开关；不带 obscura 的版本直接丢弃。 */
 internal fun Settings.withLocalToolMigration(): Settings {
-    if (LocalToolOption.Browser !in localTools) return this
-    return copy(
-        localTools = localTools
-            .map { if (it == LocalToolOption.Browser) LocalToolOption.ObscuraCli else it }
-            .distinct()
-    )
+    var tools = localTools
+    if (LocalToolOption.Browser in tools) {
+        tools = if (BuildConfig.INCLUDE_OBSCURA) {
+            tools.map { if (it == LocalToolOption.Browser) LocalToolOption.ObscuraCli else it }.distinct()
+        } else {
+            tools - LocalToolOption.Browser
+        }
+    }
+    // 从带 obscura 的版本切到不带时，旧设置里的开关不能继续留在内存里
+    if (!BuildConfig.INCLUDE_OBSCURA && LocalToolOption.ObscuraCli in tools) {
+        tools = tools - LocalToolOption.ObscuraCli
+    }
+    return if (tools == localTools) this else copy(localTools = tools)
 }
 
 /**

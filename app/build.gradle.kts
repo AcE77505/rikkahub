@@ -12,6 +12,13 @@ plugins {
     alias(libs.plugins.baselineprofile)
 }
 
+// obscura 是可选的浏览器 CLI（jniLibs 里两个 ABI 合计约 150MB）。
+// 默认不打包；需要带 obscura 的包时用 -PwithObscura=true。
+val includeObscura = providers.gradleProperty("withObscura")
+    .map(String::toBoolean)
+    .orElse(false)
+    .get()
+
 android {
     namespace = "me.rerere.rikkahub"
     compileSdk {
@@ -32,6 +39,8 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
+
+        buildConfigField("boolean", "INCLUDE_OBSCURA", includeObscura.toString())
     }
 
     splits {
@@ -125,6 +134,10 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // 不带 obscura 的版本不把 libobscura.so 打进 APK
+            if (!includeObscura) {
+                excludes += "**/libobscura.so"
+            }
         }
         resources {
             // BouncyCastle 的 Picnic 后量子签名查找表（约 1.2MB），JSch 用不到
@@ -228,7 +241,6 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.androidx.material3.adaptive.navigation3)
-
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)

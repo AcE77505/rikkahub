@@ -37,6 +37,8 @@ import me.rerere.hugeicons.stroke.FloppyDisk
 import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.ai.prompts.hasCustomizedToolPrompt
+import me.rerere.rikkahub.data.ai.prompts.hasCustomizedWorkspacePrompt
 import me.rerere.rikkahub.data.ai.tools.TOOL_PROMPT_ENTRIES
 import me.rerere.rikkahub.data.ai.tools.ToolPromptCategory
 import me.rerere.rikkahub.data.ai.tools.ToolPromptEntry
@@ -50,7 +52,8 @@ import org.koin.androidx.compose.koinViewModel
 
 /** 「设置 → 工具提示词」：按分类进入，具体工具在分类页里再展开。 */
 @Composable
-fun SettingToolPromptsPage() {
+fun SettingToolPromptsPage(vm: SettingVM = koinViewModel()) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -78,8 +81,14 @@ fun SettingToolPromptsPage() {
                         onClick = { navController.navigate(Screen.SettingWorkspacePrompt) },
                         headlineContent = { Text(stringResource(R.string.setting_tools_workspace_prompt)) },
                         supportingContent = { Text(stringResource(R.string.tool_prompts_workspace_desc)) },
+                        trailingContent = {
+                            if (settings.hasCustomizedWorkspacePrompt) PromptModifiedLabel()
+                        },
                     )
                     ToolPromptCategory.entries.forEach { category ->
+                        val modified = TOOL_PROMPT_ENTRIES.any {
+                            it.category == category && settings.hasCustomizedToolPrompt(it.name)
+                        }
                         item(
                             onClick = { navController.navigate(Screen.SettingToolPromptCategory(category.name)) },
                             headlineContent = { Text(categoryTitle(category)) },
@@ -91,6 +100,7 @@ fun SettingToolPromptsPage() {
                                     )
                                 )
                             },
+                            trailingContent = { if (modified) PromptModifiedLabel() },
                         )
                     }
                 }
@@ -103,9 +113,11 @@ fun SettingToolPromptsPage() {
 @Composable
 fun SettingToolPromptCategoryPage(
     categoryName: String,
+    vm: SettingVM = koinViewModel(),
 ) {
     val category = ToolPromptCategory.entries.firstOrNull { it.name == categoryName } ?: return
     val entries = TOOL_PROMPT_ENTRIES.filter { it.category == category }
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -132,6 +144,9 @@ fun SettingToolPromptCategoryPage(
                         item(
                             onClick = { navController.navigate(Screen.SettingToolPromptEdit(entry.name)) },
                             headlineContent = { Text(entry.label) },
+                            trailingContent = {
+                                if (settings.hasCustomizedToolPrompt(entry.name)) PromptModifiedLabel()
+                            },
                         )
                     }
                 }
@@ -356,3 +371,17 @@ private fun Map<String, String>.withOverride(
     value: String,
     default: String,
 ): Map<String, String> = if (value == default) this - key else this + (key to value)
+
+/**
+ * 与助手列表的「当前使用」同款纯文本标记：只说明这一项提示词被改过，不展开内容。
+ * 用 tertiary 而不是 primary，避免和「当前使用」混淆。
+ */
+@Composable
+private fun PromptModifiedLabel() {
+    Text(
+        text = stringResource(R.string.tool_prompts_modified),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.tertiary,
+        maxLines = 1,
+    )
+}

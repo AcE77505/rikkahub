@@ -523,6 +523,7 @@
   <string name="placeholder_battery_level">电池电量</string>
   <string name="placeholder_char">助手名称</string>
   <string name="placeholder_current_date">日期</string>
+  <string name="placeholder_current_datetime">日期和时间</string>
   <string name="placeholder_device_info">设备信息</string>
   <string name="placeholder_locale">语言环境</string>
   <string name="placeholder_model_id">模型ID</string>
@@ -2214,6 +2215,7 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_page_tool_prompts_desc">编辑内置工具的描述和系统提示词</string>
   <string name="tool_prompts_workspace_desc">声明工作区时注入的模板</string>
   <string name="tool_prompts_tools_count">%1$d 个工具</string>
+  <string name="tool_prompts_modified">已修改</string>
   <string name="tool_prompts_description_label">工具描述</string>
   <string name="tool_prompts_system_prompt_label">工具系统提示词</string>
   <string name="tool_prompts_default_hint">留空则使用内置默认值。</string>

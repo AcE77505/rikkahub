@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.data.ai.tools.DEFAULT_OBSCURA_CLI_PROMPT
 import me.rerere.rikkahub.data.ai.tools.OBSCURA_CLI_PROMPT_KEY
 import me.rerere.rikkahub.data.ai.tools.SSH_TOOL_PREFIX
@@ -130,8 +131,12 @@ internal suspend fun buildWorkspacePromptSections(
                 )
             )
         }
-        // 只声明 CLI，不注册工具：模型通过工作区 shell 自己拼 obscura 命令
-        if (LocalToolOption.ObscuraCli in enabledTools && LocalToolOption.WorkspaceShell in enabledTools) {
+        // 只声明 CLI，不注册工具：模型通过工作区 shell 自己拼 obscura 命令。
+        // 不带 obscura 的编译版本不注入这段提示，即使设置里有旧开关。
+        if (BuildConfig.INCLUDE_OBSCURA &&
+            LocalToolOption.ObscuraCli in enabledTools &&
+            LocalToolOption.WorkspaceShell in enabledTools
+        ) {
             add(
                 settings.toolSystemPromptOverrides[OBSCURA_CLI_PROMPT_KEY]
                     ?.takeIf { it.isNotBlank() }
@@ -277,27 +282,28 @@ private fun buildRemoteShellEnv(target: SshTarget): String = buildString {
     )
 }
 
-/** 命令环境说明：原生 shell 一段，启用工具链时补上 bash 与探针结果 */
+/** 命令环境说明：原生 shell 一段；启用工具链时把 bash 版本与额外工具合并成一行 */
 private fun buildShellEnv(toolchain: ToolchainEnvironment?): String = buildString {
     appendLine(
-        "- Commands run directly in the Android native environment (`/system/bin/sh` + toybox). " +
-            "This is not a Linux distribution: there is no apt, apk or any other package manager, " +
-            "so do not try to install packages."
+        "- Commands run on Android with `toybox` utilities. " +
+            "This is not a Linux distribution: there is no package manager, so do not try to install packages."
     )
     if (toolchain != null && toolchain.shellPath != null) {
         val probes = toolchain.probes
         val shellVersion = probes.firstOrNull { it.name == "bash" }?.version
-        appendLine(
-            "- `shell` runs commands with `bash`" +
+        val extras = probes.filter { it.name != "bash" }
+        append(
+            "- `shell` runs `bash`" +
                 (shellVersion?.let { " ($it)" } ?: "") +
-                ", and the toolchain ships extra tools."
+                if (extras.isEmpty()) {
+                    "."
+                } else {
+                    "; extra tools: " + extras.joinToString(", ") { "${it.name} ${it.version}" } + "."
+                }
         )
-        if (probes.isNotEmpty()) {
-            appendLine("- Available commands: " + probes.joinToString(", ") { "${it.name} (${it.version})" })
-        }
     } else {
-        appendLine(
-            "- `shell` runs commands with `/system/bin/sh`, a POSIX shell. " +
+        append(
+            "- `shell` runs `/system/bin/sh`, a POSIX shell. " +
                 "Bash is not available, so avoid bash-only syntax such as arrays, " +
                 "here-strings (`<<<`) and brace expansion."
         )
@@ -309,23 +315,19 @@ private fun buildShellEnv(toolchain: ToolchainEnvironment?): String = buildStrin
  *
  * [prefix] 为空时是本地组，远程组传 [SSH_TOOL_PREFIX]。
  */
-private fun buildToolList(enabledTools: Set<LocalToolOption>, prefix: String): String = buildString {
+private fun buildToolList(enabledTools: Set<LocalToolOption>, prefix: String): String {
     fun tool(base: String) = "`$prefix$base`"
-    appendLine("- Available tools:")
-    val readEnabled = LocalToolOption.WorkspaceReadFile in enabledTools
-    if (readEnabled) {
-        appendLine("  - ${tool("read_file")}: read file contents (text or images).")
-        if (LocalToolOption.WorkspaceWriteFile in enabledTools) {
-            appendLine("  - ${tool("write_file")}: create or overwrite files.")
+    val names = buildList {
+        if (LocalToolOption.WorkspaceReadFile in enabledTools) {
+            add("${tool("read_file")} (text/images)")
+            if (LocalToolOption.WorkspaceWriteFile in enabledTools) add(tool("write_file"))
+            if (LocalToolOption.WorkspaceEditFile in enabledTools) add("${tool("edit_file")} (targeted edits)")
         }
-        if (LocalToolOption.WorkspaceEditFile in enabledTools) {
-            appendLine("  - ${tool("edit_file")}: make precise edits to existing files.")
-        }
+        if (LocalToolOption.WorkspaceShell in enabledTools) add(tool("shell"))
     }
-    if (LocalToolOption.WorkspaceShell in enabledTools) {
-        appendLine("  - ${tool("shell")}: run shell commands in the working directory.")
-    }
-}.trimEnd()
+    if (names.isEmpty()) return ""
+    return "- File tools: " + names.joinToString(", ")
+}
 
 private fun buildCwdLine(cwd: String?): String =
     cwd?.takeIf { it.isNotBlank() }?.let {

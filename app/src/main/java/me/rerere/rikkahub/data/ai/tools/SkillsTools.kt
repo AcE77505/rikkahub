@@ -17,6 +17,9 @@ import java.io.File
 // 与 Agent Skills 规范的 description 上限一致
 private const val MAX_SKILL_DESCRIPTION_LENGTH = 1024
 
+// 列表里的描述只用于路由；完整描述仍可通过 view_skill 读取
+private const val SKILL_LISTING_DESCRIPTION_LENGTH = 300
+
 /** 这些图片会作为图片内容返回，交给模型内置的识图能力处理。 */
 private val SKILL_IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "gif")
 
@@ -47,19 +50,30 @@ fun createSkillTools(
         systemPrompt = { _, _ ->
             buildString {
                 appendLine("**Skills**")
-                appendLine("You have access to the following skills. Use the `view_skill` tool to load a skill's instructions when the user's request matches.")
-                appendLine("- Call `view_skill` with `name` to read `SKILL.md`. Pass `path` to read a file referenced by the skill; text files come back as text, image files (png/jpeg/webp/gif) come back as image content so you can look at them directly when the model supports images.")
-                appendLine("- Only use paths that appear in the `SKILL.md` content or in the skill's file list. Do not guess or infer paths.")
+                appendLine(
+                    "You have access to the following skills. Use the `view_skill` tool to load a skill's instructions when the user's request matches."
+                )
+                appendLine(
+                    "- Call `view_skill` with `name` to read `SKILL.md`. Pass `path` to read a file referenced by the skill; text files come back as text, image files (png/jpeg/webp/gif) come back as image content so you can look at them directly when the model supports images."
+                )
+                appendLine(
+                    "- Only use paths that appear in the `SKILL.md` content or in the skill's file list. Do not guess or infer paths."
+                )
                 if (workspaceRepository != null) {
-                    appendLine("- To run a skill's scripts or work with binary files, call `export_skill` to copy the skill into the local workspace (or the app sandbox when no local workspace is declared), then use the local shell and file tools on the exported files.")
+                    appendLine(
+                        "- To run a skill's scripts or work with binary files, call `export_skill` to copy the skill into the local workspace (or the app sandbox when no local workspace is declared), then use the local shell and file tools on the exported files."
+                    )
                 }
                 appendLine("<available_skills>")
                 available.forEach { skill ->
-                    appendLine("  <skill>")
                     // 技能可能来自第三方导入，转义并限长，防止 name/description 闭合标签注入任意系统提示
-                    appendLine("    <name>${skill.name.escapeXml()}</name>")
-                    appendLine("    <description>${skill.description.take(MAX_SKILL_DESCRIPTION_LENGTH).escapeXml()}</description>")
-                    appendLine("  </skill>")
+                    val name = skill.name.take(MAX_SKILL_DESCRIPTION_LENGTH).escapeXml()
+                    val description = skill.description
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
+                        .take(SKILL_LISTING_DESCRIPTION_LENGTH)
+                        .escapeXml()
+                    appendLine("  <skill name=\"$name\" description=\"$description\"/>")
                 }
                 append("</available_skills>")
                 appendLine()
@@ -151,7 +165,9 @@ fun createSkillTools(
                 val skill = available.firstOrNull { skill -> skill.name == name || skill.name.escapeXml() == name }
                     ?: error("Skill '$name' is not available. Available skills: ${available.joinToString { it.name }}")
                 val path = it.jsonObject["path"]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotBlank() }
-                val destination = it.jsonObject["destination"]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotBlank() }
+                val destination = it.jsonObject["destination"]?.jsonPrimitive?.content?.trim()?.takeIf {
+                    it.isNotBlank()
+                }
                 val overwrite = it.jsonObject["overwrite"]?.jsonPrimitive?.booleanOrNull ?: false
 
                 val workspaceRoot = repository.getDeclaredLocal()
@@ -225,6 +241,7 @@ private fun String.escapeXml(): String = buildString(length) {
             '&' -> append("&amp;")
             '<' -> append("&lt;")
             '>' -> append("&gt;")
+            '"' -> append("&quot;")
             else -> append(c)
         }
     }

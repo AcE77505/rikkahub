@@ -528,6 +528,7 @@
   <string name="placeholder_battery_level">Battery Level</string>
   <string name="placeholder_char">Assistant Name</string>
   <string name="placeholder_current_date">Date</string>
+  <string name="placeholder_current_datetime">Date &amp; time</string>
   <string name="placeholder_device_info">Device Info</string>
   <string name="placeholder_locale">Locale</string>
   <string name="placeholder_model_id">Model ID</string>
@@ -2215,6 +2216,7 @@
   <string name="setting_page_tool_prompts_desc">Edit the descriptions and system prompts of built-in tools</string>
   <string name="tool_prompts_workspace_desc">Template injected when a workspace is declared</string>
   <string name="tool_prompts_tools_count">%1$d tools</string>
+  <string name="tool_prompts_modified">Modified</string>
   <string name="tool_prompts_description_label">Tool description</string>
   <string name="tool_prompts_system_prompt_label">Tool system prompt</string>
   <string name="tool_prompts_default_hint">Leave empty to use the built-in default.</string>

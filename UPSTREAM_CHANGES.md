@@ -8,6 +8,7 @@
 - 本批次（2026-11-10）：新增 DeepSeek 官方导出导入（含变动识别与独立预览页）、备份时间按渠道拆分、助手列表「当前使用」标识；数据库版本 33 → 34。详见第 13 节。
 - 本批次（2026-11-11）：在「修改其他助手」工具组新增记忆管理（列出/读取/写入/删除/按文件或目录导入），复用原有开关，不新增设置项。详见第 14 节。
 - 本批次（2026-11-17）：上游 3.3.0 同步分析 + 第一批无冲突纳入；同时把 DeepSeek 导入切换为 App 导出格式（网页版实现移到 `app/src/legacy`，保留但不编译）。19 个上游提交、90 个文件；本次已合入 ai / speech / Provider / Phone Use / 自动压缩默认值，message_node 索引、SafeMode、段落气泡与工作区共享存储仍未适配。详见第 18、19、20 节。
+- 本批次（2026-11-23）：提示词精简（记忆、工作区、技能列表、助手管理段）。按一次真实请求测量，system prompt 约 28.5K → 19.2K 字符（约 -33%）；用户 memory 数据（profile/preferences）未改动。详见第 24 节。
 - 维护策略（2026-11-12）：**Phone Use（AI 操作屏幕）永远不会纳入修改范围，除了从上游按例同步的情况。** 功能兼容性（支持的 Android 版本、渠道、动作集合）完全由上游项目决定，本 fork 不主动改造。详见第 4 节第 13 条与第 15.2 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
@@ -1131,3 +1132,135 @@ Android 的 `URLConnection.guessContentTypeFromName` 对少数附件文件名会
 - 待真机验证：系统文件选择器落盘、导出的 JSON 可正常打开、导出的请求体/响应头内容完整。
 
 ---
+
+## 24. 提示词精简（2026-11-23）
+
+### 24.1 背景与测量
+
+对一次真实请求（`/v1/chat/completions`，28,492 字符 system prompt）逐段测量，发现四类可压缩内容：
+
+| 段落 | 精简前 | 精简后（约） | 主要问题 |
+|---|---:|---:|---|
+| `<memory_system>` + `<memory_format>` | 14,543 | 9,673 | 主对话每轮注入完整的写入格式规则；规则与 format 互相重复 |
+| `**Skills**` + 技能列表 | 10,735 | 7,341 | 37 个技能每个 4 行 XML，描述最长 959 字符 |
+| `<workspace>` | 2,183 | ~1,300 | 技能/工具/环境说明重复，旧模板还带 `workspace_shell` 旧名 |
+| 助手管理段 | 582 | ~390 | 与工具 description 重复 |
+
+合计约 28.5K → 19.2K 字符（-33%）。这是静态 system prompt 的节省，不含工具 schema 与对话历史。
+
+### 24.2 记忆提示词
+
+`app/.../data/ai/prompts/MemoryPrompts.kt`：
+
+- `buildMemoryPrompt`（主对话）不再注入完整 `MEMORY_FORMAT_PROMPT`（约 4.3K），改为新的 `<memory_write_rules>`（约 1.1K），只覆盖“用户明确要求写入”所需的最小规则：frontmatter、`[stated]`、文件选择、敏感信息、编辑前 read/if_version、忘掉语义。
+- `MEMORY_SYSTEM_RULES` 3.0K → 1.6K：`When to read` 4→3 条、`How to apply` 8→5 条、`When to write` 8→2 条；删除与 format、与 `memory_*` 工具 description 重复的 `Never store` / `if_version` 细节。
+- `MEMORY_SYSTEM_INTRO` 压成两行。
+- `buildMemoryConsolidationPrompt`（后台整理器）行为不变，仍使用完整 `MEMORY_FORMAT_PROMPT`。
+
+### 24.3 工作区提示词
+
+- `WorkspacePrompt.kt`：默认模板精简。目录说明合并成一行；技能与内置技能合并成一行；上传目录只读说明压成一句；删除重复的 `view_skill` / `export_skill` 用法（`**Skills**` 段已经说明）与逐工具说明。
+- `WorkspaceReminderTransformer.kt`：
+  - `buildToolList` 输出一行 `- File tools: ...`，保留 `toolPrefix`，远程段仍是 `ssh_*` 工具名。
+  - `buildShellEnv` 把 `bash` 版本与额外工具合并成 `- shell runs bash (v); extra tools: ...`，去掉重复的 `Available commands` 行。
+- **注意**：`DEFAULT_WORKSPACE_PROMPT` 只在设置里的 `workspacePrompt` 为空时使用。已经保存过自定义模板的设备不会自动更新，需要在「设置 → 工具 → 工作区提示词」点一次重置；旧模板里的 `workspace_shell` / `workspace_edit_file` 是历史工具名。
+
+### 24.4 技能列表
+
+`app/.../data/ai/tools/SkillsTools.kt`：
+
+- `<available_skills>` 从每个技能 4 行改为单行 `<skill name="..." description="..."/>`。
+- 列表中的 description 截断到 300 字符（完整描述仍由 `view_skill` 读取）；`MAX_SKILL_DESCRIPTION_LENGTH` 的 1024 硬上限不变。
+- `escapeXml` 增加 `"` → `&quot;`，避免属性值闭合注入。
+- 只影响系统提示里的列表，不影响 `view_skill` 的读取与执行；技能元数据本身未被修改。
+
+### 24.5 助手管理段
+
+- `data/ai/tools/local/AssistantConfigTools.kt` 与 `ToolPromptCatalog.kt` 的默认文本同步压缩（582 → ~390 字符），保留“只在用户要求时改、不能改当前助手、数组字段是 upsert、长文本用 *_file、replace_* 才清空”。
+
+### 24.6 未改动的部分
+
+- 用户记忆数据（`/profile.md`、`/preferences.md`、`/areas/*.md`）未修改。`profile.md` 里有一段 881 字符的静态文件索引，与运行时 `<memory_listing>` 重复，且不会随文件增删更新；这是用户数据，留给用户在 App 内自行处理。
+- 未给 `MEMORY_FORMAT_PROMPT` 增加“不要把文件清单抄进 profile”的防回归规则；如果以后整理器再次生成索引段，需要再补。
+
+### 24.7 验证
+
+- `MemoryPromptTest`、`SkillsToolsTest` 通过。
+- `assembleGithubRelease`：BUILD SUCCESSFUL（3m 31s，含 `lintVitalGithubRelease` 与 R8）。
+- 待真机验证：重置工作区提示词后的实际注入、技能路由是否仍准确、用户说“记住”时主对话写入是否正常。
+
+### 24.8 提示词改动的可见标记
+
+- 新增 `app/.../data/ai/prompts/PromptCustomization.kt`：
+  - `Settings.hasCustomizedWorkspacePrompt`：`workspacePrompt.trim()` 与 `DEFAULT_WORKSPACE_PROMPT.trim()` 不同即视为改过；旧版本保存下来的旧模板也会命中。
+  - `Settings.hasCustomizedToolPrompt(name)`：`toolDescriptionOverrides` 或 `toolSystemPromptOverrides` 中存在该工具即视为改过；保存时改回默认会自动移除覆盖，所以不存在“假标记”。
+- `ui/pages/setting/SettingToolPromptsPage.kt`：
+  - 工作区提示词行、各分类行、分类内的具体工具行，右侧显示纯文本「已修改」。
+  - 样式模仿助手列表的「当前使用」：`labelMedium` + 纯文本；颜色用 `tertiary`，与「当前使用」的 `primary` 区分。
+  - 只表示“这一项被改过”，不展示内容、数量或修改次数。
+- 新增字符串 `tool_prompts_modified`（`values` = Modified，`values-zh` = 已修改；其余语言回退英文）。
+- 新增 `PromptCustomizationTest`：覆盖默认模板不标记、自定义/旧模板标记、按工具命中的覆盖。测试通过。
+
+### 24.9 反馈中的软件问题修复
+
+- **新增 `{{cur_datetime}}` 占位符**（`PlaceholderTransformer`）：
+  - 默认助手模板用的是 `{{cur_date}}`，一直能正常替换；反馈里的 `{{cur_datetime}}` 来自自定义助手提示词，此前不在占位符集合里，会原样留给模型。
+  - 新占位符输出本地化日期 + 短时间，精确到分钟；新增字符串 `placeholder_current_datetime`（`values` / `values-zh`，其余语言回退英文）。
+  - 影响：它写在 system prompt 里会随请求变化，降低 prompt cache 命中；默认模板不使用，只有显式写它的助手受影响。
+- **workspace 的 shell 表述去掉字面矛盾**（`WorkspaceReminderTransformer.buildShellEnv`）：
+  - 原来第一行说命令直接跑在 `/system/bin/sh` + toybox，第二行又说 `shell` 用 bash。
+  - 现在第一行只说“Android 上使用 toybox 工具，不是 Linux 发行版、没有包管理器”；`shell` 用 bash、额外工具列表放在第二行。未启用工具链时仍明确说明回退到 `/system/bin/sh`。
+- **未修的低收益重复**：workspace 段的 “Read SKILL.md” 与 `**Skills**` 段说明；`<memory_write_rules>` 与 `MEMORY_SYSTEM_RULES` 的少量重叠。前者在未启用技能工具时是唯一提示，后者是主对话写入的兜底，保留。
+- 验证：`:app:compileGithubDebugKotlin` 与 `PromptCustomizationTest` 通过。
+- 注意：自定义工作区提示词需要在设置里重置一次，才能看到新的 shell 文案。
+
+---
+
+## 25. obscura 编译期可选（2026-11-23）
+
+### 25.1 背景
+
+obscura 的 `libobscura.so` 在 `jniLibs/arm64-v8a` 与 `jniLibs/x86_64` 合计约 153 MB，但它是可选的浏览器 CLI。之前所有构建都会带上，导致不需要它的用户也必须下载大包。
+
+### 25.2 开关
+
+- Gradle property：`-PwithObscura=true`，默认 `false`。
+- `app/build.gradle.kts`：
+  - 顶层 `includeObscura` 读取该 property。
+  - `defaultConfig` 生成 `BuildConfig.INCLUDE_OBSCURA`。
+  - `packaging.jniLibs.excludes += "**/libobscura.so"` 只在开关关闭时生效；`.so` 源文件仍留在仓库，但不会进入 APK。
+- 代码分支（全部读 `BuildConfig.INCLUDE_OBSCURA`）：
+  - `SettingsNormalization.withLocalToolMigration()`：关闭时移除旧的 `Browser` / `ObscuraCli` 开关，避免从带 obscura 的版本切回来时残留。
+  - `WorkspaceReminderTransformer`：关闭时不注入 `DEFAULT_OBSCURA_CLI_PROMPT`。
+  - `ToolPromptCatalog`：关闭时从「设置 → 工具提示词」列表中过滤 `obscura_cli`。
+  - `AssistantLocalToolPage`：关闭时隐藏「Obscura CLI」开关。
+- `BundledExecutables` 无需改动：`.so` 不存在时 `prepare()` 自然跳过，shim 不进入 PATH。
+
+### 25.3 构建命令
+
+```bash
+# 不带 obscura（默认）
+./gradlew assembleGithubRelease
+
+# 带 obscura
+./gradlew assembleGithubRelease -PwithObscura=true
+```
+
+两次构建会写同一个输出目录，需要分别保存产物；本次已复制为 `*-without-obscura.apk` / `*-with-obscura.apk`。
+
+### 25.4 验证
+
+| 产物 | 不带 obscura | 带 obscura |
+|---|---:|---:|
+| arm64-v8a | 16 MB | 49 MB |
+| x86_64 | 16 MB | 51 MB |
+| universal | 18 MB | 87 MB |
+
+- 两次 `assembleGithubRelease` 均 BUILD SUCCESSFUL（3m 43s / 3m 39s，含 lintVital 与 R8）。
+- 包体积差与 `libobscura.so` 的大小一致，说明排除生效。
+- 待真机验证：不带包的工作区 shell 中 `obscura` 命令不存在、设置页无 Obscura 入口；带包行为与之前一致。
+
+### 25.5 注意
+
+- 两个版本使用同一个 `versionCode`，不能同时安装；切换安装前需卸载或覆盖安装。
+- 从带 obscura 的版本覆盖安装到不带版本时，数据库里的 `obscura_cli` 开关会在设置归一化时被移除，不会留下无效开关。

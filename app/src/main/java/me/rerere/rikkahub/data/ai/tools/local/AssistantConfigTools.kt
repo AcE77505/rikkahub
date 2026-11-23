@@ -150,12 +150,10 @@ private fun updateAssistantTool(
         array or an object { "title": "...", "messages": [...] }. The path must be readable by the app.
     """.trimIndent().replace("\n", " "),
     systemPrompt = { _, _ ->
-        "You may manage other assistants with $TOOL_UPDATE_ASSISTANT only when the user asks. " +
-            "Use $TOOL_LIST_ASSISTANTS or $TOOL_GET_ASSISTANT first, and never modify the current assistant. " +
-            "Array fields are upserts by id/title, not replacements. Write at most one long preset or dialogue " +
-            "group per call; provider tool-call arguments have a size limit. If a prompt or dialogue group is " +
-            "too large, pass an absolute local file path via system_prompt_file, prompt_file, or messages_file " +
-            "instead of inlining the text. Use the replace_* flags only when you intentionally want to clear the existing list."
+        "Only when the user asks, use $TOOL_UPDATE_ASSISTANT to manage other assistants; never modify the current assistant, and call $TOOL_LIST_ASSISTANTS or $TOOL_GET_ASSISTANT first. " +
+            "Array fields are upserts by id/title, not replacements. Send at most one long preset or dialogue group per call; " +
+            "for large text pass system_prompt_file, prompt_file, or messages_file instead of inlining it. " +
+            "Use replace_* only when you intentionally want to clear a list."
     },
     parameters = {
         InputSchema.Obj(
