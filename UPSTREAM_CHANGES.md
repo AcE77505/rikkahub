@@ -1326,16 +1326,16 @@ obscura 的 `libobscura.so` 在 `jniLibs/arm64-v8a` 与 `jniLibs/x86_64` 合计�
 
 统一用 `git cherry-pick -x` 逐个引入，保留了上游提交号。全部无冲突。
 
-### 26.3 待适配（有冲突，6 个）
+### 26.3 已适配（有冲突，6 个）
 
-| 上游提交 | 冲突文件 | 说明 |
+| 上游提交 | 冲突点 | 适配方式 |
 |---|---|---|
-| `63a5192d` 消息概览标出压缩点 | `ChatListPreview.kt` | 小：加 `PreviewRound.checkpoint` 与分组条件 |
-| `b7cf74dd` 识别被系统停掉的无障碍服务 | `LocalTools.kt` | 小：新增 `isCheckedInSystem` 回调参数 |
-| `a8508e23` Android 9/10 导入含 `#` 文件名附件崩溃 | `DeepSeekImporter.kt`、测试 | 中：fork 导入已改为 App 导出格式，需迁移修复 |
-| `a2479770a` 打 tag 自动发布工作流 | `.agents/skills/publish-release/SKILL.md` | 小：工作流本身新增，冲突只在被 fork 改过的 skill 文档 |
-| `2d93676e` 安全模式页导出/导入备份 | `BackupManager.kt`、`DatabaseBackup.kt` | 中：需接到 fork 的备份分项模型 |
-| `41d77f1e` 快速入门页 | 11 处（DI、备份页、8 个 strings.xml） | 大：7 个新文件可直取；其 `DeepSeekMigrator` 依赖上游导入实现，不兼容 fork |
+| `63a5192d` 消息概览标出压缩点 | `ChatListPreview.kt` | 加 `PreviewRound.checkpoint`、分组条件与 `PreviewCheckpointCard`；检查点卡片不参与 fork 的多选 |
+| `b7cf74dd` 识别被系统停掉的无障碍服务 | `LocalTools.kt` | 冲突只在 import 段，两边 import 都保留 |
+| `a2479770a` 打 tag 自动发布工作流 | `.agents/skills/publish-release/SKILL.md` | 先前的 `551b0b70` cherry-pick 已消除冲突，直接合入；新增 `.github/workflows/release.yml` |
+| `a8508e23` 导入含 `#` 文件名附件崩溃 | `DeepSeekImporter.kt`、测试 | 采用共享 `guessMimeTypeFromFileName`；删除 fork 自带的 `guessMimeType` 兜底；导入主体保留 App 导出格式 |
+| `2d93676e` 安全模式页导出/导入备份 | `BackupManager.kt`、`DatabaseBackup.kt` | 保留 fork 的分项备份结构；新增 `DatabaseBackup.createFileSnapshot` 与 `BackupManager.createDatabaseSnapshot`，分项导出失败时回落到库文件快照；`SafeModeActivity` 改用 `BackupSelection` |
+| `41d77f1e` 快速入门页 | DI、备份页、8 个 `strings.xml` | 新增 7 个 QuickStart 文件；`DeepSeekMigrator` 与统计字段适配 fork 的导入模型；未采用 Rootfs 相关 import 与 `workspace_detail_storage_*` 文案；备份页保留 fork 的「选择助手 + 预览」流程 |
 
 ### 26.4 顺带修复
 
@@ -1344,5 +1344,6 @@ obscura 的 `libobscura.so` 在 `jniLibs/arm64-v8a` 与 `jniLibs/x86_64` 合计�
 ### 26.5 验证
 
 - `:app:compileGithubDebugKotlin` BUILD SUCCESSFUL。
-- `:app:testGithubDebugUnitTest`：582 个测试，9 个失败，全部是 Windows 上 `FileStorage` 的 `atomicMoveTo` 重命名失败（与第 7.4 节记录的同类问题一致）；`BackupSettingsFieldsTest` 的失败已修复。
-- 待办：6 个冲突提交的适配，见 26.3。
+- `:app:testGithubDebugUnitTest`：584 个测试，9 个失败，全部是 Windows 上 `FileStorage` 的 `atomicMoveTo` 重命名失败（与第 7.4 节记录的同类问题一致）；`BackupSettingsFieldsTest` 的失败已修复。
+- `spotlessCheck` 通过。
+- 真机待验证：消息概览压缩点卡片与多选共存、安全模式下导出/导入备份、快速入门页的 DeepSeek 导入与模型配置提示。
