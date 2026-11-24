@@ -35,7 +35,7 @@ import kotlin.uuid.Uuid
 import kotlin.time.Instant as KotlinInstant
 
 /**
- * DeepSeek App 端的数据导出（设置 → 数据管理 → 导出数据）。
+ * DeepSeek 的数据导出（设置 → 数据管理 → 导出数据）。
  *
  * 包内结构：
  * ```
@@ -46,7 +46,7 @@ import kotlin.time.Instant as KotlinInstant
  * chat_sessions/<id>_files/...  消息附件，由 FILE fragment 的 export_path 引用
  * ```
  *
- * 与网页版导出不同，App 导出有 `current_message_id`，能准确知道当前分支；同一条提问下的
+ * App 与网页版导出的格式已经统一，都带 `current_message_id`，能准确知道当前分支；同一条提问下的
  * 多条助手回复仍是兄弟节点（重新生成），会合并成 MessageNode 的候选列表。
  *
  * 这里保留了 fork 已有的预览/覆盖/保留/并存、稳定 id、分支展开和附件处理；预览阶段只读

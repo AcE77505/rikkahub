@@ -34,6 +34,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.DEEPSEEK_PROVIDER_ID
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
+import me.rerere.rikkahub.data.sync.importer.DeepSeekAppExportException
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -117,7 +118,14 @@ internal fun QuickStartDeepSeekTab(vm: QuickStartVM) {
                     )
 
                     is UiState.Error -> Text(
-                        text = stringResource(R.string.backup_page_restore_failed, state.error.message ?: ""),
+                        text = stringResource(
+                            R.string.backup_page_restore_failed,
+                            if (state.error is DeepSeekAppExportException) {
+                                stringResource(R.string.backup_page_import_deepseek_app_only)
+                            } else {
+                                state.error.message ?: ""
+                            },
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )

@@ -51,8 +51,8 @@ data class DeepSeekAttachment(
 )
 
 /**
- * 当前文件不是 DeepSeek App 端导出（缺少 manifest，或格式版本低于 3）。
+ * 这个 ZIP 无法按 DeepSeek 聊天导出解析（缺少 manifest，或格式版本低于 3）。
  *
- * 网页版导出的 ZIP 只有 `conversations.json`，结构与此不同，必须让用户重新导出。
+ * App 与网页版导出的格式已经统一，这里不再区分来源，只当作「可能选错了文件」提示用户。
  */
 class DeepSeekAppExportException(message: String) : IllegalArgumentException(message)

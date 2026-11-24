@@ -203,7 +203,7 @@
   <string name="backup_page_import_from_cherry_studio">Import from Cherry Studio</string>
   <string name="backup_page_import_from_deepseek">Import from DeepSeek</string>
   <string name="backup_page_import_deepseek_desc">Import chat history from DeepSeek\'s official data export</string>
-  <string name="backup_page_import_deepseek_app_only">Make sure the ZIP was exported from the DeepSeek app. Web exports are not supported.</string>
+  <string name="backup_page_import_deepseek_app_only">This ZIP can\'t be parsed as a DeepSeek chat export. You may have picked the wrong file.</string>
   <string name="backup_page_import_deepseek_missing_attachment">[Attachment missing from the export or unable to be imported: %1$s]</string>
   <string name="backup_page_deepseek_import_done_title">DeepSeek import finished</string>
   <string name="backup_page_deepseek_import_summary_new">New conversations: %1$d</string>

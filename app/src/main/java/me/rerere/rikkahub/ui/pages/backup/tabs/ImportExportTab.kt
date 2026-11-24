@@ -279,7 +279,7 @@ fun ImportExportTab(
                     }
                 }.onFailure { e ->
                     e.printStackTrace()
-                    // 网页版导出的包没有 manifest，提示用户重新从 App 导出
+                    // 缺少 manifest 或版本过旧：当作「可能选错了文件」提示，不再区分 App / 网页版
                     val message = if (e is DeepSeekAppExportException) {
                         context.getString(R.string.backup_page_import_deepseek_app_only)
                     } else {
