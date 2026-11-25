@@ -32,6 +32,8 @@ import me.rerere.ui.toast.ToastType
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.ChartLineData01
+import me.rerere.hugeicons.stroke.Pin
+import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.ClipboardPaste
 import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.Internet
@@ -46,6 +48,8 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.ai.tools.OBSCURA_CLI_PROMPT_KEY
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+import me.rerere.rikkahub.data.ai.tools.local.LOCATION_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.local.SYSTEM_INTENT_TOOL_NAME
 import me.rerere.rikkahub.phoneuse.PhoneUseManager
 import me.rerere.rikkahub.phoneuse.isPhoneUseCheckedInSystem
 import me.rerere.rikkahub.phoneuse.isFloatingChatWindowOn
@@ -149,6 +153,24 @@ private fun AssistantLocalToolContent(
     )
     PermissionManager(permissionState = calendarPermissionState)
 
+    val locationPermissionState = rememberPermissionState(
+        permissions = setOf(
+            PermissionInfo(
+                permission = Manifest.permission.ACCESS_COARSE_LOCATION,
+                displayName = { Text(stringResource(R.string.permission_location_coarse)) },
+                usage = { Text(stringResource(R.string.permission_location_coarse_desc)) },
+                required = true
+            ),
+            PermissionInfo(
+                permission = Manifest.permission.ACCESS_FINE_LOCATION,
+                displayName = { Text(stringResource(R.string.permission_location_fine)) },
+                usage = { Text(stringResource(R.string.permission_location_fine_desc)) },
+                required = false
+            ),
+        )
+    )
+    PermissionManager(permissionState = locationPermissionState)
+
     fun toggleLocalTool(option: LocalToolOption, enabled: Boolean) {
         // 没有悬浮窗就看不到 AI 在做什么、也不方便随时停下，先去把它打开，这次不开启工具
         if (enabled && option == LocalToolOption.PhoneUse &&
@@ -172,6 +194,10 @@ private fun AssistantLocalToolContent(
         }
         if (enabled && option == LocalToolOption.Calendar && !calendarPermissionState.allPermissionsGranted) {
             calendarPermissionState.requestPermissions()
+            return
+        }
+        if (enabled && option == LocalToolOption.Location && !locationPermissionState.allRequiredPermissionsGranted) {
+            locationPermissionState.requestPermissions()
             return
         }
         val newLocalTools = if (enabled) {
@@ -291,6 +317,18 @@ private fun AssistantLocalToolContent(
                 title = R.string.assistant_page_local_tools_chart_display_title,
                 description = R.string.assistant_page_local_tools_chart_display_desc,
             )
+            toolItem(
+                option = LocalToolOption.SystemIntent,
+                icon = HugeIcons.Share01,
+                title = R.string.assistant_page_local_tools_system_intent_title,
+                description = R.string.assistant_page_local_tools_system_intent_desc,
+            )
+            toolItem(
+                option = LocalToolOption.Location,
+                icon = HugeIcons.Pin,
+                title = R.string.assistant_page_local_tools_location_title,
+                description = R.string.assistant_page_local_tools_location_desc,
+            )
             if (BuildConfig.INCLUDE_OBSCURA) {
                 toolItem(
                     option = LocalToolOption.ObscuraCli,
@@ -338,6 +376,8 @@ private fun LocalToolOption.aiToolNames(): List<String> = when (this) {
     LocalToolOption.ScreenTime -> listOf("get_screen_time")
     LocalToolOption.Calendar -> listOf("calendar_query", "calendar_create")
     LocalToolOption.ChartDisplay -> listOf("chart_display")
+    LocalToolOption.SystemIntent -> listOf(SYSTEM_INTENT_TOOL_NAME)
+    LocalToolOption.Location -> listOf(LOCATION_TOOL_NAME)
     LocalToolOption.ObscuraCli -> listOf(OBSCURA_CLI_PROMPT_KEY)
     LocalToolOption.Browser -> emptyList()
     LocalToolOption.JavascriptEngine,

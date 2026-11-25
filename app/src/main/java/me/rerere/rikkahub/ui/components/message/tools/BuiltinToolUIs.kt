@@ -25,7 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +42,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.putJsonArray
+import me.rerere.hugeicons.stroke.Tools
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
@@ -59,17 +67,21 @@ import me.rerere.hugeicons.stroke.Eraser
 import me.rerere.hugeicons.stroke.GlobalSearch
 import me.rerere.hugeicons.stroke.MagicWand01
 import me.rerere.hugeicons.stroke.Message02
+import me.rerere.hugeicons.stroke.Play
 import me.rerere.hugeicons.stroke.QuillWrite01
 import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.CalendarAdd01
 import me.rerere.hugeicons.stroke.SmartPhone01
+import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Time02
 import me.rerere.hugeicons.stroke.VolumeHigh
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.tools.MemoryToolNames
+import me.rerere.rikkahub.data.ai.tools.local.SYSTEM_INTENT_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.local.replaySystemIntent
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.MemoryRepository
@@ -78,7 +90,10 @@ import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.Favicon
 import me.rerere.rikkahub.ui.components.ui.FaviconRow
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.ui.toast.ToastType
 import me.rerere.rikkahub.ui.modifier.shimmer
+import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.utils.openUrl
@@ -287,6 +302,65 @@ object ScrapeWebToolUI : ToolUIRenderer {
             return
         }
         ScrapeWebPreview(content = content)
+    }
+}
+
+/**
+ * 系统事务: 标题按 kind 区分, 支持用相同入参重放
+ */
+object SystemIntentToolUI : ToolUIRenderer {
+    override val toolName: String = SYSTEM_INTENT_TOOL_NAME
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Share01
+
+    @Composable
+    override fun title(context: ToolUIContext): String =
+        when (context.arguments.getStringContent("kind")) {
+            "alarm" -> stringResource(R.string.chat_message_tool_system_intent_alarm)
+            "timer" -> stringResource(R.string.chat_message_tool_system_intent_timer)
+            "dial" -> stringResource(R.string.chat_message_tool_system_intent_dial)
+            "sms_draft" -> stringResource(R.string.chat_message_tool_system_intent_sms)
+            "share" -> stringResource(R.string.chat_message_tool_system_intent_share)
+            "navigate" -> stringResource(R.string.chat_message_tool_system_intent_navigate)
+            else -> stringResource(R.string.chat_message_tool_call_generic, toolName)
+        }
+
+    // 唤起系统应用不依赖本轮对话上下文，重放与首次调用等价
+    override fun replayable(context: ToolUIContext): Boolean = !context.loading
+
+    /** 详情抽屉的标题栏右侧放播放按钮；点它用原入参再执行一次 */
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        val appContext = LocalContext.current
+        val toaster = LocalToaster.current
+        val scope = rememberCoroutineScope()
+        var replaying by remember { mutableStateOf(false) }
+        val failedText = stringResource(R.string.chat_message_tool_replay_failed)
+
+        DefaultToolPreview(
+            context = context,
+            headerActions = {
+                FilledTonalIconButton(
+                    onClick = {
+                        if (replaying) return@FilledTonalIconButton
+                        replaying = true
+                        scope.launch {
+                            val ok = replaySystemIntent(appContext, context.tool.input)
+                            replaying = false
+                            if (!ok) toaster.show(failedText, type = ToastType.Error)
+                        }
+                    },
+                    modifier = Modifier.size(40.dp),
+                    enabled = !replaying,
+                ) {
+                    Icon(
+                        imageVector = HugeIcons.Play,
+                        contentDescription = stringResource(R.string.chat_message_tool_replay),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
+        )
     }
 }
 
@@ -933,5 +1007,86 @@ private fun ScrapeWebPreview(content: JsonElement) {
                 }
             }
         }
+    }
+}
+
+/**
+ * 动态工具的批量调用。
+ *
+ * 审批发生在这一层（被 defer 的目标工具不在 `request.tools` 里），所以标题必须写出真正的目标工具名，
+ * 否则用户批准时只看到「call_tool」，无法判断自己在批准什么。
+ */
+object CallToolUI : ToolUIRenderer {
+    override val toolName: String = "call_tool"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Tools
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val names = context.callTargets().map { it.first }
+        return when (names.size) {
+            0 -> stringResource(R.string.chat_message_tool_call_generic, toolName)
+            1 -> stringResource(R.string.chat_message_tool_call_target, names.single())
+            else -> stringResource(R.string.chat_message_tool_call_targets, names.joinToString(", "))
+        }
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean = context.callTargets().isNotEmpty()
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            context.callTargets().forEach { (name, params) ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = params,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    override fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
+        // 详情改用展开后的参数：params 是 JSON 字符串，直接展示原始入参会有两层嵌套，很难读
+        DefaultToolPreview(
+            context = context.copy(
+                arguments = buildJsonObject {
+                    putJsonArray("calls") {
+                        context.callTargets().forEach { (name, params) ->
+                            add(
+                                buildJsonObject {
+                                    put("tool_name", JsonPrimitive(name))
+                                    put("params", JsonInstant.parseToJsonElement(params))
+                                }
+                            )
+                        }
+                    }
+                }
+            ),
+        )
+    }
+}
+
+/** `call_tool` 的 calls 数组展开成 (目标工具名, 格式化后的参数 JSON) */
+private fun ToolUIContext.callTargets(): List<Pair<String, String>> {
+    val calls = arguments.jsonObjectOrNull?.get("calls") as? JsonArray ?: return emptyList()
+    return calls.mapNotNull { element ->
+        val obj = element.jsonObjectOrNull ?: return@mapNotNull null
+        val name = obj["tool_name"]?.jsonPrimitiveOrNull?.contentOrNull ?: return@mapNotNull null
+        val raw = obj["params"]?.jsonPrimitiveOrNull?.contentOrNull ?: "{}"
+        // params 是字符串形式的 JSON；解析成功就美化，失败就原样显示，不让展示层影响可用性
+        val formatted = runCatching {
+            JsonInstantPretty.encodeToString(JsonInstant.parseToJsonElement(raw))
+        }.getOrDefault(raw)
+        name to formatted
     }
 }

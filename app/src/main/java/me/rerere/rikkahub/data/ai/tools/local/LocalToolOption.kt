@@ -37,6 +37,16 @@ sealed class LocalToolOption {
     @SerialName("chart_display")
     data object ChartDisplay : LocalToolOption()
 
+    // 把事务交给系统应用（闹钟/计时器/拨号/短信草稿/分享/导航），只唤起不代完成
+    @Serializable
+    @SerialName("system_intent")
+    data object SystemIntent : LocalToolOption()
+
+    // 读取设备当前位置；只给经纬度等数值，不做逆地理编码
+    @Serializable
+    @SerialName("location")
+    data object Location : LocalToolOption()
+
     // 旧版的结构化浏览器工具开关；仅用于反序列化旧设置，normalized() 会迁移到 ObscuraCli
     @Serializable
     @SerialName("browser")

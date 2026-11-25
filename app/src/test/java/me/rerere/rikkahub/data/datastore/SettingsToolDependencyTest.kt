@@ -48,12 +48,22 @@ class SettingsToolDependencyTest {
     }
 
     @Test
-    fun `every tool is disabled by default`() {
+    fun `common read-only tools are on by default`() {
         val settings = Settings()
-        LocalToolOption.WORKSPACE_TOOLS.forEach { tool ->
+        assertEquals(DEFAULT_LOCAL_TOOLS, settings.localTools)
+        assertTrue(LocalToolOption.TimeInfo in settings.localTools)
+        assertTrue(LocalToolOption.AskUser in settings.localTools)
+        assertTrue(LocalToolOption.ChartDisplay in settings.localTools)
+        assertTrue(LocalToolOption.WorkspaceReadFile in settings.localTools)
+        // 会改动文件或设备的工具仍然默认关闭
+        listOf(
+            LocalToolOption.WorkspaceWriteFile,
+            LocalToolOption.WorkspaceEditFile,
+            LocalToolOption.WorkspaceShell,
+            LocalToolOption.AssistantConfig,
+        ).forEach { tool ->
             assertFalse("$tool should be off by default", tool in settings.localTools)
         }
-        assertTrue(settings.localTools.isEmpty())
     }
 
     @Test

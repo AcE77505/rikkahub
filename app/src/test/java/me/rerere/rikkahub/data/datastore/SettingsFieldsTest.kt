@@ -188,6 +188,8 @@ private val SAMPLE = Settings(
     sponsorAlertDismissedAt = 7,
     pathOpenPreference = PathOpenPreference.SYSTEM,
     pathOpenMtPackage = "bin.mt.plus.canary",
+    dynamicToolsEnabled = true,
+    dynamicToolsAlwaysLoaded = listOf("read_file", "mcp__mt__*"),
 )
 
 private val STORED_KEYS = setOf(
@@ -260,4 +262,6 @@ private val STORED_KEYS = setOf(
     "sponsor_alert_dismissed_at",
     "path_open_preference",
     "path_open_mt_package",
+    "dynamic_tools_enabled",
+    "dynamic_tools_always_loaded",
 )

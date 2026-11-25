@@ -61,6 +61,8 @@ private val ALWAYS_DENIED_TOOL_NAMES = setOf(
     "task",
     "fleet",
     "read_subagent_result",
+    // 子代理可以检索与调用被 defer 的工具，但不能递归派发子代理
+
     "ask_user",
     "clipboard_tool",
     "text_to_speech",

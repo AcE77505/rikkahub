@@ -84,6 +84,14 @@ interface ToolUIRenderer {
     fun Preview(context: ToolUIContext, onDismissRequest: () -> Unit) {
         DefaultToolPreview(context = context)
     }
+
+    /**
+     * 能否用原始入参重新执行一次。
+     *
+     * 只对「执行是幂等的、且不依赖本轮对话上下文」的工具开放：例如 system_intent 只是唤起
+     * 系统应用，重放一次与首次调用效果相同。写文件、发消息这类有副作用的工具不应返回 true。
+     */
+    fun replayable(context: ToolUIContext): Boolean = false
 }
 
 /** 未注册工具使用的默认渲染器, 全部行为来自 [ToolUIRenderer] 的默认实现 */
@@ -99,6 +107,7 @@ object ToolUIRegistry {
         SearchWebToolUI,
         ScrapeWebToolUI,
         GetTimeInfoToolUI,
+        SystemIntentToolUI,
         ClipboardToolUI,
         TextToSpeechToolUI,
         GetScreenTimeToolUI,
@@ -106,6 +115,7 @@ object ToolUIRegistry {
         CalendarCreateToolUI,
         ChartDisplayToolUI,
         UseSkillToolUI,
+        CallToolUI,
         RecentChatsToolUI,
         ConversationSearchToolUI,
         EditFileToolUI,

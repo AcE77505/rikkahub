@@ -36,12 +36,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFilter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Alert01
 import me.rerere.hugeicons.stroke.ArrowLeft01
@@ -270,11 +272,25 @@ fun McpPicker(
 ) {
     val mcpManager = koinInject<McpManager>()
     val enabledServers = servers.fastFilter { it.commonOptions.enable }
+    val settings by koinInject<SettingsStore>().settingsFlow.collectAsStateWithLifecycle()
+    val dynamicToolsOn = settings.dynamicToolsEnabled
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
     ) {
+        if (dynamicToolsOn) {
+            // 动态工具会忽略下面的开关：这里必须说明，否则用户会以为关掉就真的不给模型用
+            item(key = "dynamic-tools-notice") {
+                Text(
+                    text = stringResource(id = R.string.mcp_picker_dynamic_tools_notice),
+                    style = MaterialTheme.typography.bodySmall,
+                    // 固定橙色：这是「开关不再生效」的警示，不能用中性的 onSurfaceVariant
+                    color = Color(0xFFE8871A),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
+        }
         itemsIndexed(enabledServers, key = { _, server -> server.id }) { index, server ->
             val status by mcpManager.getStatus(server).collectAsStateWithLifecycle(McpStatus.Idle)
             val checked = server.id in assistant.mcpServers

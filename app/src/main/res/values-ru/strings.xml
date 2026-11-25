@@ -1826,12 +1826,10 @@
   <string name="path_open_choose_title">Выберите приложение</string>
   <string name="path_open_choose_remember">Больше не спрашивать</string>
   <string name="setting_path_open_title">Чем открывать пути</string>
-  <string name="setting_path_open_preference">Открывать путь через</string>
   <string name="setting_path_open_mt">MT Manager</string>
   <string name="setting_path_open_system">Система</string>
   <string name="setting_path_open_not_installed">MT Manager не установлен</string>
   <string name="setting_path_open_ask">Спрашивать каждый раз</string>
-  <string name="setting_path_open_ask_desc">Выбирать приложение при каждом нажатии на путь</string>
   <string name="setting_path_open_mt_with_package">MT Manager (%s)</string>
   <string name="setting_path_open_not_installed_desc">Установите MT Manager, чтобы выбрать его здесь</string>
   <string name="assistant_page_local_tools_phone_use_title">Использование телефона</string>

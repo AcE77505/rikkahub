@@ -73,12 +73,14 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Delete01
+import me.rerere.hugeicons.stroke.FileView
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
@@ -383,6 +385,10 @@ private fun ChatPageContent(
                         } else {
                             navigateToChatPage(navController)
                         }
+                    },
+                    showRequestPrefixEntry = setting.displaySetting.showRequestPrefix,
+                    onShowRequestPrefix = {
+                        navController.navigate(Screen.ChatRequestPrefix(conversation.id.toString()))
                     },
                     onShowOverview = {
                         // 多选状态跨界面保留：切到概览后仍能继续勾选
@@ -708,6 +714,8 @@ private fun TopBar(
     hazeState: HazeState,
     showCapsuleBackground: Boolean,
     onNewChat: () -> Unit,
+    showRequestPrefixEntry: Boolean,
+    onShowRequestPrefix: () -> Unit,
     onShowOverview: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
@@ -789,6 +797,8 @@ private fun TopBar(
                 }
                 ChatPageMenu(
                     enabled = conversation.messageNodes.isNotEmpty(),
+                    showRequestPrefixEntry = showRequestPrefixEntry,
+                    onShowRequestPrefix = onShowRequestPrefix,
                     onShowOverview = onShowOverview,
                     onExport = onExport,
                     onDelete = onDelete,
@@ -838,6 +848,8 @@ private fun TopBar(
 @Composable
 private fun ChatPageMenu(
     enabled: Boolean,
+    showRequestPrefixEntry: Boolean,
+    onShowRequestPrefix: () -> Unit,
     onShowOverview: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
@@ -879,19 +891,32 @@ private fun ChatPageMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            DropdownMenuGroup(shapes = MenuDefaults.groupShape(index = 0, count = 2)) {
+            // 请求前缀入口默认隐藏；关闭时对话地图仍是第一项
+            val showRequestPrefix = showRequestPrefixEntry
+            val groupCount = if (showRequestPrefix) 3 else 2
+            var groupIndex = 0
+            DropdownMenuGroup(shapes = MenuDefaults.groupShape(index = 0, count = groupCount)) {
+                if (showRequestPrefix) {
+                    MenuItem(
+                        text = stringResource(R.string.request_prefix_title),
+                        icon = HugeIcons.FileView,
+                        index = groupIndex++,
+                        count = groupCount,
+                        onClick = onShowRequestPrefix,
+                    )
+                }
                 MenuItem(
                     text = stringResource(R.string.chat_page_conversation_map),
                     icon = HugeIcons.LeftToRightListBullet,
-                    index = 0,
-                    count = 2,
+                    index = groupIndex++,
+                    count = groupCount,
                     onClick = onShowOverview,
                 )
                 MenuItem(
                     text = stringResource(R.string.export_title),
                     icon = HugeIcons.Share04,
-                    index = 1,
-                    count = 2,
+                    index = groupIndex,
+                    count = groupCount,
                     onClick = onExport,
                 )
             }

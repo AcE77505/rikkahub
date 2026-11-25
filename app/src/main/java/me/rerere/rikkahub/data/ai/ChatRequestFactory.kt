@@ -25,6 +25,10 @@ import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
+import me.rerere.rikkahub.data.ai.tools.LEGACY_WORKSPACE_TOOL_ALIASES
+import me.rerere.rikkahub.data.ai.tools.SKILL_TOOL_ALIASES
+import me.rerere.rikkahub.data.ai.tools.dynamic.CapabilityRouteRenderer
+import me.rerere.rikkahub.data.ai.tools.dynamic.DynamicTools
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
@@ -54,8 +58,6 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
-import me.rerere.rikkahub.data.ai.tools.LEGACY_WORKSPACE_TOOL_ALIASES
-import me.rerere.rikkahub.data.ai.tools.SKILL_TOOL_ALIASES
 
 private const val TAG = "ChatRequestFactory"
 
@@ -75,6 +77,8 @@ class ChatTurnContext(
     val workspaceCwd: String?,
     val memories: List<MemoryFile>,
     val tools: List<Tool>,
+    /** 动态工具状态；关闭时为 [DynamicTools.DISABLED] */
+    val dynamicTools: DynamicTools = DynamicTools.DISABLED,
 )
 
 /** 把会话变成发给模型的请求：系统提示词、上下文裁剪、输入输出转换都在这里 */
@@ -110,6 +114,13 @@ class ChatRequestFactory(
         val model = settings.getChatModelOf(conversation)
             ?: throw IllegalStateException("No chat model selected")
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
+        val dynamic = chatToolFactory.createDynamicTools(
+            settings = settings,
+            assistant = assistant,
+            model = model,
+            conversationId = conversation.id,
+            workspaceCwd = conversation.workspaceCwd,
+        )
         return ChatTurnContext(
             settings = settings,
             assistant = assistant,
@@ -119,13 +130,8 @@ class ChatRequestFactory(
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
-            tools = chatToolFactory.createTools(
-                settings = settings,
-                assistant = assistant,
-                model = model,
-                conversationId = conversation.id,
-                workspaceCwd = conversation.workspaceCwd,
-            ),
+            tools = dynamic.tools,
+            dynamicTools = dynamic,
         )
     }
 
@@ -228,11 +234,27 @@ class ChatRequestFactory(
         return summary.ifBlank { error("Failed to generate compressed summary") }
     }
 
+    /**
+     * 预览请求初始化时的内容，供「请求预览」界面展示。
+     *
+     * 只包含每轮对话开头都相同的部分：系统提示词（含记忆与工具提示词）、动态工具路由块、
+     * 以及工具定义。不包含任何历史或用户消息——那些是对话正文，不属于初始化内容。
+     *
+     * 与真正发送时走的是同一个 [buildStep]（`includeHistory = false`），因此除非用户改过
+     * 助手配置，看到的内容就是每一轮实际发出的前缀。不含 API Key 等凭证。
+     */
+    suspend fun previewRequest(
+        turn: ChatTurnContext,
+        messages: List<UIMessage> = emptyList(),
+    ): StepRequest = buildStep(turn, messages, includeHistory = false)
+
     /** 一步请求实际发出的消息和参数；正常对话和压缩共用，二者的请求前缀必须一致才能命中提示词缓存 */
     private suspend fun buildStep(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
+        // false 时不带任何历史消息，只保留请求前缀，用于预览初始化内容
+        includeHistory: Boolean = true,
     ): StepRequest {
         val assistant = turn.assistant
         val requestMessages = buildList {
@@ -257,11 +279,21 @@ class ChatRequestFactory(
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
                 }
+                // 动态工具：未列出工具的数量与领域，让模型知道自己可能缺工具
+                appendDynamicToolsHint(turn)
             }
             if (system.isNotBlank()) {
                 add(UIMessage.system(prompt = system).copy(isSynthetic = true))
+                // 路由块每轮都变，必须追加在 system prompt 之后、对话之前，避免毁掉前缀缓存
+                // 预览初始化内容时没有用户消息，路由块按空查询渲染，与首次请求一致
+                val route = turn.dynamicTools.renderRoute(lastUserQuery(messages))
+                if (route.isNotBlank()) {
+                    add(UIMessage.system(prompt = route).copy(isSynthetic = true))
+                }
             }
-            addAll(messages.limitContext(assistant.contextMessageLimit).withContinuationHint())
+            if (includeHistory) {
+                addAll(messages.limitContext(assistant.contextMessageLimit).withContinuationHint())
+            }
         }.transforms(
             transformers = inputTransformers,
             context = context,
@@ -290,6 +322,34 @@ class ChatRequestFactory(
         )
         return StepRequest(requestMessages, params)
     }
+}
+
+/** 本轮用户消息的文本，作为路由检索的输入；没有用户消息时返回空串（不注入路由块） */
+private fun lastUserQuery(messages: List<UIMessage>): String =
+    messages.lastOrNull { it.role == MessageRole.USER }
+        ?.parts
+        ?.filterIsInstance<UIMessagePart.Text>()
+        ?.joinToString("\n") { it.text }
+        .orEmpty()
+
+/**
+ * 「还有 N 个工具未列出」的提示。
+ *
+ * 只给数量与领域，不列具体名字——否则等于又把清单塞回去。模型据此判断是否需要先搜索
+ * （见 docs/references/capability-tool-search-research.md 5.5.1 第二层）。
+ */
+internal fun StringBuilder.appendDynamicToolsHint(turn: ChatTurnContext) {
+    val dynamic = turn.dynamicTools
+    if (dynamic.deferredCount <= 0) return
+    appendLine()
+    appendLine("<available_tools>")
+    // 不写死数量：search_tools 的 omitted 随查询变化，写死会让模型形成错误预期
+    append(
+        "Additional tools are not listed here. They cover " +
+            dynamic.deferredDomains.joinToString(", ") +
+            ". Call search_tools before planning when the task might need them.\n"
+    )
+    append("</available_tools>")
 }
 
 private const val CONTINUATION_HINT =

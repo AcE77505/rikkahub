@@ -34,6 +34,19 @@ import kotlin.uuid.Uuid
 /** 命令超时提示阈值的默认值（秒） */
 const val DEFAULT_SHELL_OVERTIME_SECONDS = 30
 
+/**
+ * 默认开启的本地工具。
+ *
+ * 时间与询问用户是无副作用的读/问能力，图表显示只影响渲染，读取文件是其余工作区工具的前置；
+ * 写/编辑/执行命令会改动设备或文件，仍然默认关闭。
+ */
+val DEFAULT_LOCAL_TOOLS: List<LocalToolOption> = listOf(
+    LocalToolOption.TimeInfo,
+    LocalToolOption.AskUser,
+    LocalToolOption.ChartDisplay,
+    LocalToolOption.WorkspaceReadFile,
+)
+
 @Serializable
 data class Settings(
     @Transient
@@ -88,7 +101,8 @@ data class Settings(
     val lorebooks: List<Lorebook> = emptyList(),
     val quickMessages: List<QuickMessage> = emptyList(),
     // 全局工具开关（含 4 个工作区工具），所有助手共用；不再按助手绑定工作区
-    val localTools: List<LocalToolOption> = emptyList(),
+    // 默认开启几项日常最常用的能力：时间、询问用户、图表与工作区读取
+    val localTools: List<LocalToolOption> = DEFAULT_LOCAL_TOOLS,
     // 工具设置项里工具标识符的展示方式；默认长按查看，避免干扰标题和描述
     val toolNameDisplay: ToolNameDisplay = ToolNameDisplay.LONG_PRESS,
     // 工具审批的用户覆盖项（toolName -> needsApproval），未覆盖的工具沿用 WorkspaceToolDefaultApprovals
@@ -96,6 +110,10 @@ data class Settings(
     // 工具提示词覆盖（工具名 -> 文本）；没列出的工具使用内置默认
     val toolDescriptionOverrides: Map<String, String> = emptyMap(),
     val toolSystemPromptOverrides: Map<String, String> = emptyMap(),
+    // 动态工具：开启后体积超过阈值的工具不再随请求发送，模型按需用 search_tools 检索
+    val dynamicToolsEnabled: Boolean = false,
+    // 始终常驻的工具名通配符（支持 * 与 ?）
+    val dynamicToolsAlwaysLoaded: List<String> = emptyList(),
     // 子代理定义，全局共享；哪个助手能派发哪些由 Assistant.enabledSubAgents 决定
     val subAgents: List<SubAgent> = emptyList(),
     // 未自定义 allowedTools 的子代理共享这一份默认工具模板
@@ -219,6 +237,8 @@ data class DisplaySetting(
     val chatCustomFontName: String = "",
     val enableVolumeKeyScroll: Boolean = false,
     val volumeKeyScrollRatio: Float = 1.0f,
+    // 在会话菜单里显示「请求前缀」入口；默认关闭，只有排查提示词的人才需要
+    val showRequestPrefix: Boolean = false,
     val conversationSortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
 )
 

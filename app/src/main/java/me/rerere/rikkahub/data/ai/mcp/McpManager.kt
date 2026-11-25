@@ -103,10 +103,20 @@ class McpManager(
 
     fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
 
+    /**
+     * 本轮可用的 MCP 工具。
+     *
+     * 动态工具开启时**忽略助手在聊天页抽屉里的选择**：设置里启用的服务器全部参与，
+     * 由 `search_tools` 按需检索。否则会出现「抽屉没打开 → 工具搜不到 → 模型判定能力不存在」
+     * 的问题，而这正是动态工具要解决的场景（见 docs/references/capability-tool-search-research.md）。
+     */
     fun getAllAvailableTools(assistant: Assistant): List<Triple<Uuid, String, McpTool>> {
         val settings = settingsStore.settingsFlow.value
+        val includeAll = settings.dynamicToolsEnabled
         return settings.mcpServers
-            .filter { it.commonOptions.enable && it.id in assistant.mcpServers }
+            .filter { server ->
+                server.commonOptions.enable && (includeAll || server.id in assistant.mcpServers)
+            }
             .flatMap { server ->
                 server.commonOptions.tools
                     .filter { tool -> tool.enable }

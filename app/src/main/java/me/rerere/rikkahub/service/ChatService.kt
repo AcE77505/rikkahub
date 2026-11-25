@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.RetryAttempt
+import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.runAgent
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.BuiltInTools
@@ -51,9 +52,9 @@ import me.rerere.rikkahub.data.ai.ConversationMetaGenerator
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.ai.TranslationHandler
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
-import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -87,9 +88,9 @@ import me.rerere.rikkahub.data.model.withTranslation
 import me.rerere.rikkahub.data.model.withoutConversationFields
 import me.rerere.rikkahub.data.model.withoutUnresumableToolCalls
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.stripInternalPathLinks
-import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
 import java.net.ConnectException
@@ -266,6 +267,17 @@ class ChatService(
     suspend fun getConversation(conversationId: Uuid): Conversation? =
         sessionManager.get(conversationId)?.takeIf { it.isInitialized }?.state?.value
             ?: conversationRepo.getConversationById(conversationId)
+
+    /**
+     * 「请求预览」：组装请求初始化时的内容，不真的发出去。
+     *
+     * 只含系统提示词、动态工具路由与工具定义，不含历史或用户消息。不含 API Key 等凭证。
+     */
+    suspend fun previewRequest(conversationId: Uuid): StepRequest? {
+        val conversation = getConversation(conversationId) ?: return null
+        val turn = requestFactory.createContext(settingsStore.awaitLoaded(), conversation)
+        return requestFactory.previewRequest(turn)
+    }
 
     fun getGenerationJobStateFlow(conversationId: Uuid): Flow<Job?> =
         sessionManager.getGenerationJobStateFlow(conversationId)
@@ -774,7 +786,6 @@ class ChatService(
             session.replyMessageId.value = target.continuedMessageId
             // 中途压缩把检查点插在回复之后；重新生成较早的消息时后面还有别的节点，不压缩
             val canCompress = regenerateNodeId == null || conversation.messageNodes.lastOrNull()?.id == regenerateNodeId
-
 
             val turn = requestFactory.createContext(settings, conversation)
             senderName = if (turn.assistant.useAssistantAvatar) {

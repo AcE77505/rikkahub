@@ -98,6 +98,7 @@ internal suspend fun buildWorkspacePromptSections(
                         builtinSkillsDir = builtinSkillsDir,
                         uploadDir = uploadDir,
                         toolPrefix = "",
+                        settings = settings,
                     ),
                 ) + buildAgentsPrompt(localDir, workspaceCwd)
             )
@@ -121,6 +122,7 @@ internal suspend fun buildWorkspacePromptSections(
                         builtinSkillsDir = builtinSkillsDir,
                         uploadDir = uploadDir,
                         toolPrefix = SSH_TOOL_PREFIX,
+                        settings = settings,
                     ),
                     // 远程读不到手机上的 skills / uploads，去掉这几行
                     dropLinesWith = setOf(
@@ -249,6 +251,7 @@ private fun workspacePromptValues(
     builtinSkillsDir: File,
     uploadDir: File,
     toolPrefix: String,
+    settings: Settings,
 ): Map<String, String> = mapOf(
     WorkspacePromptPlaceholders.WORKSPACE_NAME to workspaceName,
     WorkspacePromptPlaceholders.WORKSPACE_DIR to (
@@ -259,7 +262,11 @@ private fun workspacePromptValues(
     } else {
         buildShellEnv(toolchain)
     },
-    WorkspacePromptPlaceholders.TOOL_LIST to buildToolList(enabledTools, toolPrefix),
+    WorkspacePromptPlaceholders.TOOL_LIST to buildToolList(
+        enabledTools = enabledTools,
+        prefix = toolPrefix,
+        dynamicTools = settings.dynamicToolsEnabled,
+    ),
     WorkspacePromptPlaceholders.SKILLS_DIR to skillsDir.absolutePath,
     WorkspacePromptPlaceholders.BUILTIN_SKILLS_DIR to builtinSkillsDir.absolutePath,
     WorkspacePromptPlaceholders.UPLOAD_DIR to uploadDir.absolutePath,
@@ -315,7 +322,11 @@ private fun buildShellEnv(toolchain: ToolchainEnvironment?): String = buildStrin
  *
  * [prefix] 为空时是本地组，远程组传 [SSH_TOOL_PREFIX]。
  */
-private fun buildToolList(enabledTools: Set<LocalToolOption>, prefix: String): String {
+private fun buildToolList(
+    enabledTools: Set<LocalToolOption>,
+    prefix: String,
+    dynamicTools: Boolean = false,
+): String {
     fun tool(base: String) = "`$prefix$base`"
     val names = buildList {
         if (LocalToolOption.WorkspaceReadFile in enabledTools) {
@@ -326,7 +337,15 @@ private fun buildToolList(enabledTools: Set<LocalToolOption>, prefix: String): S
         if (LocalToolOption.WorkspaceShell in enabledTools) add(tool("shell"))
     }
     if (names.isEmpty()) return ""
-    return "- File tools: " + names.joinToString(", ")
+    val line = "- File tools: " + names.joinToString(", ")
+    // 动态工具会把体积大的工具移出请求，这里必须说明，否则模型直接按名字调用会拿到「工具不存在」
+    return if (dynamicTools) {
+        line + "\n- Dynamic tools are on: any of these may be loaded on demand. " +
+            "If a call reports the tool does not exist, run search_tools with its name, " +
+            "then call_tool with the returned definition."
+    } else {
+        line
+    }
 }
 
 private fun buildCwdLine(cwd: String?): String =

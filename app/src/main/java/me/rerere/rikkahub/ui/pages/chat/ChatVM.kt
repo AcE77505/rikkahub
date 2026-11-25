@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -306,6 +307,9 @@ class ChatVM(
     fun regenerateAtMessage(message: UIMessage) {
         chatService.regenerateAtMessage(_conversationId, message.id)
     }
+
+    /** 「请求预览」：组装请求初始化时的内容（系统提示词与工具定义），不真的发送 */
+    suspend fun previewRequest(): StepRequest? = chatService.previewRequest(_conversationId)
 
     fun handleToolApproval(
         toolCallId: String,

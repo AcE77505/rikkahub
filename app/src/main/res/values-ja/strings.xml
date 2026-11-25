@@ -1826,12 +1826,10 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="path_open_choose_title">アプリを選択</string>
   <string name="path_open_choose_remember">次回から確認しない</string>
   <string name="setting_path_open_title">パスを開く方法</string>
-  <string name="setting_path_open_preference">パスを開くアプリ</string>
   <string name="setting_path_open_mt">MT マネージャー</string>
   <string name="setting_path_open_system">システム</string>
   <string name="setting_path_open_not_installed">MT マネージャーが見つかりません</string>
   <string name="setting_path_open_ask">毎回確認</string>
-  <string name="setting_path_open_ask_desc">パスをタップするたびに開くアプリを選択</string>
   <string name="setting_path_open_mt_with_package">MT マネージャー（%s）</string>
   <string name="setting_path_open_not_installed_desc">MT マネージャーをインストールするとここで選べます</string>
   <string name="assistant_page_local_tools_phone_use_title">スマホ操作</string>

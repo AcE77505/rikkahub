@@ -9,10 +9,16 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.data.ai.subagent.SubAgentApprovalRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentProgressRegistry
 import me.rerere.rikkahub.data.ai.subagent.SubAgentRunner
 import me.rerere.rikkahub.data.ai.subagent.SubAgentStore
+import me.rerere.rikkahub.data.ai.tools.dynamic.CapabilityCatalog
+import me.rerere.rikkahub.data.ai.tools.dynamic.DeferPolicy
+import me.rerere.rikkahub.data.ai.tools.dynamic.DynamicTools
+import me.rerere.rikkahub.data.ai.tools.dynamic.PromptOverlays
+import me.rerere.rikkahub.data.ai.tools.dynamic.createDynamicToolEntries
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
@@ -27,6 +33,14 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "ChatToolFactory"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
+
+/**
+ * 不参与动态工具的 defer。
+ *
+ * 技能清单由 view_skill 的 system prompt 全量声明，若把它 defer 掉，模型既看不到清单
+ * 也无法通过 search_tools 拿到技能本体（技能没有可执行工具）。
+ */
+private val ALWAYS_LOADED_TOOLS = listOf(SKILL_VIEW_TOOL_NAME, "export_skill")
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 
 /** 长输出落盘的子目录名（相对工作区目录）；没有工作区时回落到 app 私有 files/tool_outputs */
@@ -62,7 +76,22 @@ class ChatToolFactory(
         model: Model,
         workspaceCwd: String? = null,
         conversationId: Uuid? = null,
-    ): List<Tool> {
+    ): List<Tool> = createDynamicTools(settings, assistant, model, workspaceCwd, conversationId).tools
+
+    /**
+     * 构建本轮的工具集合，并按需应用动态工具策略。
+     *
+     * 动态工具开启时：体积超过阈值的工具**不进入** [DynamicTools.tools]（也就不会发给 provider），
+     * 但仍在 [DynamicTools.entries] 里，供 `search_tools` 检索、`call_tool` 执行。
+     * 这样 AgentLoop 不需要知道 defer 的存在，`findTool` 只会在要发的工具里找。
+     */
+    internal suspend fun createDynamicTools(
+        settings: Settings,
+        assistant: Assistant,
+        model: Model,
+        workspaceCwd: String? = null,
+        conversationId: Uuid? = null,
+    ): DynamicTools {
         // 工作区工具不再依赖助手绑定：开关在设置里，目标是被声明的工作区
         val declaredLocal = workspaceRepository.getDeclaredLocal()
         // 过长的输出存成文件让模型按需读取；没有声明本地工作区时落到沙箱，
@@ -149,9 +178,64 @@ class ChatToolFactory(
         } else {
             tools
         }
-        return allTools
+        val prepared = allTools
             .map { withToolPromptOverrides(it, settings) }
             .map { withOutputTruncation(it, workspaceDir) }
+        return applyDynamicTools(prepared, settings, assistant)
+    }
+
+    /**
+     * 应用动态工具策略。
+     *
+     * 关闭时原样返回。开启时把超过阈值的工具从 [DynamicTools.tools] 里移走，再加两个入口工具；
+     * 被移走的工具仍留在 [DynamicTools.entries] 里供检索与执行。
+     */
+    private suspend fun applyDynamicTools(
+        tools: List<Tool>,
+        settings: Settings,
+        assistant: Assistant,
+    ): DynamicTools {
+        if (!settings.dynamicToolsEnabled) {
+            return DynamicTools(tools, emptyList(), emptySet())
+        }
+        val deferred = DeferPolicy.selectDeferred(
+            tools = tools,
+            // 技能相关工具不参与 defer：技能清单要靠 view_skill 全量声明给模型，
+            // 它自己的 system prompt 也就是那份清单；export_skill 与它配对使用
+            alwaysLoaded = settings.dynamicToolsAlwaysLoaded + ALWAYS_LOADED_TOOLS,
+        )
+        if (deferred.isEmpty()) {
+            // 没有工具需要 defer 时不要注入两个空入口，否则只是白白增加提示词
+            return DynamicTools(tools, emptyList(), emptySet())
+        }
+        val deferredIds = deferred.mapTo(LinkedHashSet()) { it.name }
+        // MCP 状态是 host 观察到的结果：未连接的服务器在检索结果里要标注，避免模型盲目调用
+        val mcpStatuses = mcpManager.syncingStatus.value
+        val statusByName = settings.mcpServers.associate { server ->
+            server.commonOptions.name to (mcpStatuses[server.id] ?: McpStatus.Idle)
+        }
+        val overlays = PromptOverlays(
+            descriptions = settings.toolDescriptionOverrides,
+            systemPrompts = settings.toolSystemPromptOverrides,
+            legacySkillName = LEGACY_SKILL_VIEW_TOOL_NAME,
+        )
+        val entries = CapabilityCatalog.build(
+            tools = tools,
+            mcpStatus = statusByName,
+            overlays = overlays,
+            aliases = LEGACY_WORKSPACE_TOOL_ALIASES + SKILL_TOOL_ALIASES,
+        )
+        val visible = tools.filter { it.name !in deferredIds }
+        val shell = DynamicTools(
+            tools = visible,
+            entries = entries,
+            deferredIds = deferredIds,
+        )
+        return DynamicTools(
+            tools = visible + createDynamicToolEntries(shell, overlays),
+            entries = entries,
+            deferredIds = deferredIds,
+        )
     }
 
     /**

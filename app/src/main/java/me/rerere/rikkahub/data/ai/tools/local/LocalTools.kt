@@ -49,6 +49,10 @@ class LocalTools(
 
     val chartDisplayTool by lazy { buildChartDisplayTool() }
 
+    val systemIntentTool by lazy { buildSystemIntentTool(context) }
+
+    val locationTool by lazy { buildLocationTool(context) }
+
     val phoneUseTool by lazy {
         buildPhoneUseTool(
             ownPackageName = context.packageName,
@@ -102,6 +106,12 @@ class LocalTools(
         }
         if (options.contains(LocalToolOption.ChartDisplay)) {
             tools.add(chartDisplayTool)
+        }
+        if (options.contains(LocalToolOption.SystemIntent)) {
+            tools.add(systemIntentTool)
+        }
+        if (options.contains(LocalToolOption.Location)) {
+            tools.add(locationTool)
         }
         // 不支持的渠道和系统版本上，之前在别处开过（比如导入的备份）也不提供
         if (options.contains(LocalToolOption.PhoneUse) && PhoneUseManager.isSupported) {

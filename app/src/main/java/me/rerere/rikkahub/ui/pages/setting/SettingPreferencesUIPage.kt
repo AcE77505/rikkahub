@@ -370,6 +370,19 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                     )
                 }
             }
+
+            item {
+                CardGroup(
+                    title = { Text(stringResource(R.string.setting_page_chat_menu_settings)) },
+                ) {
+                    switchItem(
+                        checked = displaySetting.showRequestPrefix,
+                        onCheckedChange = { updateDisplaySetting(displaySetting.copy(showRequestPrefix = it)) },
+                        supportingContent = { Text(stringResource(R.string.setting_display_page_show_request_prefix_desc)) },
+                        headlineContent = { Text(stringResource(R.string.setting_display_page_show_request_prefix_title)) },
+                    )
+                }
+            }
         }
     }
 }

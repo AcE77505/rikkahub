@@ -361,6 +361,7 @@ private fun categoryTitle(category: ToolPromptCategory): String = stringResource
         ToolPromptCategory.CONVERSATION -> R.string.tool_prompts_category_conversation
         ToolPromptCategory.LOCAL_TOOLS -> R.string.tool_prompts_category_local_tools
         ToolPromptCategory.WORKSPACE_TOOLS -> R.string.tool_prompts_category_workspace_tools
+        ToolPromptCategory.DYNAMIC_TOOLS -> R.string.tool_prompts_category_dynamic_tools
         ToolPromptCategory.ASSISTANT_CONFIG -> R.string.tool_prompts_category_assistant_config
     }
 )

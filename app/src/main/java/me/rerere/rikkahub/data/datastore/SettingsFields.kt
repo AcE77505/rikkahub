@@ -87,7 +87,10 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         plain(THEME_ID, Settings::themeId) { copy(themeId = it) },
         json(CUSTOM_THEMES, Settings::customThemes) { copy(customThemes = it) },
         json(DISPLAY_SETTING, Settings::displaySetting) { copy(displaySetting = it) },
-        json(NETWORK_SETTING, Settings::networkSetting) { copy(networkSetting = it) },        plain(DEVELOPER_MODE, Settings::developerMode) { copy(developerMode = it) },
+        json(
+            NETWORK_SETTING,
+            Settings::networkSetting
+        ) { copy(networkSetting = it) }, plain(DEVELOPER_MODE, Settings::developerMode) { copy(developerMode = it) },
 
         // 模型选择
         json(FAVORITE_MODELS, Settings::favoriteModels) { copy(favoriteModels = it) },
@@ -190,7 +193,14 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         ),
         json(TOOL_APPROVALS, Settings::toolApprovals) { copy(toolApprovals = it) },
         json(TOOL_DESCRIPTION_OVERRIDES, Settings::toolDescriptionOverrides) { copy(toolDescriptionOverrides = it) },
-        json(TOOL_SYSTEM_PROMPT_OVERRIDES, Settings::toolSystemPromptOverrides) { copy(toolSystemPromptOverrides = it) },
+        json(
+            TOOL_SYSTEM_PROMPT_OVERRIDES,
+            Settings::toolSystemPromptOverrides
+        ) { copy(toolSystemPromptOverrides = it) },
+        plain(DYNAMIC_TOOLS_ENABLED, Settings::dynamicToolsEnabled) { copy(dynamicToolsEnabled = it) },
+        json(DYNAMIC_TOOLS_ALWAYS_LOADED, Settings::dynamicToolsAlwaysLoaded) {
+            copy(dynamicToolsAlwaysLoaded = it)
+        },
         json(SUB_AGENTS, Settings::subAgents) { copy(subAgents = it) },
         json(SUBAGENT_DEFAULT_TOOLS, Settings::subAgentDefaultTools) { copy(subAgentDefaultTools = it) },
         SettingsField(

@@ -149,6 +149,7 @@ internal object BackupSettingsFields {
             "webServerPort", "webServerJwtEnabled", "webServerAccessPassword", "webServerLocalhostOnly",
             "backupReminderConfig", "sponsorAlertDismissedAt", "pathOpenPreference", "pathOpenMtPackage",
             "toolNameDisplay",
+            "dynamicToolsEnabled", "dynamicToolsAlwaysLoaded",
         ),
         BackupResource.MCP to setOf("mcpServers"),
         BackupResource.SEARCH to setOf("searchServices", "searchCommonOptions", "searchServiceSelected"),

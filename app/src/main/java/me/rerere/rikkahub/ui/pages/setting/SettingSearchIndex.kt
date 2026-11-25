@@ -106,6 +106,7 @@ fun rememberSettingSearchEntries(assistantId: Uuid): List<SettingSearchEntry> {
         ToolPromptCategory.CONVERSATION to stringResource(R.string.tool_prompts_category_conversation),
         ToolPromptCategory.LOCAL_TOOLS to stringResource(R.string.tool_prompts_category_local_tools),
         ToolPromptCategory.WORKSPACE_TOOLS to stringResource(R.string.tool_prompts_category_workspace_tools),
+        ToolPromptCategory.DYNAMIC_TOOLS to stringResource(R.string.tool_prompts_category_dynamic_tools),
         ToolPromptCategory.ASSISTANT_CONFIG to stringResource(R.string.tool_prompts_category_assistant_config),
     )
 
@@ -757,35 +758,35 @@ fun rememberSettingSearchEntries(assistantId: Uuid): List<SettingSearchEntry> {
     )
     entries += searchEntry(
         R.string.workspace_tool_read_file,
-        settingPath(tools, stringResource(R.string.setting_tools_switches)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.workspace_tool_read_file_desc,
         toolNames = listOf("read_file"),
     )
     entries += searchEntry(
         R.string.workspace_tool_write_file,
-        settingPath(tools, stringResource(R.string.setting_tools_switches)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.workspace_tool_write_file_desc,
         toolNames = listOf("write_file"),
     )
     entries += searchEntry(
         R.string.workspace_tool_edit_file,
-        settingPath(tools, stringResource(R.string.setting_tools_switches)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.workspace_tool_edit_file_desc,
         toolNames = listOf("edit_file"),
     )
     entries += searchEntry(
         R.string.workspace_tool_shell,
-        settingPath(tools, stringResource(R.string.setting_tools_switches)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.workspace_tool_shell_desc,
         toolNames = listOf("shell", "shell_output", "shell_kill"),
     )
     entries += searchEntry(
         R.string.tool_assistant_config,
-        settingPath(tools, stringResource(R.string.setting_tools_switches)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_advanced)),
         Screen.SettingTools,
         R.string.tool_assistant_config_desc,
         toolNames = listOf(
@@ -801,55 +802,55 @@ fun rememberSettingSearchEntries(assistantId: Uuid): List<SettingSearchEntry> {
     )
     entries += searchEntry(
         R.string.setting_tools_shell_overtime_threshold,
-        settingPath(tools, stringResource(R.string.setting_tools_shell_timeout)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.setting_tools_shell_overtime_desc,
     )
     entries += searchEntry(
         R.string.setting_tools_shell_auto_stop,
-        settingPath(tools, stringResource(R.string.setting_tools_shell_timeout)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.setting_tools_shell_auto_stop_desc,
     )
     entries += searchEntry(
         R.string.setting_tools_shell_background_enabled,
-        settingPath(tools, stringResource(R.string.setting_tools_shell_background)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.setting_tools_shell_background_enabled_desc,
     )
     entries += searchEntry(
         R.string.setting_tools_shell_background_limit,
-        settingPath(tools, stringResource(R.string.setting_tools_shell_background)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.setting_tools_shell_background_limit_desc,
     )
     entries += searchEntry(
         R.string.setting_tools_shell_background_notify,
-        settingPath(tools, stringResource(R.string.setting_tools_shell_background)),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.setting_tools_shell_background_notify_desc,
     )
     entries += searchEntry(
         R.string.setting_tools_tool_approval,
-        settingPath(tools),
+        settingPath(tools, stringResource(R.string.setting_tools_group_files)),
         Screen.SettingTools,
         R.string.setting_tools_tool_approval_desc,
     )
     entries += searchEntry(
         R.string.setting_tools_tool_identifier_display_title,
-        settingPath(tools),
+        settingPath(tools, stringResource(R.string.setting_tools_group_display)),
         Screen.SettingTools,
         R.string.setting_tools_tool_identifier_display_desc,
     )
     entries += SettingSearchEntry(
-        title = "子代理管理",
+        title = stringResource(R.string.setting_tools_subagents),
         description = stringResource(R.string.subagent_intro),
-        path = settingPath(tools),
+        path = settingPath(tools, stringResource(R.string.setting_tools_group_advanced)),
         target = Screen.SettingSubAgents,
     )
     entries += searchEntry(
         R.string.setting_tools_local_tools,
-        settingPath(tools),
+        settingPath(tools, stringResource(R.string.setting_tools_group_common)),
         Screen.SettingLocalTools,
         R.string.setting_tools_local_tools_desc,
         toolNames = listOf(
@@ -861,6 +862,8 @@ fun rememberSettingSearchEntries(assistantId: Uuid): List<SettingSearchEntry> {
             "calendar_query",
             "calendar_create",
             "chart_display",
+            "system_intent",
+            "get_current_location",
         ),
     )
     entries += searchEntry(
@@ -913,13 +916,27 @@ fun rememberSettingSearchEntries(assistantId: Uuid): List<SettingSearchEntry> {
         toolNames = listOf("chart_display"),
     )
     entries += searchEntry(
+        R.string.assistant_page_local_tools_system_intent_title,
+        settingPath(tools, stringResource(R.string.setting_tools_local_tools)),
+        Screen.SettingLocalTools,
+        R.string.assistant_page_local_tools_system_intent_desc,
+        toolNames = listOf("system_intent"),
+    )
+    entries += searchEntry(
+        R.string.assistant_page_local_tools_location_title,
+        settingPath(tools, stringResource(R.string.setting_tools_local_tools)),
+        Screen.SettingLocalTools,
+        R.string.assistant_page_local_tools_location_desc,
+        toolNames = listOf("get_current_location"),
+    )
+    entries += searchEntry(
         R.string.setting_tools_terminal_dir,
-        settingPath(tools),
+        settingPath(tools, stringResource(R.string.setting_tools_workspace)),
         Screen.SettingTerminalDirectory(),
     )
     entries += searchEntry(
         R.string.setting_path_open_title,
-        settingPath(tools),
+        settingPath(tools, stringResource(R.string.setting_path_open_title)),
         Screen.SettingTools,
     )
     // 工具提示词

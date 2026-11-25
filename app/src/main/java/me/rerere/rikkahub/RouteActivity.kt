@@ -92,6 +92,7 @@ import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantPromptPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantRequestPage
 import me.rerere.rikkahub.ui.pages.backup.BackupPage
 import me.rerere.rikkahub.ui.pages.chat.ChatPage
+import me.rerere.rikkahub.ui.pages.chat.ChatRequestPrefixPage
 import me.rerere.rikkahub.ui.pages.debug.DebugPage
 import me.rerere.rikkahub.ui.pages.extensions.ExtensionsPage
 import me.rerere.rikkahub.ui.pages.extensions.PromptPage
@@ -372,6 +373,12 @@ class RouteActivity : ComponentActivity() {
                                     files = key.files.map { it.toUri() },
                                     nodeId = key.nodeId?.let { Uuid.parse(it) },
                                     presetGroupId = key.presetGroupId,
+                                )
+                            }
+
+                            entry<Screen.ChatRequestPrefix> { key ->
+                                ChatRequestPrefixPage(
+                                    id = Uuid.parse(key.id),
                                 )
                             }
 
@@ -721,6 +728,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class ShareHandler(val text: String, val streamUri: String? = null) : Screen
+
+    @Serializable
+    data class ChatRequestPrefix(val id: String) : Screen
 
     @Serializable
     data object History : Screen

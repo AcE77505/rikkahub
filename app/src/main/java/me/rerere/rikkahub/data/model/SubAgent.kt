@@ -80,6 +80,11 @@ object SubAgentToolDefaults {
             title = "设备与交互",
             tools = listOf("clipboard_tool", "text_to_speech", "get_screen_time", "eval_javascript", "calendar_query"),
         ),
+        ToolGroup(
+            // 动态工具开启时，子代理靠这两个入口拿到未直接挂载的工具
+            title = "动态工具",
+            tools = listOf("search_tools", "call_tool"),
+        ),
     )
 
     /** 编辑页展示的全部工具名，顺序就是界面上的顺序 */

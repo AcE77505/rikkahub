@@ -9,6 +9,7 @@
 - 本批次（2026-11-11）：在「修改其他助手」工具组新增记忆管理（列出/读取/写入/删除/按文件或目录导入），复用原有开关，不新增设置项。详见第 14 节。
 - 本批次（2026-11-17）：上游 3.3.0 同步分析 + 第一批无冲突纳入；同时把 DeepSeek 导入切换为 App 导出格式（网页版实现移到 `app/src/legacy`，保留但不编译）。19 个上游提交、90 个文件；本次已合入 ai / speech / Provider / Phone Use / 自动压缩默认值，message_node 索引、SafeMode、段落气泡与工作区共享存储仍未适配。详见第 18、19、20 节。
 - 本批次（2026-11-23）：提示词精简（记忆、工作区、技能列表、助手管理段）。按一次真实请求测量，system prompt 约 28.5K → 19.2K 字符（约 -33%）；用户 memory 数据（profile/preferences）未改动。详见第 24 节。
+- 本批次（2026-11-25）：新增 `system_intent`（六种系统事务）、`get_current_location`（三套坐标系）、请求前缀页（默认关闭，偏好设置开关）与工具设置页重排；同批次一并提交动态工具（按需检索）。详见第 27 节。
 - 维护策略（2026-11-12）：**Phone Use（AI 操作屏幕）永远不会纳入修改范围，除了从上游按例同步的情况。** 功能兼容性（支持的 Android 版本、渠道、动作集合）完全由上游项目决定，本 fork 不主动改造。详见第 4 节第 13 条与第 15.2 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
@@ -69,6 +70,11 @@ git merge-tree --write-tree --merge-base=<commit>^ HEAD <commit> | grep CONFLICT
 | 数据备份分项 | 聊天记录 / MCP / 助手 / 所有可备份内容，逐项合并或覆盖，兼容旧版归档 | `BackupItem`、`BackupFields`、`BackupManager`、`DatabaseBackupTables` |
 | DeepSeek 导入 | 官方导出 ZIP 解析、变动识别、覆盖/保留/并存、独立预览页 | `DeepSeekImporter`、`DeepSeekImportPreviewActivity`、`BackupVM` |
 | 其他助手记忆工具 | 列出/读取/写入/删除其他助手的记忆文件，支持按本地路径导入 | `AssistantConfigTools`、`LocalTools`、`MemoryRepository` |
+| 系统事务 | `system_intent` 聚合六种系统调用（闹钟/计时器/拨号/短信草稿/分享/导航），只唤起不代完成 | `SystemIntentTool`、`AssistantLocalToolPage` |
+| 定位 | `get_current_location`，同时返回 WGS-84 / GCJ-02 / BD-09 三套坐标，不做逆地理编码 | `LocationTool`、`GeoCoordinates` |
+| 动态工具 | 体积超阈值的工具改由 `search_tools` / `call_tool` 按需检索，减少每轮提示词 | `dynamic/`（8 个文件）、`ChatRequestFactory` |
+| 请求前缀 | 会话菜单里查看每轮请求开头的固定内容（系统提示词 + 工具定义），默认关闭 | `ChatRequestPrefixPage`、`ChatRequestFactory.previewRequest` |
+| 工具设置页 | 按使用目的重排为七段，页内搜索、从属项置灰、审批按已启用工具过滤 | `SettingToolsPage`、`SettingSearchIndex` |
 
 ---
 
@@ -1347,3 +1353,95 @@ obscura 的 `libobscura.so` 在 `jniLibs/arm64-v8a` 与 `jniLibs/x86_64` 合计�
 - `:app:testGithubDebugUnitTest`：584 个测试，9 个失败，全部是 Windows 上 `FileStorage` 的 `atomicMoveTo` 重命名失败（与第 7.4 节记录的同类问题一致）；`BackupSettingsFieldsTest` 的失败已修复。
 - `spotlessCheck` 通过。
 - 真机待验证：消息概览压缩点卡片与多选共存、安全模式下导出/导入备份、快速入门页的 DeepSeek 导入与模型配置提示。
+
+---
+
+## 27. 系统事务、定位与请求前缀（2026-11-25）
+
+参考 dsh-Go / Gimi 的工具设定补齐系统能力，同时新增前端排查用的「请求前缀」页。本节还记录了同批次一起提交的动态工具（见 27.5）。
+
+### 27.1 system_intent（系统事务）
+
+新增 `app/src/main/java/me/rerere/rikkahub/data/ai/tools/local/SystemIntentTool.kt`，单个聚合工具 `system_intent`，用 `kind` 参数分派六种系统调用：
+
+| kind | Intent | 说明 |
+|---|---|---|
+| `alarm` | `AlarmClock.ACTION_SET_ALARM` | `days` 用 1=周一…7=周日，内部转成 Java `Calendar` 的 `it % 7 + 1` |
+| `timer` | `AlarmClock.ACTION_SET_TIMER` | `EXTRA_SKIP_UI=false`，打开计时器界面而不静默创建 |
+| `dial` | `ACTION_DIAL` + `tel:` | 只填号不拨出；号码限数字、`+`、`-`、空格、括号（拒绝 `*#` 服务码） |
+| `sms_draft` | `ACTION_SENDTO` + `smsto:` | 只起草不发送，`number` 可省略 |
+| `share` | `ACTION_SEND` + `text/plain` | 指定 `app` 时 `setPackage` 直达，否则弹系统选择器 |
+| `navigate` | 高德 → 百度 → `geo:` | 逐级降级，每级先验 `resolveActivity` |
+
+约定：**只唤起、不代完成**。返回 `success` + `opened_app` + `note`（提示模型不要让用户以为已完成）。失败（`ActivityNotFoundException` / `SecurityException`）返回可读 `error` 而不是抛异常。
+
+`calendar` 分支**未实现**：fork 已有 `calendar_create` 直接写 `CalendarProvider`，两者语义不同，避免模型选错。
+
+### 27.2 get_current_location（定位）
+
+新增 `LocationTool.kt` + `GeoCoordinates.kt`。
+
+- 系统原始坐标是 WGS-84；国内下游要高德的 GCJ-02、百度的 BD-09，三者相差数百米（天安门附近实测 WGS-84→GCJ-02 约 554 m，GCJ-02→BD-09 约 884 m）。
+- 结果**同时返回三套坐标**（`wgs84` / `gcj02` / `bd09`），由模型按下游地图选字段，不设默认值。
+- `GeoCoordinates.kt` 是纯数学转换，无网络依赖；境外坐标（`outOfChina`）原样返回，调用方不必先判断地域。
+- `prefer_fresh=true`（默认）用 `requestLocationUpdates` 等新定位，15 秒超时后回退 `getLastKnownLocation`；结果里 `fresh_fix` 标明是新测还是缓存。
+- **不做逆地理编码**：`Geocoder` 依赖 Google Play 服务，国内设备多数返回空。返回 `note` 明确说明这是原始坐标。
+- 权限：`ACCESS_COARSE_LOCATION`（必需）+ `ACCESS_FINE_LOCATION`（可选），走现有 `rememberPermissionState` / `PermissionManager`。
+
+### 27.3 请求前缀（原「请求预览」）
+
+会话菜单新增入口，展示每轮请求开头那段固定内容的原文，供排查提示词。默认关闭，开关在「设置 → 偏好设置 → 界面偏好设置 → 会话菜单」。
+
+实现要点：
+
+- `ChatRequestFactory.previewRequest(turn)` → `buildStep(..., includeHistory = false)`。与真实请求共用同一组装路径，因此系统提示词拼接、记忆注入、各工具 `systemPrompt`、动态工具路由、输入转换器链都实际跑过。
+- `includeHistory = false` 时**不追加任何历史消息**，只保留两段 `isSynthetic` 系统消息（系统提示词 + 动态工具路由块）与工具定义。附带好处：不会对历史消息触发 OCR 等输入转换副作用。
+- 不含 API Key：凭证在 provider 层组装，从不进入 `StepRequest`。
+- 开关关闭时菜单第一项仍是「对话地图」；`groupCount` 与 `itemShape` 的 index 动态计算，圆角始终正确。
+
+### 27.4 工具设置页重排（承接 27.1–27.3）
+
+`SettingToolsPage.kt` 按「用户进这页要做什么」重排为六段，每段都有分组标题：
+
+```
+搜索框
+① 动态工具
+② 常用工具（时间 / 询问用户 / 全部本地工具 →）
+③ 代码与文件（读取 / 写入 / 编辑 / 命令执行 + 超时、自动停止、后台命令 / 工具审批）
+④ 工作区（工作区 → / 终端目录 →）
+⑤ 路径打开方式（MT / 系统 / 每次询问）
+⑥ 高级（助手配置 / 子代理 →）
+⑦ 显示（工具标识符）
+```
+
+配套行为改动：
+
+- **页内搜索框**：复用 `SettingSearchIndex` 条目，按 `TOOL_PAGE_TARGETS` 过滤。
+- **从属配置置灰而非隐藏**：命令执行关闭时，超时阈值、自动停止、并发上限、完成提示置灰保留，不再整块消失。
+- **级联说明**：写入/编辑在读取关闭时副标题改为「需先开启「读取文件」」，不再静默禁用。
+- **审批按已启用工具过滤**：`APPROVAL_TOOLS` 改为 `Triple(toolName, labelRes, LocalToolOption)`，未启用的工具不在弹窗出现，全空时显示空状态。
+- **默认开启四项**：`DEFAULT_LOCAL_TOOLS = [TimeInfo, AskUser, ChartDisplay, WorkspaceReadFile]`，均为只读或无副作用能力；写/编辑/命令/助手配置仍默认关闭。
+- 删除死资源 `setting_path_open_ask_desc`、`setting_path_open_preference`、`setting_tools_switches`、`setting_tools_shell_timeout`、`setting_tools_shell_background`（8 个语言文件）。
+
+### 27.5 动态工具（同批次提交）
+
+`app/src/main/java/me/rerere/rikkahub/data/ai/tools/dynamic/` 新增 8 个文件（`DynamicTools`、`CapabilityCatalog`、`CapabilityEntry`、`CapabilityRouteRenderer`、`DeferPolicy`、`DynamicToolEntries`、`Bm25`、`Tokenizer`）。
+
+- 体积超过阈值的工具不再随每次请求发送，改由模型用 `search_tools` 检索、`call_tool` 调用；内置工具始终发送。
+- `DynamicTools.DISABLED` 表示关闭态；`ChatTurnContext` 新增 `dynamicTools` 字段。
+- 设置项在「设置 → 工具 → 动态工具」：开关 + 始终加载白名单（支持 `*` / `?` 通配符）。
+- 调研记录见 `docs/references/capability-tool-search-research.md`（未实现部分的设计参考）。
+
+### 27.6 测试与验证
+
+- `:app:compileGithubReleaseKotlin` BUILD SUCCESSFUL。
+- `assembleGithubRelease` BUILD SUCCESSFUL，产出 3 个 APK（arm64-v8a / universal / x86_64）。
+- `SettingsToolDependencyTest`：原 `every tool is disabled by default` 断言与新默认值冲突，替换为 `common read-only tools are on by default`，同时反向断言写/编辑/命令/助手配置仍默认关闭。
+- 坐标转换用独立脚本验证：天安门附近偏移量在百米级，境外坐标（巴黎）输入输出完全一致。
+- 真机待验证：六个 kind 各自唤起的目标界面、定位三套坐标在国内地图的实际偏差、请求前缀页在长对话下的组装耗时。
+
+### 27.7 已知限制
+
+- `system_intent.navigate` 的 `lat`/`lng` 只接受 GCJ-02。模型若误传 `wgs84` 字段仍会偏约 500 m，目前靠工具描述约束。更稳妥的做法是给 `navigate` 加 `coord` 参数并在内部统一转换。
+- 请求前缀开关是全局的（存在 `DisplaySetting` 的 JSON 里），无法按助手或对话单独开关。
+- `values-ar` / `values-de` / `values-ja` / `values-ko-rKR` / `values-ru` / `values-zh-rTW` 尚未补新增文案的译文，回退到英文；`tools/i18n` 需要 bun，当前环境未安装。

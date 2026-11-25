@@ -190,6 +190,8 @@ class SettingsStore internal constructor(
         val TOOL_APPROVALS = stringPreferencesKey("tool_approvals")
         val TOOL_DESCRIPTION_OVERRIDES = stringPreferencesKey("tool_description_overrides")
         val TOOL_SYSTEM_PROMPT_OVERRIDES = stringPreferencesKey("tool_system_prompt_overrides")
+        val DYNAMIC_TOOLS_ENABLED = booleanPreferencesKey("dynamic_tools_enabled")
+        val DYNAMIC_TOOLS_ALWAYS_LOADED = stringPreferencesKey("dynamic_tools_always_loaded")
         val SUB_AGENTS = stringPreferencesKey("sub_agents")
         val SUBAGENT_DEFAULT_TOOLS = stringPreferencesKey("subagent_default_tools")
         val SUBAGENT_MODEL = stringPreferencesKey("subagent_model")

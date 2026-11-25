@@ -57,6 +57,7 @@ import me.rerere.hugeicons.stroke.Tools
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.path.PathAwareText
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.local.SYSTEM_INTENT_TOOL_NAME
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.message.tools.DefaultToolPreview
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIContext
@@ -213,44 +214,49 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
                 overflow = TextOverflow.Ellipsis,
             )
         },
-        extra = if (isPending && onToolApproval != null) {
-            {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilledTonalIconButton(
-                        onClick = { showDenyDialog = true },
-                        modifier = Modifier.size(28.dp),
+        extra = when {
+            isPending && onToolApproval != null -> {
+                {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = HugeIcons.Cancel01,
-                            contentDescription = stringResource(R.string.chat_message_tool_deny),
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                    FilledTonalIconButton(
-                        onClick = { onToolApproval(tool.toolCallId, true, "") },
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Icon(
-                            imageVector = HugeIcons.Tick01,
-                            contentDescription = stringResource(R.string.chat_message_tool_approve),
-                            modifier = Modifier.size(14.dp)
-                        )
+                        FilledTonalIconButton(
+                            onClick = { showDenyDialog = true },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = HugeIcons.Cancel01,
+                                contentDescription = stringResource(R.string.chat_message_tool_deny),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        FilledTonalIconButton(
+                            onClick = { onToolApproval(tool.toolCallId, true, "") },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = HugeIcons.Tick01,
+                                contentDescription = stringResource(R.string.chat_message_tool_approve),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }
-        } else if (duration != null && duration >= 100.milliseconds) {
-            {
-                Text(
-                    text = duration.toString(DurationUnit.SECONDS, 1),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.shimmer(isLoading = loading),
-                )
+
+            // 可重放的工具的按钮在详情抽屉里，折叠行保持安静
+            duration != null && duration >= 100.milliseconds -> {
+                {
+                    Text(
+                        text = duration.toString(DurationUnit.SECONDS, 1),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.shimmer(isLoading = loading),
+                    )
+                }
             }
-        } else {
-            null
+
+            else -> null
         },
         onClick = { showResult = true },
         content = if (hasExtraContent) {

@@ -102,11 +102,13 @@ private val MEMORY_SYSTEM_RULES = """
 // 主对话只需要知道「用户明确要求时怎么写」；完整格式规则留给后台整理进程（MEMORY_FORMAT_PROMPT）。
 private val MEMORY_WRITE_RULES = """
     <memory_write_rules>
-    When the user explicitly asks you to remember / save / update / forget something, write it now.
+    There is exactly one trigger: the user explicitly asks you to remember / save / update / forget something.
+    In every other case do NOT write - a background process organizes memory after the conversation pauses.
+    - When a write tool is not in your tool list, run search_tools with its name and then call_tool.
     - File layout: frontmatter (`name`, `title`, `description`, `aliases`) then one fact per line as `- [stated] ...`. Write in the user's language; descriptions stay under 150 characters.
     - Only facts the user stated: no inferences, no suggestions or plans of yours, no tool/search results, no details they did not say, no hearsay, no to-dos.
     - Use /profile.md, /preferences.md, /topics/<domain>.md, /areas/<name>.md, /people/<name>.md; check memory_listing for an existing file or alias first.
-    - Record stable facts on first mention; one-off tastes only when they recur; keep wording that will not go stale.
+    - Keep wording that will not go stale; details belong in the user's own research docs, not in memory.
     - Never store ID/account numbers, self-harm/suicide/eating-disorder content, criminal records, abuse, or sexual experiences. Decline in one sentence.
     - Read before editing and pass the returned version as if_version; use memory_str_replace/memory_append, memory_write with if_version="new"; forgetting means deleting the line (empty new_str).
     - Do not announce "saved".

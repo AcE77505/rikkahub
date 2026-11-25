@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.data.ai.tools
 
 import me.rerere.rikkahub.BuildConfig
+import me.rerere.rikkahub.data.ai.tools.local.LOCATION_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.local.SYSTEM_INTENT_TOOL_NAME
 
 /**
  * 「设置 → 工具提示词」里可编辑的工具分类。
@@ -15,6 +17,7 @@ internal enum class ToolPromptCategory {
     CONVERSATION,
     LOCAL_TOOLS,
     WORKSPACE_TOOLS,
+    DYNAMIC_TOOLS,
     ASSISTANT_CONFIG,
 }
 
@@ -289,6 +292,38 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
         """.let(::desc),
     ),
     ToolPromptEntry(
+        SYSTEM_INTENT_TOOL_NAME,
+        ToolPromptCategory.LOCAL_TOOLS,
+        defaultDescription = """
+            Hand a task to the system app that can handle it. This only opens that app; it does not finish
+            the task, and the result does not prove the task was completed.
+            kinds and their fields:
+            alarm(hour, minute, message?, days?) - days are 1=Monday..7=Sunday, omit for a one-shot alarm;
+            timer(seconds, message?);
+            dial(number) - opens the dialer with the number filled in, never places the call;
+            sms_draft(text, number?) - opens the messaging app with the text, never sends it;
+            share(text, app?) - opens the system share sheet, or the target app when 'app' is given;
+            navigate(destination or lat+lng, mode?, map?) - opens a map app with the route, never starts navigation.
+            Prefer this over describing steps for the user to follow. After calling, tell the user what to
+            confirm in the opened screen instead of assuming it is done.
+        """.let(::desc),
+    ),
+    ToolPromptEntry(
+        LOCATION_TOOL_NAME,
+        ToolPromptCategory.LOCAL_TOOLS,
+        defaultDescription = """
+            Read the device's current location. Returns the position in three coordinate systems:
+            wgs84 (the system's raw value), gcj02 (Amap, Tencent, most Chinese maps) and bd09 (Baidu Maps).
+            In mainland China they differ by several hundred meters, so use the pair that matches the map
+            you are about to hand the coordinates to.
+            Also returns accuracy and, when the provider supplies them, altitude, bearing and speed.
+            Requires the location permission; if it is not granted, an error is returned and the permission
+            request is triggered from the settings page.
+            Set prefer_fresh to false to accept a cached position immediately instead of waiting for a fix.
+            The result is raw coordinates, not a place name: look up or describe the place yourself.
+        """.let(::desc),
+    ),
+    ToolPromptEntry(
         "ask_user",
         ToolPromptCategory.LOCAL_TOOLS,
         defaultDescription = """
@@ -431,6 +466,46 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
             For a directory, files keep their relative paths.
             overwrite=false (default) skips files that already exist; overwrite=true replaces them.
             Each file is limited to 48 KiB.
+        """.let(::desc),
+    ),
+
+    // 动态工具：两个入口工具本身由客户端实现，这里只开放它们的说明文字
+    ToolPromptEntry(
+        "search_tools",
+        ToolPromptCategory.DYNAMIC_TOOLS,
+        defaultDescription = """
+            Discover additional tools that are not listed in this session.
+            Use this when the user asks for something the current tools cannot do, when the task
+            involves files, shell commands, external services or MCP, or when the request is vague
+            and you need to know what is available before answering.
+            Pass an exact tool name if you already know it; otherwise pass short keywords.
+            Results must be invoked through call_tool.
+        """.let(::desc),
+        defaultSystemPrompt = prompt(
+            """
+            **Dynamic tools**
+            Some tools are not sent with every request because their definitions are large. They are still
+            available: call `search_tools` with a few keywords (or an exact tool name) to get a definition,
+            then call `call_tool` with `calls=[{"tool_name": "...", "params": "{...}"}]` to run it.
+
+            - Never call a tool that is not in your tool list directly; search for it first.
+            - Never tell the user a capability is unavailable before searching.
+            - When the user's request is vague, search before asking questions: the right tool may already exist.
+            - Batch independent calls in one `call_tool` request; wait for results before calls that depend on them.
+            - Search results carry a status. A server marked not connected will connect on first call; one marked
+              unavailable will keep failing, so report that instead of retrying.
+            - If the user names an MCP tool, or you need one, and it cannot be connected, say so explicitly.
+            """
+        ),
+    ),
+    ToolPromptEntry(
+        "call_tool",
+        ToolPromptCategory.DYNAMIC_TOOLS,
+        defaultDescription = """
+            Invoke one or more tools found by search_tools.
+            Each call uses the exact tool name and a JSON-encoded object string of arguments.
+            Use "{}" for no arguments. Calls keep individual approval and results; execution is not atomic.
+            If a tool fails because its server cannot be connected, tell the user it cannot be connected.
         """.let(::desc),
     ),
 )

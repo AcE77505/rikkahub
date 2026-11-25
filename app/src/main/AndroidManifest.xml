@@ -29,6 +29,9 @@
     tools:ignore="ProtectedPermissions" />
   <uses-permission android:name="android.permission.READ_CALENDAR" />
   <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+  <!-- 定位工具：读取设备当前位置 -->
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
   <uses-feature
     android:name="android.hardware.camera"
@@ -43,6 +46,14 @@
     <!-- 打开消息里的路径时优先使用 MT 管理器；不声明的话 Android 11+ 会当成未安装 -->
     <package android:name="bin.mt.plus" />
     <package android:name="bin.mt.plus.canary" />
+    <!-- system_intent 的 navigate：不声明的话 Android 11+ 会当成未安装，只能退到 geo: 链接 -->
+    <package android:name="com.autonavi.minimap" />
+    <package android:name="com.baidu.BaiduMap" />
+    <!-- system_intent 的 share：按应用名查找目标应用需要看到可分享的应用 -->
+    <intent>
+      <action android:name="android.intent.action.SEND" />
+      <data android:mimeType="text/plain" />
+    </intent>
     <intent>
       <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>
