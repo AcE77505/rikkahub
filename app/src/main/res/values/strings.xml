@@ -1525,6 +1525,8 @@
   <string name="chat_page_queue_edit_title">Edit queued message</string>
   <string name="chat_page_queue_paused_count">Queue paused · %1$d</string>
   <string name="chat_page_queue_pending_count">Queued · %1$d</string>
+  <string name="chat_page_steer_label">Interjection</string>
+  <string name="chat_page_steer_hint">Sending now inserts this into the current reply</string>
   <string name="assistant_page_time_reminder_interval">Time reminder interval</string>
   <string name="assistant_page_time_reminder_interval_label">Interval (minutes)</string>
   <string name="assistant_page_time_reminder_interval_hint">Enter a positive whole number. A reminder is inserted when the message gap exceeds this interval.</string>

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.isAwaitingToolApproval
 import kotlin.uuid.Uuid
 
 /** Owns runtime sessions; loading and message dispatch belong to ChatService, persistence goes through [ConversationStore]. */
@@ -114,6 +115,23 @@ class ConversationSessionManager(
     fun getActivityFlow(conversationId: Uuid): Flow<SessionActivity?> =
         sessions.map { it[conversationId] }.distinctUntilChanged().flatMapLatest { session ->
             session?.activity ?: flowOf(null)
+        }
+
+    /**
+     * 现在发消息会不会变成插话：正在生成回复、不是在压缩，或者在等工具审批（这一轮还没结束）。
+     * 和 [ConversationSession.isSteerable] 判断一致，但用 combine 响应式地跟着三个状态变化。
+     */
+    fun getSteerableFlow(conversationId: Uuid): Flow<Boolean> =
+        sessions.map { it[conversationId] }.distinctUntilChanged().flatMapLatest { session ->
+            if (session == null) {
+                flowOf(false)
+            } else {
+                combine(session.generationJob, session.activity, session.state) { job, activity, conversation ->
+                    // 审批等待期间任务槽已经空出来，但这一轮会在审批后继续
+                    conversation.isAwaitingToolApproval ||
+                        (job != null && activity == SessionActivity.Generating)
+                }
+            }
         }
 
     fun getConversationJobs(): Flow<Map<Uuid, Job?>> = sessions.flatMapLatest { current ->

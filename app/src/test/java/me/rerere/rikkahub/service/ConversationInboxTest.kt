@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -251,5 +252,81 @@ class ConversationInboxTest {
 
         assertTrue(removed is QueuedNotice)
         assertTrue(inbox.takeNotices().isEmpty())
+    }
+
+    @Test
+    fun `steers are taken at the step boundary together with notices in queue order`() {
+        val inbox = ConversationInbox()
+        inbox.post("a", notice("a"))
+        inbox.enqueue(text("wait for the turn to end"))
+        inbox.enqueue(text("actually look at this"), steer = true)
+
+        val pending = inbox.takePendingParts()
+
+        // 按放入顺序取出：通知在前，插话包成 Steer 并保留自己的 parts
+        assertEquals(notice("a"), pending[0])
+        val steer = pending[1] as UIMessagePart.Steer
+        assertEquals(text("actually look at this"), steer.parts)
+        assertNotNull(steer.createdAt)
+        // 普通排队消息不受影响，仍在等这一轮结束
+        assertEquals(text("wait for the turn to end"), inbox.state.value.messages.single().parts)
+        assertTrue(inbox.state.value.notices.isEmpty())
+    }
+
+    @Test
+    fun `an edited steer is held back until the edit finishes`() {
+        val inbox = ConversationInbox()
+        inbox.enqueue(text("draft"), steer = true)
+        val id = inbox.state.value.messages.single().id
+        inbox.beginEdit(id)
+
+        assertTrue(inbox.takePendingParts().isEmpty())
+        assertFalse(inbox.hasPendingSteers())
+
+        inbox.finishEdit(id, text("edited"))
+        assertTrue(inbox.hasPendingSteers())
+        val steer = inbox.takePendingParts().single() as UIMessagePart.Steer
+        assertEquals(text("edited"), steer.parts)
+    }
+
+    @Test
+    fun `a steer left over after the turn ends becomes a normal queued message`() {
+        val inbox = ConversationInbox()
+        inbox.enqueue(text("too late"), steer = true, answer = false)
+
+        val next = inbox.nextMessage()!!
+
+        // 这一轮已经结束，没有 step 再来取：按入队时的意愿当成普通消息
+        assertFalse(next.steer)
+        assertFalse(next.answer)
+        assertEquals(text("too late"), next.parts)
+    }
+
+    @Test
+    fun `taking pending parts does not resume a paused queue`() {
+        val inbox = ConversationInbox()
+        inbox.enqueue(text("keep going"), steer = true)
+        inbox.pause()
+
+        // 暂停只挡住开始新的一轮，正在进行的一轮仍然取走插话
+        assertEquals(1, inbox.takePendingParts().size)
+        assertNull(inbox.takeNext())
+    }
+
+    @Test
+    fun `a steer waiting through a tool run goes out with the tool result`() {
+        val inbox = ConversationInbox()
+        // 命令执行期间入队的插话：先排队，不在工具跑完前被当成新一轮取走
+        inbox.enqueue(text("also check the logs"), steer = true)
+        inbox.pause()
+
+        assertTrue(inbox.hasPendingSteers())
+        assertNull(inbox.nextMessage())
+
+        // 命令跑完、重新请求模型前一起取走，和工具结果同一次请求发给模型
+        inbox.resume()
+        val steer = inbox.takePendingParts().single() as UIMessagePart.Steer
+        assertEquals(text("also check the logs"), steer.parts)
+        assertFalse(inbox.hasPendingSteers())
     }
 }

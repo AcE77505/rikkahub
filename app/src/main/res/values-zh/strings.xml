@@ -1419,6 +1419,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="chat_page_queue_edit_title">编辑待发送消息</string>
   <string name="chat_page_queue_paused_count">队列已暂停 · %1$d</string>
   <string name="chat_page_queue_pending_count">待发送 · %1$d</string>
+  <string name="chat_page_steer_label">插话</string>
+  <string name="chat_page_steer_hint">现在发送会插进当前回复</string>
   <string name="chat_page_voice_select_model">请先选择聊天模型</string>
   <string name="chat_page_voice_finish_dictation">请先完成当前语音输入</string>
   <string name="chat_page_voice_resume_queue">消息队列已暂停，请先继续队列</string>

@@ -154,6 +154,11 @@ class ChatVM(
 
     val messageQueue = chatService.getInboxFlow(_conversationId)
 
+    /** 正在生成回复：这时发送会变成插话，插进当前这一轮 */
+    val steerable: StateFlow<Boolean> = chatService
+        .getSteerableFlow(_conversationId)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun removeQueuedMessage(id: Uuid) = chatService.removeInboxItem(_conversationId, id)
 
     fun beginEditQueuedMessage(id: Uuid) = chatService.beginEditQueuedMessage(_conversationId, id)

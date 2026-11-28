@@ -11,6 +11,7 @@ import me.rerere.ai.agent.AgentRequest
 import me.rerere.ai.agent.RetryPolicy
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.expandNotices
+import me.rerere.ai.agent.extractSteers
 import me.rerere.ai.agent.withRetry
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
@@ -145,6 +146,8 @@ class ChatRequestFactory(
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?>,
         takePendingParts: suspend () -> List<UIMessagePart> = { emptyList() },
+        // 有没有用户插话在等；为 true 时模型本要结束也会再请求一次
+        pendingSteers: () -> Boolean = { false },
         pauseAfterTools: (UIMessage) -> Boolean = { false },
     ): Pair<AgentRequest, AgentHooks> {
         val request = AgentRequest(
@@ -179,6 +182,8 @@ class ChatRequestFactory(
                 }
 
             override suspend fun pendingParts() = takePendingParts()
+
+            override suspend fun hasPendingSteers() = pendingSteers()
 
             override suspend fun shouldPause(message: UIMessage) = pauseAfterTools(message)
         }
@@ -292,7 +297,12 @@ class ChatRequestFactory(
                 }
             }
             if (includeHistory) {
-                addAll(messages.limitContext(assistant.contextMessageLimit).withContinuationHint())
+                addAll(
+                    messages.limitContext(assistant.contextMessageLimit)
+                        .withContinuationHint()
+                        // 插话要在输入转换器之前拆成普通用户消息，附件、模板、用户正则才和直接发送一致
+                        .extractSteers()
+                )
             }
         }.transforms(
             transformers = inputTransformers,

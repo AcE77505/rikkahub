@@ -1,5 +1,6 @@
 package me.rerere.ai.ui
 
+import kotlinx.datetime.LocalDateTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -235,4 +236,31 @@ sealed class UIMessagePart {
         val text: String,
         override var metadata: JsonObject? = null,
     ) : UIMessagePart()
+
+    /**
+     * 用户在模型生成中途插的话。
+     *
+     * 与 [Notice] 走同一条路：生成中由 agent 循环在轮到模型回复时追加到助手消息里，
+     * 之后和其它 part 一样保存在会话中；请求时由 [me.rerere.ai.agent.expandNotices] 在所在位置
+     * 拆成一条 user 消息，模型看到的轮次与用户实际插话的时机一致，前缀也保持稳定。
+     * 区别只在语义和展示：这是用户自己说的话，要按用户消息显示，而不是运行时事件。
+     */
+    @Serializable
+    @SerialName("steer")
+    data class Steer(
+        /** 插话内容，和普通用户消息的 parts 一样，可以带附件 */
+        val parts: List<UIMessagePart>,
+        /** 用户实际发出插话的时间；拆成 user 消息时用它，而不是助手消息的创建时间 */
+        val createdAt: LocalDateTime? = null,
+        override var metadata: JsonObject? = null,
+    ) : UIMessagePart()
 }
+
+/**
+ * 内联在助手消息里、请求组装时要拆成 user 消息的 part：用户插话和运行时事件。
+ *
+ * 二者的位置决定它在请求里插在哪（见 [me.rerere.ai.agent.expandNotices]），
+ * 所以任何会重排 parts 的逻辑都要先看它。
+ */
+fun UIMessagePart?.isInlineUserPart(): Boolean =
+    this is UIMessagePart.Notice || this is UIMessagePart.Steer

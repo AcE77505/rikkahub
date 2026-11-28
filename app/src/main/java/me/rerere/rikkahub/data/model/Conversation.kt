@@ -229,7 +229,7 @@ private fun UIMessage.fillModelSnapshot(models: Map<Uuid, Model>): UIMessage {
     return copy(modelSnapshot = ModelSnapshot(modelId = model.modelId, displayName = model.displayName))
 }
 
-/** 本地附件引用，包含工具结果中的嵌套附件。 */
+/** 本地附件引用，包含工具结果与用户插话中的嵌套附件。 */
 internal fun List<UIMessagePart>.localFileUrls(): Set<String> = buildSet {
     this@localFileUrls.forEach { part ->
         val url = when (part) {
@@ -242,13 +242,18 @@ internal fun List<UIMessagePart>.localFileUrls(): Set<String> = buildSet {
                 null
             }
 
+            is UIMessagePart.Steer -> {
+                addAll(part.parts.localFileUrls())
+                null
+            }
+
             else -> null
         }
         if (url?.startsWith("file://") == true) add(url)
     }
 }
 
-/** 替换本地附件的地址，覆盖范围与 [localFileUrls] 一致，包含工具结果中的嵌套附件。 */
+/** 替换本地附件的地址，覆盖范围与 [localFileUrls] 一致，包含工具结果和用户插话中的嵌套附件。 */
 internal fun UIMessagePart.mapLocalFileUrls(transform: (String) -> String): UIMessagePart {
     fun String.mapped() = if (startsWith("file://")) transform(this) else this
     return when (this) {
@@ -257,6 +262,7 @@ internal fun UIMessagePart.mapLocalFileUrls(transform: (String) -> String): UIMe
         is UIMessagePart.Video -> copy(url = url.mapped())
         is UIMessagePart.Audio -> copy(url = url.mapped())
         is UIMessagePart.Tool -> copy(output = output.map { it.mapLocalFileUrls(transform) })
+        is UIMessagePart.Steer -> copy(parts = parts.map { it.mapLocalFileUrls(transform) })
         else -> this
     }
 }

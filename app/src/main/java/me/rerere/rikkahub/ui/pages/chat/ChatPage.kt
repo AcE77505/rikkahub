@@ -409,6 +409,7 @@ private fun ChatPageContent(
             },
             bottomBar = {
                 val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
+                val steerable by vm.steerable.collectAsStateWithLifecycle()
                 val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
                 val backgroundTasks by vm.backgroundTasks.collectAsStateWithLifecycle()
                 var showBackgroundTasks by remember { mutableStateOf(false) }
@@ -429,6 +430,7 @@ private fun ChatPageContent(
                     onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
                     onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
                     onResumeMessageQueue = vm::resumeMessageQueue,
+                    steerable = steerable,
                     runningBackgroundTasks = backgroundTasks.count { it.status == BackgroundShellStatus.RUNNING },
                     onShowBackgroundTasks = { showBackgroundTasks = true },
                     loading = loadingJob != null,

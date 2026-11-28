@@ -63,6 +63,18 @@ interface AgentHooks {
     suspend fun pendingParts(): List<UIMessagePart> = emptyList()
 
     /**
+     * 有没有用户在生成中途插的话还在等（[UIMessagePart.Steer]）。
+     *
+     * 流式输出期间每收到一块内容都会调用一次：返回 true 时立刻停下这一步的输出，保留已经生成的内容，
+     * 把插话追加到后面重新请求，让模型马上看到插话。这一步本来不再调用工具、可以结束时也会问一次，
+     * 有插话就再请求一次。
+     *
+     * 只有运行时通知（[UIMessagePart.Notice]）不算，否则每一轮结束前都要白请求一次。
+     * 实现应当只是读内存，不能在这里做 IO 或挂起很久。
+     */
+    suspend fun hasPendingSteers(): Boolean = false
+
+    /**
      * 一批工具执行完、再次请求模型之前调用，返回 true 时以 [AgentFinishReason.Paused] 结束这次运行。
      *
      * 这时 [message] 上的工具调用都已经有结果，调用方可以在这里改写历史（比如压缩上下文）再开始下一次运行。

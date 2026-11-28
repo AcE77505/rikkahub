@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.uuid.Uuid
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.MessageAdd01
 import me.rerere.hugeicons.stroke.Notification01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.service.InboxState
@@ -115,19 +116,31 @@ internal fun MessageQueuePanel(
                                 stringResource(R.string.chat_page_queue_audio),
                                 stringResource(R.string.chat_page_queue_video),
                             )
+                            if (message.steer) {
+                                // 生成中发来的插话：和普通排队消息区分开，提示它会在当前这一轮里插入
+                                Icon(
+                                    imageVector = HugeIcons.MessageAdd01,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                             Text(
-                                text = "${index + 1}. " + message.parts.joinToString(" ") {
-                                    when (it) {
-                                        is UIMessagePart.Text -> it.text
-                                        is UIMessagePart.Image -> attachmentLabels[0]
-                                        is UIMessagePart.Document -> attachmentLabels[1]
-                                        is UIMessagePart.Audio -> attachmentLabels[2]
-                                        is UIMessagePart.Video -> attachmentLabels[3]
-                                        else -> ""
-                                    }
-                                },
+                                text = (if (message.steer) stringResource(R.string.chat_page_steer_label) + " · " else "${index + 1}. ") +
+                                    message.parts.joinToString(" ") {
+                                        when (it) {
+                                            is UIMessagePart.Text -> it.text
+                                            is UIMessagePart.Image -> attachmentLabels[0]
+                                            is UIMessagePart.Document -> attachmentLabels[1]
+                                            is UIMessagePart.Audio -> attachmentLabels[2]
+                                            is UIMessagePart.Video -> attachmentLabels[3]
+                                            else -> ""
+                                        }
+                                    },
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodySmall,
+                                color = if (message.steer) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )

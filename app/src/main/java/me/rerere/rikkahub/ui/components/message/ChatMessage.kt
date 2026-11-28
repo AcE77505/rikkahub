@@ -73,6 +73,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyUIMessage
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.File02
+import me.rerere.hugeicons.stroke.MessageAdd01
 import me.rerere.hugeicons.stroke.MusicNote03
 import me.rerere.hugeicons.stroke.Video01
 import me.rerere.rikkahub.R
@@ -567,6 +568,81 @@ private fun MessagePartsBlock(
                                 }
                             },
                         )
+                    }
+
+                    is UIMessagePart.Steer -> {
+                        // 生成中途插的话：按用户消息展示，并标出它是插在这一轮里的
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 24.dp)
+                                .animateContentSize(),
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = HugeIcons.MessageAdd01,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = stringResource(R.string.chat_page_steer_label),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            ChatMessageBubble(
+                                role = MessageRole.USER,
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                modifier = Modifier.animateContentSize(),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    part.parts.fastForEach { inner ->
+                                        when (inner) {
+                                            is UIMessagePart.Text -> MarkdownBlock(
+                                                content = inner.text.replaceRegexes(
+                                                    assistant = assistant,
+                                                    scope = AssistantAffectScope.USER,
+                                                    visual = true,
+                                                ),
+                                                onClickCitation = handleClickCitation,
+                                                onOpenPath = onOpenPath,
+                                            )
+
+                                            is UIMessagePart.Image -> ZoomableAsyncImage(
+                                                model = inner.url,
+                                                contentDescription = null,
+                                                modifier = Modifier
+                                                    .clip(MaterialTheme.shapes.large)
+                                                    .height(72.dp)
+                                            )
+
+                                            is UIMessagePart.Video -> ChatMessageMediaTile(
+                                                icon = HugeIcons.Video01,
+                                                onClick = { context.openLocalFile(inner.url) },
+                                            )
+
+                                            is UIMessagePart.Audio -> ChatMessageMediaTile(
+                                                icon = HugeIcons.MusicNote03,
+                                                onClick = { context.openLocalFile(inner.url) },
+                                            )
+
+                                            is UIMessagePart.Document -> ChatMessageFileChip(
+                                                text = inner.fileName,
+                                                onClick = { context.openLocalFile(inner.url) },
+                                            )
+
+                                            else -> Unit
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     else -> {

@@ -3,10 +3,13 @@ package me.rerere.rikkahub.service
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.localFileUrls
+import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 /** 收件箱里等待发给模型的一项 */
@@ -20,6 +23,8 @@ data class QueuedMessage(
     val parts: List<UIMessagePart>,
     val answer: Boolean = true,
     val isEditing: Boolean = false,
+    // 生成中发来的插话：在下一步请求模型前插进当前这一轮，而不是等这一轮结束
+    val steer: Boolean = false,
     // Optional in-memory observer; null result means the queued message was withdrawn.
     val reply: CompletableDeferred<String?>? = null,
 ) : InboxItem
@@ -75,7 +80,12 @@ class ConversationInbox {
     val state = mutableState.asStateFlow()
 
     @Synchronized
-    fun enqueue(parts: List<UIMessagePart>, answer: Boolean = true, reply: CompletableDeferred<String?>? = null) {
+    fun enqueue(
+        parts: List<UIMessagePart>,
+        answer: Boolean = true,
+        steer: Boolean = false,
+        reply: CompletableDeferred<String?>? = null,
+    ) {
         if (parts.isEmptyInputMessage()) {
             reply?.complete(null)
             return
@@ -84,6 +94,7 @@ class ConversationInbox {
             items = state.value.items + QueuedMessage(
                 parts = parts.toList(),
                 answer = answer,
+                steer = steer,
                 reply = reply,
             ),
         )
@@ -114,6 +125,9 @@ class ConversationInbox {
     /**
      * 取出下一轮：先发用户输入，只剩通知时单独开一轮。
      * 正在编辑的队首挡住后面的用户输入，但不挡通知。
+     *
+     * 插话属于正在进行的那一轮，正常情况下已经在步骤之间被 [takePendingParts] 取走；
+     * 这一轮已经结束还留在队列里的（比如最后一步之后才发出），当成普通消息开一轮。
      */
     @Synchronized
     fun takeNext(): InboxTurn? {
@@ -122,10 +136,39 @@ class ConversationInbox {
         val head = current.messages.firstOrNull()
         if (head != null && !head.isEditing) {
             mutableState.value = current.copy(items = current.items.filterNot { it.id == head.id })
-            return InboxTurn.Message(head)
+            // 插话本意是让模型接着回应；这一轮已经结束，就按入队时的意愿当成普通消息处理
+            return InboxTurn.Message(if (head.steer) head.copy(steer = false) else head)
         }
         return InboxTurn.Notices.takeIf { current.notices.isNotEmpty() }
     }
+
+    /**
+     * 取走要在下一次请求模型前插进这一轮的内容：用户插话和运行时通知，按放入顺序。
+     * 插话包成 [UIMessagePart.Steer]，保留自己的 parts；不受暂停影响。
+     */
+    @Synchronized
+    fun takePendingParts(): List<UIMessagePart> {
+        val current = state.value
+        // 正在编辑的插话先不取走，等编辑完成或取消
+        val pending = current.items.filter {
+            it is QueuedNotice || (it is QueuedMessage && it.steer && !it.isEditing)
+        }
+        if (pending.isEmpty()) return emptyList()
+        val ids = pending.mapTo(HashSet()) { it.id }
+        mutableState.value = current.copy(items = current.items.filterNot { it.id in ids })
+        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+        return pending.map { item ->
+            when (item) {
+                is QueuedNotice -> item.notice
+                is QueuedMessage -> UIMessagePart.Steer(parts = item.parts, createdAt = now)
+            }
+        }
+    }
+
+    /** 有没有用户插话还在等（正在编辑的不算，它还不会被取走） */
+    @Synchronized
+    fun hasPendingSteers(): Boolean =
+        state.value.items.any { it is QueuedMessage && it.steer && !it.isEditing }
 
     /** 取出全部通知，按放入顺序；不受暂停影响 */
     @Synchronized

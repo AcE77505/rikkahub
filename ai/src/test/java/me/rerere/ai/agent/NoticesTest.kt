@@ -4,6 +4,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +59,58 @@ class NoticesTest {
 
         assertEquals(listOf("<notice>done</notice>", "<notice>other</notice>"), result.map { it.toText() })
         assertTrue(result.all { it.role == MessageRole.USER && it.isSynthetic })
+    }
+
+    @Test
+    fun `a steer keeps its own parts and is not marked synthetic`() {
+        val steer = UIMessagePart.Steer(
+            parts = listOf(UIMessagePart.Text("look at this"), UIMessagePart.Image("file:///a.png")),
+        )
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(UIMessagePart.Text("thinking"), steer, UIMessagePart.Text("answer")),
+        )
+
+        val result = listOf(UIMessage.user("hi"), assistant).expandNotices()
+
+        assertEquals(
+            listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT),
+            result.map { it.role },
+        )
+        assertEquals(steer.parts, result[2].parts)
+        // 插话是用户真说的话，不能标成 synthetic，否则模板和时间提醒会跳过它
+        assertFalse(result[2].isSynthetic)
+    }
+
+    @Test
+    fun `extractSteers pulls steers out before transformers and keeps notices inline`() {
+        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("interrupt")))
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(UIMessagePart.Text("thinking"), notice, steer, UIMessagePart.Text("answer")),
+        )
+
+        val result = listOf(UIMessage.user("hi"), assistant).extractSteers()
+
+        assertEquals(
+            listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT),
+            result.map { it.role },
+        )
+        assertEquals(listOf(UIMessagePart.Text("interrupt")), result[2].parts)
+        assertFalse(result[2].isSynthetic)
+        // 通知不在这里拆：它要留在转换之后，避免被套上模板和时间提醒
+        assertEquals(listOf(UIMessagePart.Text("thinking"), notice), result[1].parts)
+        assertEquals(listOf(UIMessagePart.Text("answer")), result[3].parts)
+    }
+
+    @Test
+    fun `messages without steers are returned as is by extractSteers`() {
+        val assistant = UIMessage(role = MessageRole.ASSISTANT, parts = listOf(notice, UIMessagePart.Text("answer")))
+
+        val result = listOf(UIMessage.user("hi"), assistant).extractSteers()
+
+        assertEquals(2, result.size)
+        assertSame(assistant, result[1])
     }
 
     @Test

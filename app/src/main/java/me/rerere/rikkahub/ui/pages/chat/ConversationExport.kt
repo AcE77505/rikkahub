@@ -492,6 +492,42 @@ private fun buildMarkdownExport(
                     appendLine()
                 }
 
+                is UIMessagePart.Steer -> {
+                    // 插话是用户在中途说的话，按用户内容导出
+                    appendLine("> **Interjection**")
+                    part.parts.forEach { inner ->
+                        when (inner) {
+                            is UIMessagePart.Text -> {
+                                append(stripInternalPathLinks(inner.text))
+                                appendLine()
+                            }
+
+                            is UIMessagePart.Image -> {
+                                append("![Image](${inner.encodeBase64().getOrNull()?.base64})")
+                                appendLine()
+                            }
+
+                            is UIMessagePart.Document -> {
+                                append("[Document: ${inner.fileName}](${inner.url})")
+                                appendLine()
+                            }
+
+                            is UIMessagePart.Video -> {
+                                append("[Video](${inner.url})")
+                                appendLine()
+                            }
+
+                            is UIMessagePart.Audio -> {
+                                append("[Audio](${inner.url})")
+                                appendLine()
+                            }
+
+                            else -> {}
+                        }
+                    }
+                    appendLine()
+                }
+
                 else -> {}
             }
         }

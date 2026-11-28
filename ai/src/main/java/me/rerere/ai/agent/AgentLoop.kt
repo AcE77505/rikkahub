@@ -16,6 +16,7 @@ import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.finishReasoning
+import me.rerere.ai.ui.isInlineUserPart
 import me.rerere.ai.util.json
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -26,6 +27,9 @@ import kotlin.time.TimeSource
 private const val EMPTY_TOOL_OUTPUT = "(no output)"
 
 private class StreamChunkHandlingException(override val cause: Throwable) : RuntimeException(cause)
+
+/** 用户插话打断了这一步的流式输出；不是错误，调用方保留已生成的内容后接着请求 */
+private class SteerInterruption : RuntimeException()
 
 internal class AgentLoop(
     private val request: AgentRequest,
@@ -60,7 +64,13 @@ internal class AgentLoop(
                 if (executeTools()) return finish(AgentFinishReason.Completed)
                 toolsExecuted = true
             } else if (current != null && steps > 0) {
-                return finish(AgentFinishReason.Completed)
+                // 模型这一步没有再调用工具，本来要结束了；这时有用户插话就接着请求，
+                // 让模型看到插话并继续，而不是等这一轮结束另开一轮。
+                // 只有通知不算：否则每一轮结束前都要白请求一次
+                if (steps == request.maxSteps) return finish(AgentFinishReason.StepLimitReached)
+                if (!hooks.hasPendingSteers()) return finish(AgentFinishReason.Completed)
+                // 检查之后插话可能被用户撤走或还在编辑，这时没有新内容可发，同样结束
+                if (!appendPendingParts(force = true)) return finish(AgentFinishReason.Completed)
             }
             if (steps == request.maxSteps) return finish(AgentFinishReason.StepLimitReached)
             // 只在刚执行完工具时问：接着一条已经执行完的消息继续时不问，否则暂停之后再运行又会立刻暂停
@@ -107,14 +117,20 @@ internal class AgentLoop(
         update(hooks.finishStep(generated, newPartsFrom = base.parts.size).copy(finishedAt = now()))
     }
 
-    // 续写普通回复时最后一个 part 不是执行完的工具或通知，这时追加会把续写变成新的一轮
-    private suspend fun appendPendingParts() {
+    /**
+     * 把 [AgentHooks.pendingParts] 取到的内容追加到本轮助手消息末尾，返回是否追加了内容。
+     *
+     * 续写普通回复时最后一个 part 不是执行完的工具或通知，这时追加会把续写变成新的一轮，
+     * 所以默认跳过；[force] 为 true 时（模型本来要结束这一轮了）正是想要开新的一轮，照样追加。
+     */
+    private suspend fun appendPendingParts(force: Boolean = false): Boolean {
         val current = message
-        if (current != null && !current.parts.lastOrNull().isModelsTurn()) return
+        if (!force && current != null && !current.parts.lastOrNull().isModelsTurn()) return false
         val parts = hooks.pendingParts()
-        if (parts.isEmpty()) return
+        if (parts.isEmpty()) return false
         val base = current ?: UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
         update(base.copy(parts = base.parts + parts))
+        return true
     }
 
     private suspend fun stream(
@@ -125,13 +141,15 @@ internal class AgentLoop(
         // 多轮工具调用共用同一条助手消息，消息上已有的 usage 和耗时来自之前的步骤。
         // 本步从清空的统计开始（merge 只适合同一次请求内的快照），再与之前的步骤累加。
         val stepStart = base.copy(usage = null, generationTimeMs = null)
+        var attempt = stepStart
+        var firstChunk: TimeMark? = null
         return try {
             withRetry(request.retry, onRetry = { events.emit(AgentEvent.Retrying(it)) }) {
                 // 每次重试都从本步开始时的消息重新合并，不会把重试的响应接在已经展示的半截回复后面；
                 // 各次尝试共用同一个消息 id，调用方直接覆盖即可。
                 val handler = StreamChunkHandler(params.model)
-                var attempt = stepStart
-                var firstChunk: TimeMark? = null
+                attempt = stepStart
+                firstChunk = null
                 request.provider.streamText(request.providerSetting, messages, params).collect { chunk ->
                     try {
                         val mark = firstChunk ?: TimeSource.Monotonic.markNow().also { firstChunk = it }
@@ -143,9 +161,23 @@ internal class AgentLoop(
                         // 合并失败或下游处理失败都不是网络故障，不能重放模型请求
                         throw StreamChunkHandlingException(e)
                     }
+                    // 用户插话：已经进入正文就立刻停下这一段的输出，保留已经生成的内容，让模型马上看到插话。
+                    // 一次请求可能连续输出几十秒，只在步骤边界检查的话插话要等整段写完才生效。
+                    // 思考链中途不打断：Claude/Gemini 的思考块要带签名才能回传，签名只在块结束时才下发，
+                    // 半截思考发给模型会被拒；等这一步进入正文再打断。每个 chunk 都查一次，插话越早生效越好
+                    if (attempt.hasAnswerTextSince(base.parts.size) && hooks.hasPendingSteers()) {
+                        throw SteerInterruption()
+                    }
                 }
                 attempt.withStepStats(base, firstChunk?.elapsedNow() ?: Duration.ZERO)
             }
+        } catch (e: SteerInterruption) {
+            // 打断不是失败：已经生成的内容照常写回，循环接着把插话追加到后面再请求。
+            // 可能停在工具调用的中途，半截参数不能发给模型，也不能拿去执行，丢掉这些没完成的调用
+            attempt
+                .dropIncompleteToolCalls()
+                .finishReasoning()
+                .withStepStats(base, firstChunk?.elapsedNow() ?: Duration.ZERO)
         } catch (e: StreamChunkHandlingException) {
             throw e.cause
         }
@@ -249,7 +281,17 @@ internal class AgentLoop(
 }
 
 private fun UIMessagePart?.isModelsTurn() =
-    (this is UIMessagePart.Tool && isExecuted) || this is UIMessagePart.Notice
+    (this is UIMessagePart.Tool && isExecuted) || isInlineUserPart()
+
+// 流式输出被插话打断时，还没收到 ToolCallEnd 的调用参数是不完整的，发给模型会被拒绝
+private fun UIMessage.dropIncompleteToolCalls(): UIMessage {
+    val dropped = parts.filterNot { it is UIMessagePart.Tool && !it.isExecuted }
+    return if (dropped.size == parts.size) this else copy(parts = dropped)
+}
+
+// 这一步是否已经写出正文：只到思考链为止时插话先不打断，否则半截思考会因缺少签名无法回传
+private fun UIMessage.hasAnswerTextSince(fromIndex: Int): Boolean =
+    parts.drop(fromIndex).any { it is UIMessagePart.Text && it.text.isNotBlank() }
 
 private fun errorOutput(error: String): List<UIMessagePart> =
     listOf(UIMessagePart.Text(buildJsonObject { put("error", error) }.toString()))

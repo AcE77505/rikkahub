@@ -246,6 +246,19 @@ class ConversationSession(
     val canStartNextTurn: Boolean
         get() = _generationJob.value == null && !state.value.isAwaitingToolApproval
 
+    /**
+     * 正在生成回复，可以接受插话。
+     *
+     * 插话在下一步请求模型前插进这一轮（见 [ConversationInbox.takePendingParts]）。
+     * 工具执行期间算：这一轮还没结束，插话排队等着，命令跑完请求模型时和结果一起带上。
+     * 等工具审批时也算：任务槽已经空出来（[isGenerating] 为 false），但审批完这一轮会继续，
+     * 插话这时不取走，等审批后重新请求模型时一起带上，而不是另开一轮。
+     * 压缩上下文期间不算：那不是这一轮在回复，插话照常排队。
+     */
+    val isSteerable: Boolean
+        get() = state.value.isAwaitingToolApproval ||
+            (isGenerating && activity.value == SessionActivity.Generating)
+
     // 自动压缩已经为哪条回复试过；压缩失败后不再为同一条回复反复重试
     @Volatile
     var autoCompressedReplyId: Uuid? = null

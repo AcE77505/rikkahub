@@ -297,6 +297,10 @@ class ChatService(
     fun getActivityFlow(conversationId: Uuid): Flow<SessionActivity?> =
         sessionManager.getActivityFlow(conversationId)
 
+    /** 现在发消息会不会变成插话（生成中插进当前这一轮，而不是等这一轮结束） */
+    fun getSteerableFlow(conversationId: Uuid): Flow<Boolean> =
+        sessionManager.getSteerableFlow(conversationId)
+
     private fun launchGenerationJob(
         conversationId: Uuid,
         keepAliveInBackground: Boolean = true,
@@ -460,6 +464,14 @@ class ChatService(
         if (content.isEmptyInputMessage()) return
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
+            // 正在生成时发来的消息就是插话：在下一步请求模型前插进这一轮，不等它结束
+            if (session.isSteerable) {
+                session.inbox.enqueue(content, answer = answer, steer = true)
+                // 生成可能刚好在这一刻结束：这时没有 step 再来取，交给派发按普通消息发出去。
+                // 生成中派发会因 canStartNextTurn 为 false 直接返回，不会重复发送
+                dispatchInbox(conversationId)
+                return
+            }
             // 没有排队的用户输入时，新消息就是用户要继续的意思；等待中的通知跟着这一轮发出
             if (session.inbox.state.value.messages.isEmpty()) session.inbox.resume()
             session.inbox.enqueue(content, answer)
@@ -807,7 +819,10 @@ class ChatService(
                         turn = turn,
                         messages = target.history,
                         processingStatus = session.processingStatus,
-                        takePendingParts = session.inbox::takeNotices,
+                        // 轮到模型回复前取走用户插话和运行时通知，都插进这一轮
+                        takePendingParts = session.inbox::takePendingParts,
+                        // 有插话在等时，模型这一步本要结束也再请求一次，让它看到插话
+                        pendingSteers = session.inbox::hasPendingSteers,
                         pauseAfterTools = pause@{ message ->
                             if (!canCompress || compressionUseless) return@pause false
                             // 同一条回复只试一次，压缩失败后接着它写时不再重试

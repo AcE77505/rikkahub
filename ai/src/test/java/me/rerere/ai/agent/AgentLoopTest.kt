@@ -534,6 +534,165 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a steer arriving mid-stream cuts the response short and is sent right away`() = runTest {
+        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("actually, stop here")))
+        val inbox = InboxHooks(hooks)
+        provider.stream {
+            text("first chunk", id = "a")
+            // 用户在这一步还没写完时插话
+            inbox.pending += steer
+            text("second chunk", id = "b")
+            finish()
+        }
+        provider.stream {
+            text(" understood", id = "c")
+            finish()
+        }
+
+        val events = runToEnd(hooks = inbox)
+
+        val message = events.finished().message
+        // 当前这一步被立刻打断，后半段没有输出，插话不用等到整段流写完
+        assertFalse(message.texts().any { it.contains("second chunk") })
+        // 插话马上进了下一次请求，模型在同一轮里看到并回应
+        assertEquals(2, provider.requests.size)
+        assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
+        assertEquals(setOf(message.id), events.messageIds())
+        assertEquals(AgentFinishReason.Completed, events.finished().reason)
+    }
+
+    @Test
+    fun `a steer during reasoning waits until the answer text starts`() = runTest {
+        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("stop thinking")))
+        val inbox = InboxHooks(hooks)
+        provider.stream {
+            // 还在思考链里：此时插话不打断，否则半截思考缺少签名无法回传
+            emit(StreamChunk.ReasoningStart("r1"))
+            emit(StreamChunk.ReasoningDelta("r1", "weighing options"))
+            inbox.pending += steer
+            emit(StreamChunk.ReasoningDelta("r1", " some more"))
+            emit(StreamChunk.ReasoningEnd("r1"))
+            // 进入正文后第一块就打断
+            text("here is the answer", id = "a")
+            text(" more answer", id = "b")
+            finish()
+        }
+        provider.stream {
+            text("ok", id = "c")
+            finish()
+        }
+
+        val message = runToEnd(hooks = inbox).finished().message
+
+        // 思考内容完整保留，正文只写到被打断的那一块
+        assertEquals(
+            "weighing options some more",
+            message.parts.filterIsInstance<UIMessagePart.Reasoning>().single().reasoning
+        )
+        assertEquals(listOf("here is the answer", "ok"), message.texts())
+        assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
+    }
+
+    @Test
+    fun `a steer that interrupts a half-written tool call drops it instead of sending it`() = runTest {
+        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("never mind, just answer")))
+        val inbox = InboxHooks(hooks)
+        provider.stream {
+            text("let me search", id = "a")
+            // 工具调用只发了一半就插话：参数不完整，不能发给模型
+            emit(StreamChunk.ToolCallStart("call-1", "search"))
+            emit(StreamChunk.ToolCallDelta("call-1", inputDelta = """{"q":"kot"""))
+            inbox.pending += steer
+            emit(StreamChunk.ToolCallDelta("call-1", inputDelta = """lin"}"""))
+            emit(StreamChunk.ToolCallEnd("call-1"))
+            finish()
+        }
+        provider.stream {
+            text("sure", id = "b")
+            finish()
+        }
+
+        val message = runToEnd(request(tools = listOf(tool("search"))), inbox).finished().message
+
+        // 半截的工具调用被丢掉，没有执行也没有发给模型
+        assertTrue(message.parts.none { it is UIMessagePart.Tool })
+        assertEquals(listOf("let me search", "sure"), message.texts())
+        assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
+    }
+
+    @Test
+    fun `a steer arriving during tool execution goes out with the next request`() = runTest {
+        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("skip the rest")))
+        val inbox = InboxHooks(hooks)
+        // 工具执行期间（比如 shell 跑 sleep）用户插话：工具不打断，执行完立刻把插话带给模型
+        val slow = tool("shell") {
+            inbox.pending += steer
+            ok()
+        }
+        provider.stream {
+            toolCall("call-1", "shell", """{"command":"sleep 5"}""")
+            finish()
+        }
+        provider.stream {
+            text("done", id = "a")
+            finish()
+        }
+
+        val message = runToEnd(request(tools = listOf(slow)), inbox).finished().message
+
+        // 插话进了工具执行完的那次请求，模型在同一轮里看到它，而不是等回合结束另开一轮
+        assertEquals(2, provider.requests.size)
+        assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
+        assertEquals(listOf("done"), message.texts())
+    }
+
+    @Test
+    fun `a steer arriving as the model finishes keeps the same turn going`() = runTest {
+        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("also mention the tests")))
+        val inbox = InboxHooks(hooks)
+        provider.stream {
+            text("first part")
+            finish()
+            // 这一步已经写完，用户才插话：在步骤边界接上
+            inbox.pending += steer
+        }
+        provider.stream {
+            text(" and the tests")
+            finish()
+        }
+
+        val events = runToEnd(hooks = inbox)
+
+        val message = events.finished().message
+        // 插话追加在同一条助手消息里，模型接着它继续，而不是等这一轮结束另开一轮
+        assertEquals(2, provider.requests.size)
+        assertEquals(
+            listOf(UIMessagePart.Text::class, UIMessagePart.Steer::class, UIMessagePart.Text::class),
+            message.parts.map { it::class }
+        )
+        assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
+        assertEquals(setOf(message.id), events.messageIds())
+        assertEquals(AgentFinishReason.Completed, events.finished().reason)
+    }
+
+    @Test
+    fun `pending notices alone do not keep a finished turn going`() = runTest {
+        val inbox = InboxHooks(hooks)
+        provider.stream {
+            text("done")
+            finish()
+            // 这一步结束后才有通知：通知不该让循环再请求一次
+            inbox.pending += notice("a")
+        }
+
+        val events = runToEnd(hooks = inbox)
+
+        // 只有通知时不再白请求一次，通知留给下一轮
+        assertEquals(1, provider.requests.size)
+        assertEquals(listOf("done"), events.finished().message.texts())
+    }
+
+    @Test
     fun `pending parts start a new turn and go out with the first request`() = runTest {
         val noticeHooks = PendingHooks(hooks, listOf(notice("a")))
         provider.stream {
@@ -675,6 +834,17 @@ private class PendingHooks(
         calls++
         return batches.removeFirstOrNull().orEmpty()
     }
+}
+
+/** 一个可以从外部随时放入内容的收件箱：模拟用户在生成中途插话 */
+private class InboxHooks(private val delegate: AgentHooks) : AgentHooks by delegate {
+    val pending = mutableListOf<UIMessagePart>()
+
+    override suspend fun pendingParts(): List<UIMessagePart> =
+        pending.toList().also { pending.clear() }
+
+    // 还没取走的内容里有插话，就值得在流中途打断、或在本要结束时再请求一次
+    override suspend fun hasPendingSteers() = pending.any { it is UIMessagePart.Steer }
 }
 
 private fun notice(name: String) = UIMessagePart.Notice(title = name, text = "<notice>$name</notice>")

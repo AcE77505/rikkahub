@@ -171,6 +171,7 @@ fun List<UIMessagePart>.isEmptyUIMessage(): Boolean {
             is UIMessagePart.Tool,
             is UIMessagePart.ServerTool,
             is UIMessagePart.Notice,
+            is UIMessagePart.Steer,
             -> false
             else -> true
         }
@@ -290,8 +291,8 @@ fun List<UIMessagePart>.toSortedMessageParts(): List<UIMessagePart> {
     // Skip sorting if multiple Reasoning or Text parts exist to preserve semantic order
     val reasoningCount = count { it is UIMessagePart.Reasoning }
     val textCount = count { it is UIMessagePart.Text }
-    // Notice 的位置决定它在请求里插在哪, 排序会把它挪到推理之后
-    if (reasoningCount > 1 || textCount > 1 || any { it is UIMessagePart.Notice }) {
+    // Notice 和插话的位置决定它们在请求里插在哪, 排序会把它挪到推理之后
+    if (reasoningCount > 1 || textCount > 1 || any { it.isInlineUserPart() }) {
         return this
     }
     return sortedBy { part ->
@@ -304,6 +305,7 @@ fun List<UIMessagePart>.toSortedMessageParts(): List<UIMessagePart> {
             is UIMessagePart.ToolResult -> 0
             is UIMessagePart.Search -> 0
             is UIMessagePart.Notice -> 0
+            is UIMessagePart.Steer -> 0
             is UIMessagePart.Image -> 1
             is UIMessagePart.Video -> 1
             is UIMessagePart.Audio -> 1
