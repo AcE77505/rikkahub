@@ -7,14 +7,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.RouteActivity
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
+import me.rerere.ui.toast.Toaster
+import me.rerere.ui.toast.rememberToasterState
 import org.koin.android.ext.android.inject
 
 /**
@@ -50,11 +58,22 @@ class ShareActivity : ComponentActivity() {
     private fun render() {
         setContent {
             RikkahubTheme {
-                ShareHandlerPage(
-                    text = shareText,
-                    files = shareUris,
-                    onSelect = ::openChatWithAssistant,
-                )
+                // 分享页里的 UIAvatar 会调用 useCropLauncher，它读取 LocalToaster；
+                // 这个 CompositionLocal 默认值是 error("Not provided")，不提供会直接闪退。
+                val toastState = rememberToasterState()
+                CompositionLocalProvider(LocalToaster provides toastState) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        ShareHandlerPage(
+                            text = shareText,
+                            files = shareUris,
+                            onSelect = ::openChatWithAssistant,
+                        )
+                        Toaster(
+                            state = toastState,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
+                }
             }
         }
     }
@@ -69,6 +88,7 @@ class ShareActivity : ComponentActivity() {
      * 不同 App 塞进来的类型不一致：单个 Uri、Uri 列表、甚至字符串；有的不写 EXTRA_STREAM，
      * 改用 ClipData 或 data 传 URI。全部兼容。
      */
+    @Suppress("DEPRECATION") // 需要拿到任意类型的 extra，无法用类型化 getter
     private fun extractUris(intent: Intent): List<Uri> {
         val fromExtra = when (val extra = intent.extras?.get(Intent.EXTRA_STREAM)) {
             is Uri -> listOf(extra)
