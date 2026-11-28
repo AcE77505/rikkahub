@@ -6,6 +6,21 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isInlineUserPart
 
 /**
+ * 用户生成中途插话时，发给模型的文本前缀（取自 Reasonix 的做法）。
+ *
+ * 插话拆出来就是一条普通 user 消息，模型只能靠位置猜它是不是中途插入的；
+ * 加上这一行，模型才知道这是当前任务的补充指引，而不是新任务或纠正。
+ * 只加在发给模型的内容上：展示、导出和回放都用 [stripMidTurnSteerPrefix] 还原成用户实际说的话。
+ */
+const val MID_TURN_STEER_PREFIX: String =
+    "[Mid-turn steer queued by the user. Do not treat this as a new task; " +
+        "use it only as additional guidance for the current task after completing the current step.]"
+
+/** 去掉插话前缀，还原成用户实际输入的内容；不是插话时原样返回 */
+fun String.stripMidTurnSteerPrefix(): String =
+    removePrefix(MID_TURN_STEER_PREFIX).removePrefix("\n")
+
+/**
  * 把用户插话（[UIMessagePart.Steer]）从助手消息里拆出来，变成独立的 user 消息，放在它原来的位置。
  *
  * 插话要在输入转换器之前拆开：文档解析、OCR、模板、用户正则这些和普通用户消息一样要作用在它身上，
@@ -29,9 +44,12 @@ fun List<UIMessage>.extractSteers(): List<UIMessage> = flatMap { message ->
             if (part is UIMessagePart.Steer) {
                 flush()
                 add(
-                    UIMessage(role = MessageRole.USER, parts = part.parts)
+                    UIMessage(role = MessageRole.USER, parts = part.parts.markedAsMidTurnSteer())
                         // 用用户实际插话的时间，时间提醒据此算间隔；旧数据没有记录时退回助手消息的时间
-                        .copy(createdAt = part.createdAt ?: message.createdAt)
+                        .copy(
+                            createdAt = part.createdAt ?: message.createdAt,
+                            steerDiagnosticId = part.diagnosticId,
+                        )
                 )
             } else {
                 buffer.add(part)
@@ -74,7 +92,7 @@ fun List<UIMessage>.expandNotices(): List<UIMessage> = flatMap { message ->
                 is UIMessagePart.Steer -> {
                     flush()
                     add(
-                        UIMessage(role = MessageRole.USER, parts = part.parts)
+                        UIMessage(role = MessageRole.USER, parts = part.parts.markedAsMidTurnSteer())
                             // 用用户实际插话的时间，时间提醒据此算间隔；旧数据没有记录时退回助手消息的时间
                             .copy(createdAt = part.createdAt ?: message.createdAt)
                     )
@@ -84,5 +102,17 @@ fun List<UIMessage>.expandNotices(): List<UIMessage> = flatMap { message ->
             }
         }
         flush()
+    }
+}
+
+/**
+ * 给插话的文本 part 加上 [MID_TURN_STEER_PREFIX]，非文本 part（附件）原样保留。
+ * 只作用于发给模型的这份副本，会话里存的仍然是用户原话。
+ */
+private fun List<UIMessagePart>.markedAsMidTurnSteer(): List<UIMessagePart> = map { part ->
+    if (part is UIMessagePart.Text) {
+        part.copy(text = MID_TURN_STEER_PREFIX + "\n" + part.text)
+    } else {
+        part
     }
 }

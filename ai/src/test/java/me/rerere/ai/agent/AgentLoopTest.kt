@@ -89,6 +89,43 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `request lifecycle hooks report a prepared interjection request and response`() = runTest {
+        val steerId = kotlin.uuid.Uuid.random()
+        val lifecycle = mutableListOf<String>()
+        val diagnosticHooks = object : AgentHooks by hooks {
+            override suspend fun prepareStep(messages: List<UIMessage>): StepRequest =
+                StepRequest(
+                    messages = messages,
+                    params = TextGenerationParams(model = model),
+                    steerDiagnostics = mapOf(steerId to true),
+                )
+
+            override suspend fun onModelRequestStarted(step: StepRequest) {
+                lifecycle += "started:${step.steerDiagnostics[steerId]}"
+            }
+
+            override suspend fun onModelRequestCompleted(step: StepRequest, message: UIMessage) {
+                lifecycle += "completed:${message.texts().joinToString()}"
+            }
+
+            override suspend fun onRunFinished(reason: AgentFinishReason) {
+                lifecycle += "run_finished:${reason::class.simpleName}"
+            }
+        }
+        provider.stream {
+            text("acknowledged")
+            finish()
+        }
+
+        runToEnd(hooks = diagnosticHooks)
+
+        assertEquals(
+            listOf("started:true", "completed:acknowledged", "run_finished:Completed"),
+            lifecycle,
+        )
+    }
+
+    @Test
     fun `tool results go back to the model inside the same assistant message`() = runTest {
         val received = mutableListOf<JsonElement>()
         val search = tool("search") { args ->
@@ -492,11 +529,20 @@ class AgentLoopTest {
     @Test
     fun `errors other than network failures are not retried`() = runTest {
         provider.stream { throw IllegalArgumentException("bad request") }
+        var failedRunError: Throwable? = null
+        val diagnosticHooks = object : AgentHooks by hooks {
+            override suspend fun onRunFailed(error: Throwable) {
+                failedRunError = error
+            }
+        }
 
-        val error = runCatching { runToEnd(request(retry = RetryPolicy.NETWORK)) }.exceptionOrNull()
+        val error = runCatching {
+            runToEnd(request(retry = RetryPolicy.NETWORK), diagnosticHooks)
+        }.exceptionOrNull()
 
         assertTrue(error is IllegalArgumentException)
         assertEquals(1, provider.requests.size)
+        assertEquals(error, failedRunError)
     }
 
     @Test
@@ -534,12 +580,12 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `a steer arriving mid-stream cuts the response short and is sent right away`() = runTest {
+    fun `a steer arriving mid-stream is sent at the next request boundary`() = runTest {
         val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("actually, stop here")))
         val inbox = InboxHooks(hooks)
         provider.stream {
             text("first chunk", id = "a")
-            // 用户在这一步还没写完时插话
+            // 用户在当前回复还没结束时插话
             inbox.pending += steer
             text("second chunk", id = "b")
             finish()
@@ -552,9 +598,8 @@ class AgentLoopTest {
         val events = runToEnd(hooks = inbox)
 
         val message = events.finished().message
-        // 当前这一步被立刻打断，后半段没有输出，插话不用等到整段流写完
-        assertFalse(message.texts().any { it.contains("second chunk") })
-        // 插话马上进了下一次请求，模型在同一轮里看到并回应
+        // 完整保留本次响应，再在下一次请求中注入插话
+        assertEquals(listOf("first chunk", "second chunk", " understood"), message.texts())
         assertEquals(2, provider.requests.size)
         assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
         assertEquals(setOf(message.id), events.messageIds())
@@ -562,19 +607,16 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `a steer during reasoning waits until the answer text starts`() = runTest {
+    fun `a steer during reasoning waits for the full response and preserves all content`() = runTest {
         val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("stop thinking")))
         val inbox = InboxHooks(hooks)
         provider.stream {
-            // 还在思考链里：此时插话不打断，否则半截思考缺少签名无法回传
             emit(StreamChunk.ReasoningStart("r1"))
-            emit(StreamChunk.ReasoningDelta("r1", "weighing options"))
+            emit(StreamChunk.ReasoningDelta("r1", "thinking"))
             inbox.pending += steer
-            emit(StreamChunk.ReasoningDelta("r1", " some more"))
+            emit(StreamChunk.ReasoningDelta("r1", " continues"))
             emit(StreamChunk.ReasoningEnd("r1"))
-            // 进入正文后第一块就打断
-            text("here is the answer", id = "a")
-            text(" more answer", id = "b")
+            text("complete answer", id = "a")
             finish()
         }
         provider.stream {
@@ -584,22 +626,20 @@ class AgentLoopTest {
 
         val message = runToEnd(hooks = inbox).finished().message
 
-        // 思考内容完整保留，正文只写到被打断的那一块
-        assertEquals(
-            "weighing options some more",
-            message.parts.filterIsInstance<UIMessagePart.Reasoning>().single().reasoning
-        )
-        assertEquals(listOf("here is the answer", "ok"), message.texts())
+        val reasoning = message.parts.filterIsInstance<UIMessagePart.Reasoning>().single()
+        assertEquals("thinking continues", reasoning.reasoning)
+        assertNotNull(reasoning.finishedAt)
+        assertEquals(listOf("complete answer", "ok"), message.texts())
         assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
     }
 
     @Test
-    fun `a steer that interrupts a half-written tool call drops it instead of sending it`() = runTest {
+    fun `a steer during an unfinished tool call preserves it for the next request`() = runTest {
         val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("never mind, just answer")))
         val inbox = InboxHooks(hooks)
         provider.stream {
             text("let me search", id = "a")
-            // 工具调用只发了一半就插话：参数不完整，不能发给模型
+            // 工具调用只发了一半时插话，仍然完整收取参数再执行
             emit(StreamChunk.ToolCallStart("call-1", "search"))
             emit(StreamChunk.ToolCallDelta("call-1", inputDelta = """{"q":"kot"""))
             inbox.pending += steer
@@ -614,8 +654,9 @@ class AgentLoopTest {
 
         val message = runToEnd(request(tools = listOf(tool("search"))), inbox).finished().message
 
-        // 半截的工具调用被丢掉，没有执行也没有发给模型
-        assertTrue(message.parts.none { it is UIMessagePart.Tool })
+        // 用户插话不会截断工具调用；工具执行完后与结果一起进入下一次请求
+        assertTrue(message.tool("call-1").isExecuted)
+        assertEquals("ok", message.tool("call-1").outputText())
         assertEquals(listOf("let me search", "sure"), message.texts())
         assertEquals(steer, provider.requests[1].messages.last().parts.first { it is UIMessagePart.Steer })
     }
@@ -836,14 +877,14 @@ private class PendingHooks(
     }
 }
 
-/** 一个可以从外部随时放入内容的收件箱：模拟用户在生成中途插话 */
+/** A test inbox for steers arriving during a model step. */
 private class InboxHooks(private val delegate: AgentHooks) : AgentHooks by delegate {
     val pending = mutableListOf<UIMessagePart>()
 
     override suspend fun pendingParts(): List<UIMessagePart> =
         pending.toList().also { pending.clear() }
 
-    // 还没取走的内容里有插话，就值得在流中途打断、或在本要结束时再请求一次
+    // Pending steers keep the current agent turn alive at its next request boundary.
     override suspend fun hasPendingSteers() = pending.any { it is UIMessagePart.Steer }
 }
 

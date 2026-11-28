@@ -247,6 +247,21 @@ class ChatService(
         appScope.launch {
             // 先压缩再处理收件箱：压缩任务结束时会再回到这里
             if (cause == null && launchAutoCompressIfNeeded(session) != null) return@launch
+            val pendingSteers = session.inbox.pendingSteerIds()
+            val awaitingToolApproval = session.state.value.isAwaitingToolApproval
+            val queuePaused = session.inbox.state.value.paused
+            pendingSteers.forEach { id ->
+                Logging.log(
+                    "Interjection",
+                    if (awaitingToolApproval) {
+                        "id=$id event=waiting_for_tool_approval"
+                    } else if (queuePaused) {
+                        "id=$id event=turn_ended_before_injection action=waiting_for_queue_resume"
+                    } else {
+                        "id=$id event=turn_ended_before_injection action=queued_as_next_message"
+                    },
+                )
+            }
             dispatchInbox(session.id)
         }
     }
@@ -409,8 +424,11 @@ class ChatService(
 
     /** 删除收件箱里的一项：用户输入连同只被它引用的附件一起删，通知直接丢弃 */
     fun removeInboxItem(conversationId: Uuid, itemId: Uuid) {
-        (sessionManager.get(conversationId)?.inbox?.remove(itemId) as? QueuedMessage)
-            ?.let(::cleanupQueuedAttachments)
+        val removed = sessionManager.get(conversationId)?.inbox?.remove(itemId) as? QueuedMessage
+        if (removed?.steer == true) {
+            Logging.log("Interjection", "id=${removed.id} event=withdrawn_before_injection")
+        }
+        removed?.let(::cleanupQueuedAttachments)
         dispatchInbox(conversationId)
     }
 
@@ -466,7 +484,10 @@ class ChatService(
         synchronized(session) {
             // 正在生成时发来的消息就是插话：在下一步请求模型前插进这一轮，不等它结束
             if (session.isSteerable) {
-                session.inbox.enqueue(content, answer = answer, steer = true)
+                val steerId = session.inbox.enqueue(content, answer = answer, steer = true)
+                if (steerId != null) {
+                    Logging.log("Interjection", "id=$steerId event=queued conversation=$conversationId")
+                }
                 // 生成可能刚好在这一刻结束：这时没有 step 再来取，交给派发按普通消息发出去。
                 // 生成中派发会因 canStartNextTurn 为 false 直接返回，不会重复发送
                 dispatchInbox(conversationId)
@@ -976,7 +997,7 @@ class ChatService(
             // 关掉自动生成后只跳过对话结束时的自动调用，手动重新生成照常执行
             if (!force && !settings.enableAutoTitle) return@withLoadedSession
 
-            runCatching {
+            try {
                 val title = metaGenerator.generateTitle(settings, conversation)
                 // 只写标题这一列：这时可能已经在生成下一轮，不能把还没生成完的内容一起落库。
                 // 生成期间会话被删除的话不写入
@@ -985,10 +1006,18 @@ class ChatService(
                     persist = { conversationRepo.updateTitle(conversationId, title) },
                     expectedIncarnation = incarnation,
                 )
-            }.onFailure {
-                it.printStackTrace()
+                Logging.log("ModelTask", "task=title event=task_completed conversation_id=$conversationId")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Logging.log(
+                    "ModelTask",
+                    "task=title event=task_failed conversation_id=$conversationId " +
+                        "error=${error::class.simpleName ?: "unknown"}",
+                )
+                error.printStackTrace()
                 addError(
-                    error = it,
+                    error = error,
                     conversationId = conversationId,
                     title = context.getString(R.string.error_title_generate_title),
                     solution = ChatErrorSolution.CheckFastModelSettings,
@@ -1001,15 +1030,15 @@ class ChatService(
 
     private suspend fun generateSuggestion(conversationId: Uuid): Unit = withContext(Dispatchers.IO) {
         sessionManager.withSession<Unit>(conversationId) { session ->
-            runCatching {
+            try {
                 val settings = settingsStore.awaitLoaded()
-                if (!settings.enableSuggestion) return@runCatching
+                if (!settings.enableSuggestion) return@withSession
 
                 // 上一轮的建议在这一轮开始时已经清掉了
                 ensureInitialized(session)
                 val incarnation = session.incarnation
                 val suggestions = metaGenerator.generateSuggestions(settings, session.state.value)
-                    ?: return@runCatching
+                    ?: return@withSession
 
                 // 只写建议这一列，理由同标题
                 session.updateMetadata(
@@ -1017,8 +1046,10 @@ class ChatService(
                     persist = { conversationRepo.updateChatSuggestions(conversationId, suggestions) },
                     expectedIncarnation = incarnation,
                 )
-            }.onFailure {
-                it.printStackTrace()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                error.printStackTrace()
             }
         }
     }

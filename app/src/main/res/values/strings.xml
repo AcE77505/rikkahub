@@ -881,7 +881,7 @@
   <string name="setting_model_page_chat_model">Chat Model</string>
   <string name="setting_model_page_chat_model_desc">Global default chat model</string>
   <string name="setting_model_page_fast_model">Fast Model</string>
-  <string name="setting_model_page_fast_model_desc">Model used for titles, chat suggestions, and other fast or background tasks</string>
+  <string name="setting_model_page_fast_model_desc">Titles and suggestions use this model’s own provider and endpoint, independently of the chat model</string>
   <string name="setting_model_page_ocr_model">OCR Model</string>
   <string name="setting_model_page_ocr_model_desc">Model used for optical character recognition on images</string>
   <string name="setting_model_page_ocr_prompt_vars">Variables: Image data: {images}</string>
@@ -1434,7 +1434,9 @@
   <string name="workspace_page_name_duplicate">Name already exists</string>
   <string name="setting_mcp_page_name_invalid">Name can only contain English letters and numbers</string>
   <string name="log_page_record_requests">Record requests</string>
-  <string name="log_page_record_requests_desc">Capture request headers, bodies, and response metadata</string>
+  <string name="log_page_record_requests_desc">Capture headers and size-limited request bodies plus bounded error details. Recognized secrets are redacted; streaming bodies are omitted.</string>
+  <string name="log_page_response_error_body">Error Response Body</string>
+  <string name="log_page_interjection_diagnostics_desc">Interjection diagnostics appear here only after sending an interjection. They show whether it reached a model request, whether a response returned, and whether the agent run finished or failed, without recording message content. They cannot determine whether the model followed the instruction.</string>
   <string name="log_page_save_logs">Save logs to file</string>
   <string name="log_page_save_logs_desc">Export all logs as JSON through the system file picker</string>
   <string name="log_page_save_logs_empty">No logs to save</string>

@@ -85,19 +85,21 @@ class ConversationInbox {
         answer: Boolean = true,
         steer: Boolean = false,
         reply: CompletableDeferred<String?>? = null,
-    ) {
+    ): Uuid? {
         if (parts.isEmptyInputMessage()) {
             reply?.complete(null)
-            return
+            return null
         }
-        mutableState.value = state.value.copy(
-            items = state.value.items + QueuedMessage(
-                parts = parts.toList(),
-                answer = answer,
-                steer = steer,
-                reply = reply,
-            ),
+        val queued = QueuedMessage(
+            parts = parts.toList(),
+            answer = answer,
+            steer = steer,
+            reply = reply,
         )
+        mutableState.value = state.value.copy(
+            items = state.value.items + queued,
+        )
+        return queued.id
     }
 
     /** 放入一条通知；同一来源已有没发出的通知时原地替换 */
@@ -160,7 +162,11 @@ class ConversationInbox {
         return pending.map { item ->
             when (item) {
                 is QueuedNotice -> item.notice
-                is QueuedMessage -> UIMessagePart.Steer(parts = item.parts, createdAt = now)
+                is QueuedMessage -> UIMessagePart.Steer(
+                    parts = item.parts,
+                    createdAt = now,
+                    diagnosticId = item.id,
+                )
             }
         }
     }
@@ -169,6 +175,12 @@ class ConversationInbox {
     @Synchronized
     fun hasPendingSteers(): Boolean =
         state.value.items.any { it is QueuedMessage && it.steer && !it.isEditing }
+
+    @Synchronized
+    fun pendingSteerIds(): List<Uuid> =
+        state.value.items.filterIsInstance<QueuedMessage>()
+            .filter { it.steer && !it.isEditing }
+            .map { it.id }
 
     /** 取出全部通知，按放入顺序；不受暂停影响 */
     @Synchronized

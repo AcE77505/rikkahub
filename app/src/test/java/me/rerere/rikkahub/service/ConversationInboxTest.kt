@@ -259,7 +259,7 @@ class ConversationInboxTest {
         val inbox = ConversationInbox()
         inbox.post("a", notice("a"))
         inbox.enqueue(text("wait for the turn to end"))
-        inbox.enqueue(text("actually look at this"), steer = true)
+        val steerId = inbox.enqueue(text("actually look at this"), steer = true)
 
         val pending = inbox.takePendingParts()
 
@@ -267,6 +267,7 @@ class ConversationInboxTest {
         assertEquals(notice("a"), pending[0])
         val steer = pending[1] as UIMessagePart.Steer
         assertEquals(text("actually look at this"), steer.parts)
+        assertEquals(steerId, steer.diagnosticId)
         assertNotNull(steer.createdAt)
         // 普通排队消息不受影响，仍在等这一轮结束
         assertEquals(text("wait for the turn to end"), inbox.state.value.messages.single().parts)

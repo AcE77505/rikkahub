@@ -1,10 +1,12 @@
 package me.rerere.rikkahub.data.ai
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessage
+import me.rerere.common.android.Logging
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -22,9 +24,18 @@ class ConversationMetaGenerator(
     /** 快速模型或它的提供商找不到时抛出异常，提示用户检查设置 */
     suspend fun generateTitle(settings: Settings, conversation: Conversation): String {
         val model = settings.findModelById(settings.fastModelId)
-            ?: throw IllegalStateException(context.getString(R.string.error_fast_model_not_found))
+            ?: run {
+                Logging.log("ModelTask", "task=title event=configuration_failed reason=fast_model_not_found")
+                throw IllegalStateException(context.getString(R.string.error_fast_model_not_found))
+            }
         val provider = model.findProvider(settings.providers)
-            ?: throw IllegalStateException(context.getString(R.string.error_fast_model_provider_not_found))
+            ?: run {
+                Logging.log(
+                    "ModelTask",
+                    "task=title event=configuration_failed reason=fast_model_provider_not_found model_id=${model.id}",
+                )
+                throw IllegalStateException(context.getString(R.string.error_fast_model_provider_not_found))
+            }
         return generate(
             settings,
             model,
@@ -65,22 +76,44 @@ class ConversationMetaGenerator(
         recentMessages: Int,
         source: UsageSource,
     ): String {
-        val result = usageRecorder.wrap(
-            providerManager.getProviderByType(provider),
-            UsageTag(source, conversation.assistantId, conversation.id),
-        ).generateText(
-            providerSetting = provider,
-            messages = listOf(
-                UIMessage.user(
-                    prompt.applyPlaceholders(
-                        "locale" to Locale.getDefault().displayName,
-                        "content" to conversation.currentMessages
-                            .takeLast(recentMessages).joinToString("\n\n") { it.summaryAsText(maxLength = 500) },
-                    )
-                ),
-            ),
-            params = backgroundTextGenerationParams(model, conversation.id, settings.fastModelReasoningLevel),
+        Logging.log(
+            "ModelTask",
+            "task=${source.name.lowercase()} event=request_started conversation_id=${conversation.id} " +
+                "model_id=${model.id} model=${model.modelId} provider_id=${provider.id} " +
+                "provider_type=${provider::class.simpleName ?: "unknown"}",
         )
-        return result.message.toText()
+        val result = try {
+            usageRecorder.wrap(
+                providerManager.getProviderByType(provider),
+                UsageTag(source, conversation.assistantId, conversation.id),
+            ).generateText(
+                providerSetting = provider,
+                messages = listOf(
+                    UIMessage.user(
+                        prompt.applyPlaceholders(
+                            "locale" to Locale.getDefault().displayName,
+                            "content" to conversation.currentMessages
+                                .takeLast(recentMessages).joinToString("\n\n") { it.summaryAsText(maxLength = 500) },
+                        )
+                    ),
+                ),
+                params = backgroundTextGenerationParams(model, conversation.id, settings.fastModelReasoningLevel),
+            )
+        } catch (error: Exception) {
+            val event = if (error is CancellationException) "request_cancelled" else "request_failed"
+            Logging.log(
+                "ModelTask",
+                "task=${source.name.lowercase()} event=$event conversation_id=${conversation.id} " +
+                    "model_id=${model.id} error=${error::class.simpleName ?: "unknown"}",
+            )
+            throw error
+        }
+        val text = result.message.toText()
+        Logging.log(
+            "ModelTask",
+            "task=${source.name.lowercase()} event=response_received conversation_id=${conversation.id} " +
+                "model_id=${model.id} text_chars=${text.length}",
+        )
+        return text
     }
 }
