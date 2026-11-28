@@ -115,13 +115,6 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
       <intent-filter>
-        <action android:name="android.intent.action.SEND" />
-
-        <category android:name="android.intent.category.DEFAULT" />
-
-        <data android:mimeType="text/plain" />
-      </intent-filter>
-      <intent-filter>
         <action android:name="android.intent.action.PROCESS_TEXT" />
 
         <category android:name="android.intent.category.DEFAULT" />
@@ -142,6 +135,32 @@
       <meta-data
         android:name="android.app.shortcuts"
         android:resource="@xml/shortcuts" />
+    </activity>
+    <!-- 独立分享接收页：自成一个文档任务并在选完助手后自动从最近任务移除，
+         避免和分享来源（如 MT 管理器）混在同一张最近任务卡片里。 -->
+    <activity
+      android:name=".ui.activity.ShareActivity"
+      android:exported="true"
+      android:label="@string/app_name"
+      android:configChanges="keyboardHidden|orientation|screenSize"
+      android:autoRemoveFromRecents="true"
+      android:documentLaunchMode="always"
+      android:taskAffinity="me.rerere.rikkahub.share"
+      android:theme="@style/Theme.Rikkahub">
+      <intent-filter>
+        <action android:name="android.intent.action.SEND" />
+
+        <category android:name="android.intent.category.DEFAULT" />
+
+        <data android:mimeType="*/*" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.SEND_MULTIPLE" />
+
+        <category android:name="android.intent.category.DEFAULT" />
+
+        <data android:mimeType="*/*" />
+      </intent-filter>
     </activity>
     <activity
       android:name=".ui.activity.ShortcutHandlerActivity"

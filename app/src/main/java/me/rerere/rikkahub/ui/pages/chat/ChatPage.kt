@@ -64,10 +64,12 @@ import me.rerere.ui.toast.ToastType
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
@@ -106,6 +108,8 @@ import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.utils.base64Decode
+import me.rerere.rikkahub.utils.guessMimeTypeFromFileName
+import me.rerere.rikkahub.utils.isAllowedFileType
 import me.rerere.rikkahub.utils.navigateToChatPage
 import me.rerere.rikkahub.utils.withoutInternalPathLinks
 import org.koin.androidx.compose.koinViewModel
@@ -113,6 +117,13 @@ import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
+
+/** 分享进来的单个文件：原始信息 + 落到本地 upload 目录后的 Uri（失败为 null）。 */
+private data class ShareFileResult(
+    val fileName: String,
+    val mime: String,
+    val localUri: Uri?,
+)
 
 @Composable
 fun ChatPage(
@@ -182,22 +193,54 @@ fun ChatPage(
     val inputState = vm.inputState
 
     // 初始化输入状态（处理传入的 files 和 text 参数）
+    val shareFileUnsupported = stringResource(R.string.chat_input_unsupported_file_type)
+    val shareFileReadFailed = stringResource(R.string.chat_input_file_read_failed)
+    val shareToaster = LocalToaster.current
     LaunchedEffect(files, text) {
         if (files.isNotEmpty()) {
-            val localFiles = filesManager.createChatFilesByContents(files)
-            val contentTypes = files.mapNotNull { file ->
-                filesManager.getFileMimeType(file)
+            // 逐个文件处理：先落到本地 upload 目录，再按 MIME 生成对应 part。
+            // 每个文件独立处理，避免某个文件失败导致后续文件的类型错位（旧实现按索引对齐的隐患）。
+            val results = withContext(Dispatchers.IO) {
+                files.map { uri ->
+                    val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
+                    val mime = filesManager.getFileMimeType(uri) ?: guessMimeTypeFromFileName(fileName)
+                    val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
+                    ShareFileResult(fileName = fileName, mime = mime, localUri = localUri)
+                }
             }
-            val parts = buildList {
-                localFiles.forEachIndexed { index, file ->
-                    val type = contentTypes.getOrNull(index)
-                    if (type?.startsWith("image/") == true) {
-                        add(UIMessagePart.Image(url = file.toString()))
-                    } else if (type?.startsWith("video/") == true) {
-                        add(UIMessagePart.Video(url = file.toString()))
-                    } else if (type?.startsWith("audio/") == true) {
-                        add(UIMessagePart.Audio(url = file.toString()))
-                    }
+            val parts = mutableListOf<UIMessagePart>()
+            results.forEach { result ->
+                val localUri = result.localUri
+                if (localUri == null) {
+                    shareToaster.show(
+                        String.format(shareFileReadFailed, result.fileName),
+                        type = ToastType.Error,
+                    )
+                    return@forEach
+                }
+                when {
+                    result.mime.startsWith("image/") ->
+                        parts.add(UIMessagePart.Image(url = localUri.toString()))
+
+                    result.mime.startsWith("video/") ->
+                        parts.add(UIMessagePart.Video(url = localUri.toString()))
+
+                    result.mime.startsWith("audio/") ->
+                        parts.add(UIMessagePart.Audio(url = localUri.toString()))
+
+                    isAllowedFileType(result.fileName, result.mime) ->
+                        parts.add(
+                            UIMessagePart.Document(
+                                url = localUri.toString(),
+                                fileName = result.fileName,
+                                mime = result.mime,
+                            )
+                        )
+
+                    else -> shareToaster.show(
+                        String.format(shareFileUnsupported, result.fileName),
+                        type = ToastType.Error,
+                    )
                 }
             }
             inputState.messageContent = parts

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -151,6 +152,7 @@ import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
+import me.rerere.rikkahub.utils.base64Encode
 import me.rerere.rikkahub.utils.openUsageAccessSettings
 import okhttp3.OkHttpClient
 import org.koin.android.ext.android.inject
@@ -170,6 +172,14 @@ fun conversationIntent(context: Context, conversationId: String): Intent =
     }
 
 class RouteActivity : ComponentActivity() {
+    companion object {
+        /** 独立分享页选定助手后，直接进入聊天页的 action。文案/文件放在 extra 里传。 */
+        const val ACTION_SHARE_TO_CHAT = "me.rerere.rikkahub.action.SHARE_TO_CHAT"
+        const val EXTRA_SHARE_TEXT = "shareText"
+        const val EXTRA_SHARE_ASSISTANT_ID = "shareAssistantId"
+        const val EXTRA_SHARE_FILES = "shareFiles"
+    }
+
     private val okHttpClient by inject<OkHttpClient>()
     private val settingsStore by inject<SettingsStore>()
     private val mediaCreationRepository by inject<MediaCreationRepository>()
@@ -254,10 +264,21 @@ class RouteActivity : ComponentActivity() {
                 openNewMediaCreation(backStack)
                 null
             }
-            Intent.ACTION_SEND -> Screen.ShareHandler(
-                text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty(),
-                streamUri = intent.getStringExtra(Intent.EXTRA_STREAM),
-            )
+            // 独立 ShareActivity 选好助手后回调这里：直接开聊天页并带上分享内容
+            ACTION_SHARE_TO_CHAT -> {
+                val text = intent.getStringExtra(EXTRA_SHARE_TEXT).orEmpty()
+                val assistantId = intent.getStringExtra(EXTRA_SHARE_ASSISTANT_ID)
+                val files = intent.getStringArrayListExtra(EXTRA_SHARE_FILES).orEmpty()
+                Screen.Chat(
+                    id = Uuid.random().toString(),
+                    text = text.takeIf { it.isNotBlank() }?.base64Encode(),
+                    files = files,
+                    presetGroupId = null,
+                ).also {
+                    // 选中助手在 ShareActivity 里已写入 settings；这里记录下来便于诊断
+                    Log.i(TAG, "SHARE_TO_CHAT assistant=$assistantId files=${files.size}")
+                }
+            }
             Intent.ACTION_PROCESS_TEXT -> Screen.ShareHandler(
                 text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString().orEmpty(),
             )
@@ -385,7 +406,18 @@ class RouteActivity : ComponentActivity() {
                             entry<Screen.ShareHandler> { key ->
                                 ShareHandlerPage(
                                     text = key.text,
-                                    image = key.streamUri
+                                    files = key.files.map { it.toUri() },
+                                    onSelect = { assistant ->
+                                        lifecycleScope.launch {
+                                            settingsStore.selectAssistant(assistant.id)
+                                            val dest = Screen.Chat(
+                                                id = Uuid.random().toString(),
+                                                text = key.text.takeIf { it.isNotBlank() }?.base64Encode(),
+                                                files = key.files,
+                                            )
+                                            if (backStack.lastOrNull() != dest) backStack.add(dest)
+                                        }
+                                    },
                                 )
                             }
 
@@ -727,7 +759,7 @@ sealed interface Screen : NavKey {
     ) : Screen
 
     @Serializable
-    data class ShareHandler(val text: String, val streamUri: String? = null) : Screen
+    data class ShareHandler(val text: String, val files: List<String> = emptyList()) : Screen
 
     @Serializable
     data class ChatRequestPrefix(val id: String) : Screen
