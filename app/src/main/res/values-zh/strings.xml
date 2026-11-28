@@ -1249,7 +1249,7 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_display_page_bubble_opacity_title">气泡不透明度</string>
   <string name="setting_provider_page_include_history_reasoning">回传历史思考过程</string>
   <string name="setting_model_page_fast_model">快速模型</string>
-  <string name="setting_model_page_fast_model_desc">用于生成标题、聊天建议以及执行其他快速或后台任务</string>
+  <string name="setting_model_page_fast_model_desc">标题和建议使用此模型自己的提供商与端点，不会自动沿用聊天模型</string>
   <string name="setting_model_page_enable_suggestion">启用聊天建议</string>
   <string name="setting_model_page_enable_auto_title">自动生成对话标题</string>
   <string name="assistant_page_gradient_background">渐变背景</string>
@@ -1335,8 +1335,9 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_mcp_page_name_invalid">名称只能包含英文字母和数字</string>
   <string name="error_mcp_invalid_server_name">无效的MCP服务器名称（仅允许字母数字字符）：%1$s</string>
   <string name="log_page_record_requests">记录请求</string>
-  <string name="log_page_record_requests_desc">捕获请求标头、正文和响应元数据</string>
-  <string name="log_page_interjection_diagnostics_desc">发送插话后，诊断记录会显示在此处：检查插话是否进入模型请求、请求是否收到响应；不会记录消息正文。诊断无法判断模型是否遵从了插话。</string>
+  <string name="log_page_record_requests_desc">记录标头、限长请求正文和错误响应详情；可识别的密钥会脱敏，流式正文不记录</string>
+  <string name="log_page_response_error_body">错误响应正文</string>
+  <string name="log_page_interjection_diagnostics_desc">发送插话后，诊断记录会显示在此处：检查插话是否进入模型请求、请求是否收到响应，以及本次模型流程是否完成或失败；不会记录消息正文，也无法判断模型是否遵从了插话。</string>
   <string name="log_page_save_logs">保存到本地</string>
   <string name="log_page_save_logs_desc">通过系统文件选择器将所有日志导出为 JSON</string>
   <string name="log_page_save_logs_empty">暂无可保存的日志</string>

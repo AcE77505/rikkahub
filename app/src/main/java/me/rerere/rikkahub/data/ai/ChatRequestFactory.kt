@@ -2,10 +2,12 @@ package me.rerere.rikkahub.data.ai
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
 import me.rerere.ai.agent.RetryPolicy
@@ -152,6 +154,7 @@ class ChatRequestFactory(
         pauseAfterTools: (UIMessage) -> Boolean = { false },
     ): Pair<AgentRequest, AgentHooks> {
         val activeSteerDiagnostics = linkedSetOf<Uuid>()
+        var agentRunFinished = false
         val request = AgentRequest(
             provider = usageRecorder.wrap(
                 providerManager.getProviderByType(turn.providerSetting),
@@ -221,7 +224,6 @@ class ChatRequestFactory(
                         "Interjection",
                         "id=$id event=response_received text_chars=$textChars reasoning_chars=$reasoningChars tool_calls=$toolCalls",
                     )
-                    activeSteerDiagnostics.remove(id)
                 }
             }
 
@@ -230,6 +232,27 @@ class ChatRequestFactory(
                     Logging.log(
                         "Interjection",
                         "id=$id event=request_failed error=${error::class.simpleName ?: "unknown"}",
+                    )
+                }
+            }
+
+            override suspend fun onRunFinished(reason: AgentFinishReason) {
+                agentRunFinished = true
+                activeSteerDiagnostics.forEach { id ->
+                    Logging.log(
+                        "Interjection",
+                        "id=$id event=agent_run_finished reason=${reason::class.simpleName ?: "unknown"}",
+                    )
+                }
+            }
+
+            override suspend fun onRunFailed(error: Throwable) {
+                if (agentRunFinished) return
+                val event = if (error is CancellationException) "agent_run_cancelled" else "agent_run_failed"
+                activeSteerDiagnostics.forEach { id ->
+                    Logging.log(
+                        "Interjection",
+                        "id=$id event=$event error=${error::class.simpleName ?: "unknown"}",
                     )
                 }
             }

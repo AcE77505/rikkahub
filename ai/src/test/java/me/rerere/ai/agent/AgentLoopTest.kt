@@ -107,6 +107,10 @@ class AgentLoopTest {
             override suspend fun onModelRequestCompleted(step: StepRequest, message: UIMessage) {
                 lifecycle += "completed:${message.texts().joinToString()}"
             }
+
+            override suspend fun onRunFinished(reason: AgentFinishReason) {
+                lifecycle += "run_finished:${reason::class.simpleName}"
+            }
         }
         provider.stream {
             text("acknowledged")
@@ -115,7 +119,10 @@ class AgentLoopTest {
 
         runToEnd(hooks = diagnosticHooks)
 
-        assertEquals(listOf("started:true", "completed:acknowledged"), lifecycle)
+        assertEquals(
+            listOf("started:true", "completed:acknowledged", "run_finished:Completed"),
+            lifecycle,
+        )
     }
 
     @Test
@@ -522,11 +529,20 @@ class AgentLoopTest {
     @Test
     fun `errors other than network failures are not retried`() = runTest {
         provider.stream { throw IllegalArgumentException("bad request") }
+        var failedRunError: Throwable? = null
+        val diagnosticHooks = object : AgentHooks by hooks {
+            override suspend fun onRunFailed(error: Throwable) {
+                failedRunError = error
+            }
+        }
 
-        val error = runCatching { runToEnd(request(retry = RetryPolicy.NETWORK)) }.exceptionOrNull()
+        val error = runCatching {
+            runToEnd(request(retry = RetryPolicy.NETWORK), diagnosticHooks)
+        }.exceptionOrNull()
 
         assertTrue(error is IllegalArgumentException)
         assertEquals(1, provider.requests.size)
+        assertEquals(error, failedRunError)
     }
 
     @Test

@@ -90,6 +90,12 @@ interface AgentHooks {
 
     /** Called if provider generation or output processing fails. */
     suspend fun onModelRequestFailed(step: StepRequest, error: Throwable) = Unit
+
+    /** Called when this agent run reaches a terminal finish reason. */
+    suspend fun onRunFinished(reason: AgentFinishReason) = Unit
+
+    /** Called when this agent run fails before reaching a terminal finish reason. */
+    suspend fun onRunFailed(error: Throwable) = Unit
 }
 
 data class StepRequest(
@@ -133,5 +139,14 @@ sealed interface AgentFinishReason {
  */
 fun runAgent(request: AgentRequest, hooks: AgentHooks): Flow<AgentEvent> = flow {
     require(request.maxSteps > 0) { "maxSteps must be positive" }
-    AgentLoop(request, hooks, this).run()
+    try {
+        AgentLoop(request, hooks, this).run()
+    } catch (error: Throwable) {
+        try {
+            hooks.onRunFailed(error)
+        } catch (hookError: Throwable) {
+            error.addSuppressed(hookError)
+        }
+        throw error
+    }
 }

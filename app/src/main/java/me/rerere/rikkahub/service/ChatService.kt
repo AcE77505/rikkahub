@@ -997,7 +997,7 @@ class ChatService(
             // 关掉自动生成后只跳过对话结束时的自动调用，手动重新生成照常执行
             if (!force && !settings.enableAutoTitle) return@withLoadedSession
 
-            runCatching {
+            try {
                 val title = metaGenerator.generateTitle(settings, conversation)
                 // 只写标题这一列：这时可能已经在生成下一轮，不能把还没生成完的内容一起落库。
                 // 生成期间会话被删除的话不写入
@@ -1006,10 +1006,18 @@ class ChatService(
                     persist = { conversationRepo.updateTitle(conversationId, title) },
                     expectedIncarnation = incarnation,
                 )
-            }.onFailure {
-                it.printStackTrace()
+                Logging.log("ModelTask", "task=title event=task_completed conversation_id=$conversationId")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Logging.log(
+                    "ModelTask",
+                    "task=title event=task_failed conversation_id=$conversationId " +
+                        "error=${error::class.simpleName ?: "unknown"}",
+                )
+                error.printStackTrace()
                 addError(
-                    error = it,
+                    error = error,
                     conversationId = conversationId,
                     title = context.getString(R.string.error_title_generate_title),
                     solution = ChatErrorSolution.CheckFastModelSettings,
@@ -1022,15 +1030,15 @@ class ChatService(
 
     private suspend fun generateSuggestion(conversationId: Uuid): Unit = withContext(Dispatchers.IO) {
         sessionManager.withSession<Unit>(conversationId) { session ->
-            runCatching {
+            try {
                 val settings = settingsStore.awaitLoaded()
-                if (!settings.enableSuggestion) return@runCatching
+                if (!settings.enableSuggestion) return@withSession
 
                 // 上一轮的建议在这一轮开始时已经清掉了
                 ensureInitialized(session)
                 val incarnation = session.incarnation
                 val suggestions = metaGenerator.generateSuggestions(settings, session.state.value)
-                    ?: return@runCatching
+                    ?: return@withSession
 
                 // 只写建议这一列，理由同标题
                 session.updateMetadata(
@@ -1038,8 +1046,10 @@ class ChatService(
                     persist = { conversationRepo.updateChatSuggestions(conversationId, suggestions) },
                     expectedIncarnation = incarnation,
                 )
-            }.onFailure {
-                it.printStackTrace()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                error.printStackTrace()
             }
         }
     }

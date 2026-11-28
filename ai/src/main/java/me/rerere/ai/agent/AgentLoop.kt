@@ -267,6 +267,7 @@ internal class AgentLoop(
     }
 
     private suspend fun finish(reason: AgentFinishReason) {
+        hooks.onRunFinished(reason)
         events.emit(AgentEvent.Finished(checkNotNull(message), reason))
     }
 }
