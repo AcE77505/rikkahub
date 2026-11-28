@@ -38,6 +38,7 @@ sealed class LogEntry {
 
 object Logging {
     private val recentLogs = arrayListOf<LogEntry>()
+
     @Volatile
     private var requestLoggingEnabled = false
 

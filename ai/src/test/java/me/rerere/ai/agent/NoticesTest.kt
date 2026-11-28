@@ -3,12 +3,12 @@ package me.rerere.ai.agent
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
-import kotlin.uuid.Uuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.uuid.Uuid
 
 class NoticesTest {
     private val tool = UIMessagePart.Tool(
@@ -78,7 +78,10 @@ class NoticesTest {
             listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT),
             result.map { it.role },
         )
-        assertEquals(steer.parts, result[2].parts)
+        // 附件照旧保留，只有文本被套上插话标记
+        assertEquals(UIMessagePart.Image("file:///a.png"), result[2].parts[1])
+        assertTrue(result[2].parts[0].asText().startsWith(MID_TURN_STEER_PREFIX))
+        assertTrue(result[2].parts[0].asText().endsWith("look at this"))
         // 插话是用户真说的话，不能标成 synthetic，否则模板和时间提醒会跳过它
         assertFalse(result[2].isSynthetic)
     }
@@ -101,12 +104,30 @@ class NoticesTest {
             listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT),
             result.map { it.role },
         )
-        assertEquals(listOf(UIMessagePart.Text("interrupt")), result[2].parts)
+        // 插话文本前带上标记，模型才知道这是生成中途的补充而不是新任务
+        assertEquals(listOf(UIMessagePart.Text("$MID_TURN_STEER_PREFIX\ninterrupt")), result[2].parts)
         assertEquals(diagnosticId, result[2].steerDiagnosticId)
         assertFalse(result[2].isSynthetic)
         // 通知不在这里拆：它要留在转换之后，避免被套上模板和时间提醒
         assertEquals(listOf(UIMessagePart.Text("thinking"), notice), result[1].parts)
         assertEquals(listOf(UIMessagePart.Text("answer")), result[3].parts)
+    }
+
+    @Test
+    fun `the steer wrapper is stripped for display and replay`() {
+        // 存下来的历史里带标记，展示/导出/回放时要还原成用户实际打的内容
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("go on"))),
+            ),
+        )
+
+        val wrapped = listOf(assistant).extractSteers().single().parts.single().asText()
+        assertTrue(wrapped.startsWith(MID_TURN_STEER_PREFIX))
+
+        assertEquals("go on", wrapped.stripMidTurnSteerPrefix())
+        assertEquals("plain text", "plain text".stripMidTurnSteerPrefix())
     }
 
     @Test
@@ -129,3 +150,5 @@ class NoticesTest {
         assertSame(assistant, result[1])
     }
 }
+
+private fun UIMessagePart.asText(): String = (this as UIMessagePart.Text).text

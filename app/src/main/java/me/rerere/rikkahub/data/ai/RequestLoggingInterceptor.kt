@@ -84,7 +84,7 @@ internal fun Response.errorBodyForLogging(): String? {
 }
 
 private fun okhttp3.RequestBody.captureForLogging(): String {
-    if (isOneShot || isDuplex) return "[omitted: streaming request body]"
+    if (isOneShot() || isDuplex()) return "[omitted: streaming request body]"
     val size = contentLength()
     if (size < 0) return "[omitted: unknown request body length]"
     if (size > MAX_LOGGED_REQUEST_BODY_BYTES) return "[omitted: request body exceeds limit]"
@@ -133,12 +133,16 @@ internal fun HttpUrl.redactLogSecrets(): HttpUrl = newBuilder().apply {
 }.build()
 
 internal fun String.redactLogSecrets(): String = replace(
-    Regex("""(?i)("(?:authorization|proxy-authorization|x-api-key|api[_-]?(?:key|token)|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret|token)"\s*:\s*")[^"]*(")"""),
+    Regex(
+        """(?i)("(?:authorization|proxy-authorization|x-api-key|api[_-]?(?:key|token)|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret|token)"\s*:\s*")[^"]*(")"""
+    ),
     { match -> match.groupValues[1] + REDACTED + match.groupValues[2] },
 ).replace(
     Regex("""(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*"""),
     { "Bearer $REDACTED" },
 ).replace(
-    Regex("""(?i)([?&](?:api[_-]?(?:key|token)|key|access[_-]?token|refresh[_-]?token|token|client[_-]?secret|password|secret|auth|authorization|signature)=)[^&\s]+"""),
+    Regex(
+        """(?i)([?&](?:api[_-]?(?:key|token)|key|access[_-]?token|refresh[_-]?token|token|client[_-]?secret|password|secret|auth|authorization|signature)=)[^&\s]+"""
+    ),
     { match -> match.groupValues[1] + REDACTED },
 )
