@@ -35,6 +35,7 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -68,6 +70,12 @@ fun LogPage() {
     var logs by remember { mutableStateOf(Logging.getRecentLogs()) }
     var requestLoggingEnabled by remember { mutableStateOf(Logging.isRequestLoggingEnabled()) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            logs = Logging.getRecentLogs()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -167,6 +175,10 @@ private fun UnifiedLogList(
         }
 
         item {
+            InterjectionDiagnosticsCard()
+        }
+
+        item {
             SaveLogsCard(onClick = saveLogs)
         }
 
@@ -192,6 +204,20 @@ private fun UnifiedLogList(
         ) {
             RequestLogDetail(log)
         }
+    }
+}
+
+@Composable
+private fun InterjectionDiagnosticsCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Text(
+            text = stringResource(R.string.log_page_interjection_diagnostics_desc),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(12.dp),
+        )
     }
 }
 

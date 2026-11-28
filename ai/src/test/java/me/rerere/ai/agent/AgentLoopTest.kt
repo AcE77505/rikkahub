@@ -89,6 +89,36 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `request lifecycle hooks report a prepared interjection request and response`() = runTest {
+        val steerId = kotlin.uuid.Uuid.random()
+        val lifecycle = mutableListOf<String>()
+        val diagnosticHooks = object : AgentHooks by hooks {
+            override suspend fun prepareStep(messages: List<UIMessage>): StepRequest =
+                StepRequest(
+                    messages = messages,
+                    params = TextGenerationParams(model = model),
+                    steerDiagnostics = mapOf(steerId to true),
+                )
+
+            override suspend fun onModelRequestStarted(step: StepRequest) {
+                lifecycle += "started:${step.steerDiagnostics[steerId]}"
+            }
+
+            override suspend fun onModelRequestCompleted(step: StepRequest, message: UIMessage) {
+                lifecycle += "completed:${message.texts().joinToString()}"
+            }
+        }
+        provider.stream {
+            text("acknowledged")
+            finish()
+        }
+
+        runToEnd(hooks = diagnosticHooks)
+
+        assertEquals(listOf("started:true", "completed:acknowledged"), lifecycle)
+    }
+
+    @Test
     fun `tool results go back to the model inside the same assistant message`() = runTest {
         val received = mutableListOf<JsonElement>()
         val search = tool("search") { args ->

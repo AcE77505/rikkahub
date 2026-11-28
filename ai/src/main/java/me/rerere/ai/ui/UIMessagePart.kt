@@ -3,11 +3,13 @@ package me.rerere.ai.ui
 import kotlinx.datetime.LocalDateTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.util.json
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 @Serializable
 sealed class ToolApprovalState {
@@ -252,6 +254,9 @@ sealed class UIMessagePart {
         val parts: List<UIMessagePart>,
         /** 用户实际发出插话的时间；拆成 user 消息时用它，而不是助手消息的创建时间 */
         val createdAt: LocalDateTime? = null,
+        /** In-memory diagnostic correlation ID; null for historical and manually constructed steers. */
+        @Transient
+        val diagnosticId: Uuid? = null,
         override var metadata: JsonObject? = null,
     ) : UIMessagePart()
 }

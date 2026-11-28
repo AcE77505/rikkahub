@@ -31,7 +31,10 @@ fun List<UIMessage>.extractSteers(): List<UIMessage> = flatMap { message ->
                 add(
                     UIMessage(role = MessageRole.USER, parts = part.parts)
                         // 用用户实际插话的时间，时间提醒据此算间隔；旧数据没有记录时退回助手消息的时间
-                        .copy(createdAt = part.createdAt ?: message.createdAt)
+                        .copy(
+                            createdAt = part.createdAt ?: message.createdAt,
+                            steerDiagnosticId = part.diagnosticId,
+                        )
                 )
             } else {
                 buffer.add(part)

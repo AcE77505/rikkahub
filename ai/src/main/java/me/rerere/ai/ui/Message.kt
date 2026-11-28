@@ -39,6 +39,9 @@ data class UIMessage(
     // 请求期间生成的内部消息；该标记仅在内存中使用
     @Transient
     val isSynthetic: Boolean = false,
+    // 插话拆成请求消息后的诊断关联；不进入历史存储或 provider payload
+    @Transient
+    val steerDiagnosticId: Uuid? = null,
 ) {
     fun summaryAsText(maxLength: Int = Int.MAX_VALUE): String {
         val text = "[${role.name}]: " + parts.joinToString(separator = "\n") { part ->

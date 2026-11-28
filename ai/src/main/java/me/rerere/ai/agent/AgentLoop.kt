@@ -106,12 +106,20 @@ internal class AgentLoop(
             parts = emptyList(),
             modelId = params.model.id,
         )
-        val generated = if (request.stream) {
-            stream(step.messages, params, base)
-        } else {
-            generate(step.messages, params, base)
+        if (step.steerDiagnostics.isNotEmpty()) hooks.onModelRequestStarted(step)
+        val generated = try {
+            val response = if (request.stream) {
+                stream(step.messages, params, base)
+            } else {
+                generate(step.messages, params, base)
+            }
+            hooks.finishStep(response, newPartsFrom = base.parts.size)
+        } catch (e: Throwable) {
+            if (step.steerDiagnostics.isNotEmpty()) hooks.onModelRequestFailed(step, e)
+            throw e
         }
-        update(hooks.finishStep(generated, newPartsFrom = base.parts.size).copy(finishedAt = now()))
+        if (step.steerDiagnostics.isNotEmpty()) hooks.onModelRequestCompleted(step, generated)
+        update(generated.copy(finishedAt = now()))
     }
 
     /**

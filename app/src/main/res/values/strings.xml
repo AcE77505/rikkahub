@@ -1435,6 +1435,7 @@
   <string name="setting_mcp_page_name_invalid">Name can only contain English letters and numbers</string>
   <string name="log_page_record_requests">Record requests</string>
   <string name="log_page_record_requests_desc">Capture request headers, bodies, and response metadata</string>
+  <string name="log_page_interjection_diagnostics_desc">Interjection diagnostics appear here only after sending an interjection. They show whether it reached a model request and whether a response returned, without recording message content. They cannot determine whether the model followed the instruction.</string>
   <string name="log_page_save_logs">Save logs to file</string>
   <string name="log_page_save_logs_desc">Export all logs as JSON through the system file picker</string>
   <string name="log_page_save_logs_empty">No logs to save</string>

@@ -247,6 +247,21 @@ class ChatService(
         appScope.launch {
             // 先压缩再处理收件箱：压缩任务结束时会再回到这里
             if (cause == null && launchAutoCompressIfNeeded(session) != null) return@launch
+            val pendingSteers = session.inbox.pendingSteerIds()
+            val awaitingToolApproval = session.state.value.isAwaitingToolApproval
+            val queuePaused = session.inbox.state.value.paused
+            pendingSteers.forEach { id ->
+                Logging.log(
+                    "Interjection",
+                    if (awaitingToolApproval) {
+                        "id=$id event=waiting_for_tool_approval"
+                    } else if (queuePaused) {
+                        "id=$id event=turn_ended_before_injection action=waiting_for_queue_resume"
+                    } else {
+                        "id=$id event=turn_ended_before_injection action=queued_as_next_message"
+                    },
+                )
+            }
             dispatchInbox(session.id)
         }
     }
@@ -409,8 +424,11 @@ class ChatService(
 
     /** 删除收件箱里的一项：用户输入连同只被它引用的附件一起删，通知直接丢弃 */
     fun removeInboxItem(conversationId: Uuid, itemId: Uuid) {
-        (sessionManager.get(conversationId)?.inbox?.remove(itemId) as? QueuedMessage)
-            ?.let(::cleanupQueuedAttachments)
+        val removed = sessionManager.get(conversationId)?.inbox?.remove(itemId) as? QueuedMessage
+        if (removed?.steer == true) {
+            Logging.log("Interjection", "id=${removed.id} event=withdrawn_before_injection")
+        }
+        removed?.let(::cleanupQueuedAttachments)
         dispatchInbox(conversationId)
     }
 
@@ -466,7 +484,10 @@ class ChatService(
         synchronized(session) {
             // 正在生成时发来的消息就是插话：在下一步请求模型前插进这一轮，不等它结束
             if (session.isSteerable) {
-                session.inbox.enqueue(content, answer = answer, steer = true)
+                val steerId = session.inbox.enqueue(content, answer = answer, steer = true)
+                if (steerId != null) {
+                    Logging.log("Interjection", "id=$steerId event=queued conversation=$conversationId")
+                }
                 // 生成可能刚好在这一刻结束：这时没有 step 再来取，交给派发按普通消息发出去。
                 // 生成中派发会因 canStartNextTurn 为 false 直接返回，不会重复发送
                 dispatchInbox(conversationId)

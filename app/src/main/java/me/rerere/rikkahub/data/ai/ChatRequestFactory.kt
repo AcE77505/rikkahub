@@ -23,6 +23,7 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.limitContext
+import me.rerere.common.android.Logging
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
@@ -150,6 +151,7 @@ class ChatRequestFactory(
         pendingSteers: () -> Boolean = { false },
         pauseAfterTools: (UIMessage) -> Boolean = { false },
     ): Pair<AgentRequest, AgentHooks> {
+        val activeSteerDiagnostics = linkedSetOf<Uuid>()
         val request = AgentRequest(
             provider = usageRecorder.wrap(
                 providerManager.getProviderByType(turn.providerSetting),
@@ -166,7 +168,12 @@ class ChatRequestFactory(
         val hooks = object : AgentHooks {
             override suspend fun prepareStep(messages: List<UIMessage>): StepRequest {
                 Log.i(TAG, "prepareStep: ${turn.model.id}")
-                return buildStep(turn, messages, processingStatus)
+                return buildStep(
+                    turn = turn,
+                    messages = messages,
+                    processingStatus = processingStatus,
+                    diagnosticSteerIds = activeSteerDiagnostics,
+                )
             }
 
             override suspend fun previewStep(message: UIMessage, newPartsFrom: Int) =
@@ -181,11 +188,51 @@ class ChatRequestFactory(
                         .onGenerationFinish(outputTransformers, context, turn.model, turn.assistant, turn.settings)
                 }
 
-            override suspend fun pendingParts() = takePendingParts()
+            override suspend fun pendingParts(): List<UIMessagePart> {
+                val parts = takePendingParts()
+                parts.filterIsInstance<UIMessagePart.Steer>().forEach { steer ->
+                    val id = steer.diagnosticId ?: return@forEach
+                    activeSteerDiagnostics += id
+                    Logging.log("Interjection", "id=$id event=attached_to_agent_message")
+                }
+                return parts
+            }
 
             override suspend fun hasPendingSteers() = pendingSteers()
 
             override suspend fun shouldPause(message: UIMessage) = pauseAfterTools(message)
+
+            override suspend fun onModelRequestStarted(step: StepRequest) {
+                step.steerDiagnostics.forEach { (id, included) ->
+                    Logging.log(
+                        "Interjection",
+                        "id=$id event=provider_request_started in_prompt=$included model=${turn.model.modelId} stream=${request.stream}",
+                    )
+                }
+            }
+
+            override suspend fun onModelRequestCompleted(step: StepRequest, message: UIMessage) {
+                step.steerDiagnostics.keys.forEach { id ->
+                    val textChars = message.parts.filterIsInstance<UIMessagePart.Text>().sumOf { it.text.length }
+                    val reasoningChars =
+                        message.parts.filterIsInstance<UIMessagePart.Reasoning>().sumOf { it.reasoning.length }
+                    val toolCalls = message.getTools().size
+                    Logging.log(
+                        "Interjection",
+                        "id=$id event=response_received text_chars=$textChars reasoning_chars=$reasoningChars tool_calls=$toolCalls",
+                    )
+                    activeSteerDiagnostics.remove(id)
+                }
+            }
+
+            override suspend fun onModelRequestFailed(step: StepRequest, error: Throwable) {
+                step.steerDiagnostics.keys.forEach { id ->
+                    Logging.log(
+                        "Interjection",
+                        "id=$id event=request_failed error=${error::class.simpleName ?: "unknown"}",
+                    )
+                }
+            }
         }
         return request to hooks
     }
@@ -258,10 +305,23 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
+        diagnosticSteerIds: Set<Uuid> = emptySet(),
         // false 时不带任何历史消息，只保留请求前缀，用于预览初始化内容
         includeHistory: Boolean = true,
     ): StepRequest {
         val assistant = turn.assistant
+        val historyMessages = if (includeHistory) {
+            messages.limitContext(assistant.contextMessageLimit).withContinuationHint()
+        } else {
+            emptyList()
+        }
+        val diagnosticSteers = historyMessages.flatMap { message ->
+            message.parts.filterIsInstance<UIMessagePart.Steer>().mapNotNull { steer ->
+                steer.diagnosticId
+                    ?.takeIf { it in diagnosticSteerIds }
+                    ?.let { it to (steer.createdAt ?: message.createdAt) }
+            }
+        }
         val requestMessages = buildList {
             val system = buildString {
                 val effectiveSystemPrompt =
@@ -297,12 +357,8 @@ class ChatRequestFactory(
                 }
             }
             if (includeHistory) {
-                addAll(
-                    messages.limitContext(assistant.contextMessageLimit)
-                        .withContinuationHint()
-                        // 插话要在输入转换器之前拆成普通用户消息，附件、模板、用户正则才和直接发送一致
-                        .extractSteers()
-                )
+                // 插话要在输入转换器之前拆成普通用户消息，附件、模板、用户正则才和直接发送一致
+                addAll(historyMessages.extractSteers())
             }
         }.transforms(
             transformers = inputTransformers,
@@ -330,7 +386,30 @@ class ChatRequestFactory(
             },
             sessionId = turn.conversationId.toString(),
         )
-        return StepRequest(requestMessages, params)
+        val steerDiagnostics = if (diagnosticSteerIds.isEmpty()) {
+            emptyMap()
+        } else {
+            val userMessages = requestMessages.filter { it.role == MessageRole.USER }
+            val userMessageTimes = userMessages
+                .groupingBy { it.createdAt }
+                .eachCount()
+                .toMutableMap()
+            val included = diagnosticSteerIds.associateWith { false }.toMutableMap()
+            diagnosticSteers.forEach { (id, timestamp) ->
+                val matchedById = userMessages.firstOrNull { it.steerDiagnosticId == id }
+                if (matchedById != null) {
+                    included[id] = true
+                    val remaining = userMessageTimes[matchedById.createdAt] ?: 0
+                    if (remaining > 0) userMessageTimes[matchedById.createdAt] = remaining - 1
+                } else {
+                    val remaining = userMessageTimes[timestamp] ?: 0
+                    included[id] = remaining > 0
+                    if (remaining > 0) userMessageTimes[timestamp] = remaining - 1
+                }
+            }
+            included
+        }
+        return StepRequest(requestMessages, params, steerDiagnostics)
     }
 }
 

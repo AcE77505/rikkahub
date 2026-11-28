@@ -3,6 +3,7 @@ package me.rerere.ai.agent
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import kotlin.uuid.Uuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -84,7 +85,11 @@ class NoticesTest {
 
     @Test
     fun `extractSteers pulls steers out before transformers and keeps notices inline`() {
-        val steer = UIMessagePart.Steer(parts = listOf(UIMessagePart.Text("interrupt")))
+        val diagnosticId = Uuid.random()
+        val steer = UIMessagePart.Steer(
+            parts = listOf(UIMessagePart.Text("interrupt")),
+            diagnosticId = diagnosticId,
+        )
         val assistant = UIMessage(
             role = MessageRole.ASSISTANT,
             parts = listOf(UIMessagePart.Text("thinking"), notice, steer, UIMessagePart.Text("answer")),
@@ -97,6 +102,7 @@ class NoticesTest {
             result.map { it.role },
         )
         assertEquals(listOf(UIMessagePart.Text("interrupt")), result[2].parts)
+        assertEquals(diagnosticId, result[2].steerDiagnosticId)
         assertFalse(result[2].isSynthetic)
         // 通知不在这里拆：它要留在转换之后，避免被套上模板和时间提醒
         assertEquals(listOf(UIMessagePart.Text("thinking"), notice), result[1].parts)

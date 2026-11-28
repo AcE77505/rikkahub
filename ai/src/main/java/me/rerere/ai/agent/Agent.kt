@@ -8,6 +8,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import kotlin.uuid.Uuid
 
 /**
  * 一次 agent 运行的输入。
@@ -80,11 +81,22 @@ interface AgentHooks {
      * 这时 [message] 上的工具调用都已经有结果，调用方可以在这里改写历史（比如压缩上下文）再开始下一次运行。
      */
     suspend fun shouldPause(message: UIMessage): Boolean = false
+
+    /** Called immediately before a prepared request is sent to the provider. */
+    suspend fun onModelRequestStarted(step: StepRequest) = Unit
+
+    /** Called after the provider has returned and output transformations have completed. */
+    suspend fun onModelRequestCompleted(step: StepRequest, message: UIMessage) = Unit
+
+    /** Called if provider generation or output processing fails. */
+    suspend fun onModelRequestFailed(step: StepRequest, error: Throwable) = Unit
 }
 
 data class StepRequest(
     val messages: List<UIMessage>,
     val params: TextGenerationParams,
+    /** Diagnostic ID and whether its user message survived request preparation. */
+    val steerDiagnostics: Map<Uuid, Boolean> = emptyMap(),
 )
 
 sealed interface AgentEvent {
