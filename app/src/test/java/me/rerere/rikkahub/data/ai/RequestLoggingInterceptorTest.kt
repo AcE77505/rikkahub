@@ -34,7 +34,9 @@ class RequestLoggingInterceptorTest {
 
     @Test
     fun `request URL headers and body redact common credentials`() {
-        val url = "https://example.test/chat?api_key=private&query=ok&access_token=secret".toHttpUrl()
+        val url =
+            "https://user:password@example.test/chat?api_key=private&query=ok&access_token=secret&client_secret=private"
+                .toHttpUrl()
         val headers = Headers.Builder()
             .add("Authorization", "Bearer private")
             .add("X-Api-Key", "secret")
@@ -43,6 +45,9 @@ class RequestLoggingInterceptorTest {
 
         assertEquals("██", url.redactLogSecrets().queryParameter("api_key"))
         assertEquals("ok", url.redactLogSecrets().queryParameter("query"))
+        assertEquals("██", url.redactLogSecrets().queryParameter("client_secret"))
+        assertEquals("", url.redactLogSecrets().username())
+        assertEquals("", url.redactLogSecrets().password())
         assertEquals("██", headers.toSafeLogMap()["Authorization"])
         assertEquals("██", headers.toSafeLogMap()["X-Api-Key"])
         assertEquals("""{"api_key":"██"}""", """{"api_key":"private"}""".redactLogSecrets())
