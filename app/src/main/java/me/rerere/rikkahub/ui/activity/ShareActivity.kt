@@ -131,7 +131,13 @@ class ShareActivity : ComponentActivity() {
                     shareUris.drop(1).forEach { addItem(ClipData.Item(it)) }
                 }
             }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            // 复用已在主 task 里的 RouteActivity 实例：必须带 SINGLE_TOP，否则 standard
+            // launchMode 下 CLEAR_TOP 会销毁重建，导航栈被重置，就接不回「当前对话」了。
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
         }
     }
 }

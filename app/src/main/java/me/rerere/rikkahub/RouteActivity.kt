@@ -66,6 +66,8 @@ import me.rerere.rikkahub.data.db.DatabaseMigrationTracker
 import me.rerere.rikkahub.data.db.MigrationState
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.event.ShareDraft
+import me.rerere.rikkahub.data.event.ShareDraftInbox
 import me.rerere.rikkahub.data.repository.MediaCreationRepository
 import me.rerere.rikkahub.service.MediaCreationForegroundService
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
@@ -183,6 +185,7 @@ class RouteActivity : ComponentActivity() {
     private val okHttpClient by inject<OkHttpClient>()
     private val settingsStore by inject<SettingsStore>()
     private val mediaCreationRepository by inject<MediaCreationRepository>()
+    private val shareDraftInbox by inject<ShareDraftInbox>()
     private var navStack: MutableList<NavKey>? = null
     private val pendingIntents = ArrayDeque<Intent>()
 
@@ -264,19 +267,33 @@ class RouteActivity : ComponentActivity() {
                 openNewMediaCreation(backStack)
                 null
             }
-            // 独立 ShareActivity 选好助手后回调这里：直接开聊天页并带上分享内容
+            // 独立 ShareActivity 选好助手后回调这里：优先灌入当前打开的对话，没有才新建
             ACTION_SHARE_TO_CHAT -> {
                 val text = intent.getStringExtra(EXTRA_SHARE_TEXT).orEmpty()
                 val assistantId = intent.getStringExtra(EXTRA_SHARE_ASSISTANT_ID)
                 val files = intent.getStringArrayListExtra(EXTRA_SHARE_FILES).orEmpty()
-                Screen.Chat(
-                    id = Uuid.random().toString(),
-                    text = text.takeIf { it.isNotBlank() }?.base64Encode(),
-                    files = files,
-                    presetGroupId = null,
-                ).also {
-                    // 选中助手在 ShareActivity 里已写入 settings；这里记录下来便于诊断
-                    Log.i(TAG, "SHARE_TO_CHAT assistant=$assistantId files=${files.size}")
+                when (val current = backStack.lastOrNull()) {
+                    // 当前对话页在栈顶：把内容投递过去，由它注入输入框（预备上传，不自动发送）
+                    is Screen.Chat -> {
+                        val conversationId = runCatching { Uuid.parse(current.id) }.getOrNull()
+                        if (conversationId != null) {
+                            shareDraftInbox.offer(
+                                ShareDraft(conversationId = conversationId, text = text, files = files),
+                            )
+                            Log.i(TAG, "SHARE_TO_CHAT -> inject into current chat ${current.id} files=${files.size}")
+                            null
+                        } else {
+                            // 栈顶对话 id 非法（理论上不会发生）：回退到新建
+                            Log.i(TAG, "SHARE_TO_CHAT -> new chat (invalid id) files=${files.size}")
+                            newSharedChat(text, files)
+                        }
+                    }
+
+                    // 没有打开的对话：回退到新建对话
+                    else -> {
+                        Log.i(TAG, "SHARE_TO_CHAT -> new chat assistant=$assistantId files=${files.size}")
+                        newSharedChat(text, files)
+                    }
                 }
             }
             Intent.ACTION_PROCESS_TEXT -> Screen.ShareHandler(
@@ -289,6 +306,14 @@ class RouteActivity : ComponentActivity() {
             backStack.add(destination)
         }
     }
+
+    /** 分享内容没有可注入的当前对话时的回退：新建一个带分享内容的会话。 */
+    private fun newSharedChat(text: String, files: List<String>): Screen = Screen.Chat(
+        id = Uuid.random().toString(),
+        text = text.takeIf { it.isNotBlank() }?.base64Encode(),
+        files = files,
+        presetGroupId = null,
+    )
 
     // 快捷方式没有指定会话，打开一个空会话
     private fun openNewMediaCreation(backStack: MutableList<NavKey>) {

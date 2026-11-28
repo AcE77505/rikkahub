@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.pages.chat
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
@@ -67,7 +68,9 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
@@ -88,6 +91,7 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.event.ShareDraftInbox
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.BackgroundShellStatus
@@ -139,6 +143,7 @@ fun ChatPage(
         }
     )
     val filesManager: FilesManager = koinInject()
+    val shareDraftInbox: ShareDraftInbox = koinInject()
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
 
@@ -196,60 +201,85 @@ fun ChatPage(
     val shareFileUnsupported = stringResource(R.string.chat_input_unsupported_file_type)
     val shareFileReadFailed = stringResource(R.string.chat_input_file_read_failed)
     val shareToaster = LocalToaster.current
+    // 把分享/传入的文件落盘并按 MIME 生成对应 part：图片/视频/音频原样，其余作为文档附件
+    suspend fun buildShareParts(uris: List<Uri>): List<UIMessagePart> {
+        // 逐个文件处理：先落到本地 upload 目录，再按 MIME 生成对应 part。
+        // 每个文件独立处理，避免某个文件失败导致后续文件的类型错位（旧实现按索引对齐的隐患）。
+        val results = withContext(Dispatchers.IO) {
+            uris.map { uri ->
+                val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
+                val mime = filesManager.getFileMimeType(uri) ?: guessMimeTypeFromFileName(fileName)
+                val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
+                ShareFileResult(fileName = fileName, mime = mime, localUri = localUri)
+            }
+        }
+        val newParts = mutableListOf<UIMessagePart>()
+        results.forEach { result ->
+            val localUri = result.localUri
+            if (localUri == null) {
+                shareToaster.show(
+                    String.format(shareFileReadFailed, result.fileName),
+                    type = ToastType.Error,
+                )
+                return@forEach
+            }
+            when {
+                result.mime.startsWith("image/") ->
+                    newParts.add(UIMessagePart.Image(url = localUri.toString()))
+
+                result.mime.startsWith("video/") ->
+                    newParts.add(UIMessagePart.Video(url = localUri.toString()))
+
+                result.mime.startsWith("audio/") ->
+                    newParts.add(UIMessagePart.Audio(url = localUri.toString()))
+
+                isAllowedFileType(result.fileName, result.mime) ->
+                    newParts.add(
+                        UIMessagePart.Document(
+                            url = localUri.toString(),
+                            fileName = result.fileName,
+                            mime = result.mime,
+                        )
+                    )
+
+                else -> shareToaster.show(
+                    String.format(shareFileUnsupported, result.fileName),
+                    type = ToastType.Error,
+                )
+            }
+        }
+        return newParts
+    }
+
     LaunchedEffect(files, text) {
         if (files.isNotEmpty()) {
-            // 逐个文件处理：先落到本地 upload 目录，再按 MIME 生成对应 part。
-            // 每个文件独立处理，避免某个文件失败导致后续文件的类型错位（旧实现按索引对齐的隐患）。
-            val results = withContext(Dispatchers.IO) {
-                files.map { uri ->
-                    val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
-                    val mime = filesManager.getFileMimeType(uri) ?: guessMimeTypeFromFileName(fileName)
-                    val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
-                    ShareFileResult(fileName = fileName, mime = mime, localUri = localUri)
-                }
-            }
-            val parts = mutableListOf<UIMessagePart>()
-            results.forEach { result ->
-                val localUri = result.localUri
-                if (localUri == null) {
-                    shareToaster.show(
-                        String.format(shareFileReadFailed, result.fileName),
-                        type = ToastType.Error,
-                    )
-                    return@forEach
-                }
-                when {
-                    result.mime.startsWith("image/") ->
-                        parts.add(UIMessagePart.Image(url = localUri.toString()))
-
-                    result.mime.startsWith("video/") ->
-                        parts.add(UIMessagePart.Video(url = localUri.toString()))
-
-                    result.mime.startsWith("audio/") ->
-                        parts.add(UIMessagePart.Audio(url = localUri.toString()))
-
-                    isAllowedFileType(result.fileName, result.mime) ->
-                        parts.add(
-                            UIMessagePart.Document(
-                                url = localUri.toString(),
-                                fileName = result.fileName,
-                                mime = result.mime,
-                            )
-                        )
-
-                    else -> shareToaster.show(
-                        String.format(shareFileUnsupported, result.fileName),
-                        type = ToastType.Error,
-                    )
-                }
-            }
-            inputState.messageContent = parts
+            inputState.messageContent = buildShareParts(files)
         }
         text?.base64Decode()?.let { decodedText ->
             if (decodedText.isNotEmpty()) {
                 inputState.setMessageText(decodedText)
             }
         }
+    }
+
+    // 分享进来时若栈顶就是本对话，RouteActivity 会把内容投递到 ShareDraftInbox 指向本会话；
+    // 这里订阅并注入输入框（预备上传、不自动发送）；没有打开的对话时由 RouteActivity 新建会话。
+    LaunchedEffect(shareDraftInbox, id) {
+        shareDraftInbox.pending
+            .filterNotNull()
+            .map { draft -> shareDraftInbox.consume(id) }
+            .filterNotNull()
+            .collect { draft ->
+                if (draft.files.isNotEmpty()) {
+                    // 追加到已有附件之后，避免覆盖用户正在编辑的内容
+                    inputState.messageContent = inputState.messageContent + buildShareParts(
+                        draft.files.map { it.toUri() }
+                    )
+                }
+                if (draft.text.isNotBlank()) {
+                    inputState.appendText(draft.text)
+                }
+            }
     }
 
     val chatListState = rememberLazyListState()
