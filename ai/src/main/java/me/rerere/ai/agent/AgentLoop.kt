@@ -28,9 +28,6 @@ private const val EMPTY_TOOL_OUTPUT = "(no output)"
 
 private class StreamChunkHandlingException(override val cause: Throwable) : RuntimeException(cause)
 
-/** 用户插话打断了这一步的流式输出；不是错误，调用方保留已生成的内容后接着请求 */
-private class SteerInterruption : RuntimeException()
-
 internal class AgentLoop(
     private val request: AgentRequest,
     private val hooks: AgentHooks,
@@ -161,23 +158,9 @@ internal class AgentLoop(
                         // 合并失败或下游处理失败都不是网络故障，不能重放模型请求
                         throw StreamChunkHandlingException(e)
                     }
-                    // 用户插话：已经进入正文就立刻停下这一段的输出，保留已经生成的内容，让模型马上看到插话。
-                    // 一次请求可能连续输出几十秒，只在步骤边界检查的话插话要等整段写完才生效。
-                    // 思考链中途不打断：Claude/Gemini 的思考块要带签名才能回传，签名只在块结束时才下发，
-                    // 半截思考发给模型会被拒；等这一步进入正文再打断。每个 chunk 都查一次，插话越早生效越好
-                    if (attempt.hasAnswerTextSince(base.parts.size) && hooks.hasPendingSteers()) {
-                        throw SteerInterruption()
-                    }
                 }
                 attempt.withStepStats(base, firstChunk?.elapsedNow() ?: Duration.ZERO)
             }
-        } catch (e: SteerInterruption) {
-            // 打断不是失败：已经生成的内容照常写回，循环接着把插话追加到后面再请求。
-            // 可能停在工具调用的中途，半截参数不能发给模型，也不能拿去执行，丢掉这些没完成的调用
-            attempt
-                .dropIncompleteToolCalls()
-                .finishReasoning()
-                .withStepStats(base, firstChunk?.elapsedNow() ?: Duration.ZERO)
         } catch (e: StreamChunkHandlingException) {
             throw e.cause
         }
@@ -282,16 +265,6 @@ internal class AgentLoop(
 
 private fun UIMessagePart?.isModelsTurn() =
     (this is UIMessagePart.Tool && isExecuted) || isInlineUserPart()
-
-// 流式输出被插话打断时，还没收到 ToolCallEnd 的调用参数是不完整的，发给模型会被拒绝
-private fun UIMessage.dropIncompleteToolCalls(): UIMessage {
-    val dropped = parts.filterNot { it is UIMessagePart.Tool && !it.isExecuted }
-    return if (dropped.size == parts.size) this else copy(parts = dropped)
-}
-
-// 这一步是否已经写出正文：只到思考链为止时插话先不打断，否则半截思考会因缺少签名无法回传
-private fun UIMessage.hasAnswerTextSince(fromIndex: Int): Boolean =
-    parts.drop(fromIndex).any { it is UIMessagePart.Text && it.text.isNotBlank() }
 
 private fun errorOutput(error: String): List<UIMessagePart> =
     listOf(UIMessagePart.Text(buildJsonObject { put("error", error) }.toString()))
