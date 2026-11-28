@@ -328,7 +328,9 @@ private fun createShellTool(
         if (context.backgroundShellManager != null && context.conversationId != null && !context.isRemote) {
             append(
                 " Set run_in_background for long-running commands such as dev servers, watchers or long builds; " +
-                    "processes left running with `&` are killed when the command returns. "
+                    "processes left running with `&` are killed when the command returns. " +
+                    "After starting a background task, do not stay on it: keep working or reply, " +
+                    "and rely on the completion notice instead of waiting for it. "
             )
         }
     },
@@ -366,7 +368,10 @@ private fun createShellTool(
                             "description",
                             "Start the command in the background and return a task id immediately instead of waiting for it. " +
                                 "You will be notified with its exit code and the last lines of its output when it finishes, so do not poll it. " +
-                                "Use shell_output to check on it earlier and shell_kill to stop it. Defaults to false."
+                                "Once a background task is started, do not stay on it: do not keep waiting on it, " +
+                                "do not repeatedly check its output, and continue with other work or reply to the user. " +
+                                "Use shell_output only when you need its output before it finishes, and shell_kill to stop it. " +
+                                "Defaults to false."
                         )
                     })
                 }
@@ -449,8 +454,9 @@ private fun createShellOutputTool(context: WorkspaceToolContext) = Tool(
     name = context.toolName("shell_output"),
     description = "Read the output of a background command started by shell with run_in_background. " +
         "Returns output written since the previous call, plus the exit code once it has finished. " +
-        "You are notified automatically when a background command finishes, so only use this when you " +
-        "need its output before then, such as checking that a server started.",
+        "You are notified automatically when a background command finishes, so do not stay on a background task: " +
+        "do not repeatedly poll it and do not wait on it just to watch progress. " +
+        "Only use this when you genuinely need its output before then, such as checking that a server started.",
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {

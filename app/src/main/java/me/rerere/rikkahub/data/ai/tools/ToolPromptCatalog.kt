@@ -368,6 +368,8 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
         defaultDescription = """
             Run a shell command in the workspace or sandbox. Use cwd for a path relative to that directory.
             The command runs in the local Android shell (or the remote Linux shell for an SSH workspace).
+            After starting a background task, do not stay on it: keep working or reply, and rely on the
+            completion notice instead of waiting for it.
         """.let(::desc),
     ),
     ToolPromptEntry(
@@ -376,8 +378,10 @@ internal val TOOL_PROMPT_ENTRIES: List<ToolPromptEntry> = listOf(
         defaultDescription = """
             Read the output of a background command started by shell with run_in_background.
             Returns output written since the previous call, plus the exit code once it has finished.
-            You are notified automatically when a background command finishes, so only use this when you
-            need its output before then, such as checking that a server started.
+            You are notified automatically when a background command finishes, so do not stay on a
+            background task: do not repeatedly poll it and do not wait on it just to watch progress.
+            Only use this when you genuinely need its output before then, such as checking that a
+            server started.
         """.let(::desc),
     ),
     ToolPromptEntry(
