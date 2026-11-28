@@ -165,7 +165,9 @@ fun ChatExportSheet(
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val output = context.contentResolver.openOutputStream(uri)
+                    // "wt" 显式截断：CreateDocument 会先建好空文件，默认 "w" 在部分
+                    // 文档提供者上不截断也不覆盖，拷进去的内容会被丢掉，留下 0 字节
+                    val output = context.contentResolver.openOutputStream(uri, "wt")
                         ?: error("Cannot open $uri")
                     output.use { out -> source.inputStream().use { it.copyTo(out) } }
                 }
@@ -211,10 +213,12 @@ fun ChatExportSheet(
                     )
                 }
             }.onSuccess { file ->
-                onDismissRequest()
                 when (action) {
                     ChatExportAction.Save -> {
+                        // 先记下临时文件再关面板：关面板会让 ChatList 重组，
+                        // 之后 CreateDocument 返回时要从这里取回源文件
                         pendingSavePath = file.path
+                        onDismissRequest()
                         when (exportFormat) {
                             ChatExportFormat.Markdown -> saveMarkdownLauncher.launch(file.name)
                             ChatExportFormat.Image -> saveImageLauncher.launch(file.name)
@@ -222,6 +226,7 @@ fun ChatExportSheet(
                     }
 
                     ChatExportAction.Share -> {
+                        onDismissRequest()
                         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                         shareFile(context, uri, exportFormat.mimeType)
                     }

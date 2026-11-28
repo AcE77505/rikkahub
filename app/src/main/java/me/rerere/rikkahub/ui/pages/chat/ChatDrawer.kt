@@ -159,6 +159,8 @@ fun ChatDrawerContent(
 
     // 长按会话导出的目标；导出始终使用完整会话
     var exportTarget by remember { mutableStateOf<Conversation?>(null) }
+    // 导出面板是否展开；和 exportTarget 分开，收起面板时保留会话和临时文件路径
+    var showExportSheet by remember { mutableStateOf(false) }
 
     // 文件夹相关状态
     var showMoveToFolderSheet by remember { mutableStateOf(false) }
@@ -349,6 +351,7 @@ fun ChatDrawerContent(
                 onExport = { conversation ->
                     scope.launch {
                         exportTarget = drawerVm.loadConversationForExport(conversation.id) ?: conversation
+                        showExportSheet = true
                     }
                 }
             )
@@ -745,8 +748,10 @@ fun ChatDrawerContent(
 
     exportTarget?.let { conversation ->
         ChatExportSheet(
-            visible = true,
-            onDismissRequest = { exportTarget = null },
+            visible = showExportSheet,
+            // 只收起面板，不清 exportTarget：清掉会把 ChatExportSheet 整个移出组合，
+            // 里面的临时文件路径跟着丢，系统另存为返回时就找不到源文件，写出 0 字节
+            onDismissRequest = { showExportSheet = false },
             conversation = conversation,
             selectedMessages = conversation.messageNodes.map { it.currentMessage },
         )
