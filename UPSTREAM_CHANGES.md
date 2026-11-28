@@ -10,6 +10,7 @@
 - 本批次（2026-11-17）：上游 3.3.0 同步分析 + 第一批无冲突纳入；同时把 DeepSeek 导入切换为 App 导出格式（网页版实现移到 `app/src/legacy`，保留但不编译）。19 个上游提交、90 个文件；本次已合入 ai / speech / Provider / Phone Use / 自动压缩默认值，message_node 索引、SafeMode、段落气泡与工作区共享存储仍未适配。详见第 18、19、20 节。
 - 本批次（2026-11-23）：提示词精简（记忆、工作区、技能列表、助手管理段）。按一次真实请求测量，system prompt 约 28.5K → 19.2K 字符（约 -33%）；用户 memory 数据（profile/preferences）未改动。详见第 24 节。
 - 本批次（2026-11-25）：新增 `system_intent`（六种系统事务）、`get_current_location`（三套坐标系）、请求前缀页（默认关闭，偏好设置开关）与工具设置页重排；同批次一并提交动态工具（按需检索）。详见第 27 节。
+- 本批次（2026-11-28）：新增「插话」（生成中途插入用户消息），并把插话在发给模型时标记为补充指引；同批引入日志诊断（插话投递链路、模型任务失败原因）与日志导出凭据脱敏。详见第 28 节。
 - 维护策略（2026-11-12）：**Phone Use（AI 操作屏幕）永远不会纳入修改范围，除了从上游按例同步的情况。** 功能兼容性（支持的 Android 版本、渠道、动作集合）完全由上游项目决定，本 fork 不主动改造。详见第 4 节第 13 条与第 15.2 节。
 - 旧版文档以 `6304a995` 为基线记录当时未提交的改动；这些改动已经进入 `master`，相关章节保留作历史说明。
 
@@ -1445,3 +1446,161 @@ obscura 的 `libobscura.so` 在 `jniLibs/arm64-v8a` 与 `jniLibs/x86_64` 合计�
 - `system_intent.navigate` 的 `lat`/`lng` 只接受 GCJ-02。模型若误传 `wgs84` 字段仍会偏约 500 m，目前靠工具描述约束。更稳妥的做法是给 `navigate` 加 `coord` 参数并在内部统一转换。
 - 请求前缀开关是全局的（存在 `DisplaySetting` 的 JSON 里），无法按助手或对话单独开关。
 - `values-ar` / `values-de` / `values-ja` / `values-ko-rKR` / `values-ru` / `values-zh-rTW` 尚未补新增文案的译文，回退到英文；`tools/i18n` 需要 bun，当前环境未安装。
+
+---
+
+## 28. 插话功能与日志诊断（2026-11-28）
+
+用户可以在模型生成中途插话，让当前这一轮直接看到新指令，而不是等这一轮结束再另开一轮。同批还补齐了排查插话是否生效所需的日志能力，并对导出日志里的凭据做了脱敏。
+
+本批次共 29 个文件（`+2016 / -110`），其中 2 个是调研文档（`docs/references/onboarding-ux-research.md`、`settings-catalog.md`）。
+
+### 28.1 插话的数据模型
+
+新增 `UIMessagePart.Steer`（`ai/src/main/java/me/rerere/ai/ui/UIMessagePart.kt`）：
+
+| 字段 | 说明 |
+|---|---|
+| `parts` | 插话内容，与普通用户消息一致，可带附件 |
+| `createdAt` | 用户实际发出插话的时间，拆成 user 消息时用它，时间提醒据此算间隔 |
+| `diagnosticId` | 仅用于日志关联，`@Transient`，不进历史存储和 provider payload |
+
+`Steer` 与已有的 `Notice`（运行时事件，如后台命令结束）走同一条通道：生成中由 agent 循环在轮到模型回复时追加到助手消息末尾，之后随会话保存。区别只在语义与展示——`Steer` 是用户说的话，按用户消息显示；`Notice` 是运行时事件，标 `isSynthetic`。
+
+为此抽出 `UIMessagePart?.isInlineUserPart()` 判断，凡是「内联在助手消息里、请求时要拆成 user 消息」的 part 都走它，避免新增 part 类型时漏改排序或空消息判断。
+
+### 28.2 注入时机：只在请求边界
+
+`AgentLoop`（`ai/src/main/java/me/rerere/ai/agent/AgentLoop.kt`）有两处注入点：
+
+1. `generateStep()` 开头调用 `appendPendingParts()`，把待发内容追加到本轮助手消息末尾。这里有个原有约束：续写普通回复时最后一个 part 不是执行完的工具或通知，追加会把续写变成新的一轮，所以默认跳过。
+2. 模型这一步没有再调用工具、本来要结束时（`steps > 0` 分支），先问 `hasPendingSteers()`，有插话就 `appendPendingParts(force = true)` 再请求一次，而不是直接 `Completed`。
+
+**没有采用「流式输出中途打断」的方案**。曾经实现过一版：流式正文每收到一块就检查插话，命中就抛异常中断当前请求，保留已生成内容后重新请求。后来回退了，原因是：
+
+- Claude / Gemini 的思考块必须带签名才能回传，签名只在块结束时下发；中途打断会得到缺少签名的半截思考，发给模型会被拒。
+- 打断可能停在工具调用中途，参数不完整，只能丢弃，用户看到的是「话说一半没了」。
+
+现在的语义是：**当前响应完整保留，插话在下一次请求边界注入**。代价是插话不会立刻生效（要等当前这段输出结束），换来的是思考和工具调用都不会被截断。这与 Reasonix 的做法一致。
+
+`hasPendingSteers()` 是新增的 `AgentHooks` 方法，实现方应当只读内存，不能做 IO 或长时间挂起。只有用户插话算数，`Notice` 不算——否则每一轮结束前都要白请求一次。
+
+### 28.3 拆成 user 消息
+
+`Notices.kt` 有两个拆分函数，分工不同：
+
+| 函数 | 时机 | 处理 |
+|---|---|---|
+| `extractSteers()` | 输入转换器**之前** | 把 `Steer` 拆成 user 消息，让文档解析、OCR、模板、用户正则和普通用户消息一样作用在它身上，否则插话里的附件会被静默丢掉 |
+| `expandNotices()` | 输入转换器**之后** | 兜底：万一哪条组装路径漏了 `Steer`，在这里再拆一次；同时把 `Notice` 拆成 `isSynthetic` 消息，避免被套上模板和时间提醒 |
+
+拆出来的插话消息**不标 `isSynthetic`**，因为它确实是用户说的话，应该走普通用户消息的整条处理链。
+
+`toSortedMessageParts()` 在存在 `Steer` 或 `Notice` 时跳过排序——这两类 part 的位置决定它在请求里插在哪，排序会把它挪到推理之后。
+
+### 28.4 发给模型时的提示词标记
+
+插话拆出来就是一条普通 user 消息，模型只能靠位置猜它是不是中途插入的。加上一行固定前缀，模型才知道这是当前任务的补充指引，而不是新任务或纠正。
+
+参考 Reasonix（`internal/state/sessionstore/steertext.go` 的 `MidTurnSteerPrefix`），在 `Notices.kt` 新增：
+
+```kotlin
+const val MID_TURN_STEER_PREFIX: String =
+    "[Mid-turn steer queued by the user. Do not treat this as a new task; " +
+        "use it only as additional guidance for the current task after completing the current step.]"
+
+fun String.stripMidTurnSteerPrefix(): String =
+    removePrefix(MID_TURN_STEER_PREFIX).removePrefix("
+")
+```
+
+`markedAsMidTurnSteer()` 只给 `Text` part 加前缀，附件原样保留。**前缀只加在发给模型的副本上**：会话里存的 `UIMessagePart.Steer` 仍是用户原话，所以 UI 气泡、Markdown 导出、历史回放都不需要改动，也不会显示这行英文。
+
+### 28.5 发送侧：什么时候算插话
+
+`ConversationSession.isSteerable` 决定一条新消息是插话还是排队等下一轮：
+
+```kotlin
+val isSteerable: Boolean
+    get() = state.value.isAwaitingToolApproval ||
+        (isGenerating && activity.value == SessionActivity.Generating)
+```
+
+两个条件都算「这一轮还没结束」：
+
+- **正在生成**：任务槽里是生成而不是压缩。
+- **等待工具审批**：任务槽已经空出来（`isGenerating` 为 false），但审批完这一轮会继续。这一条是后加的——`shell` 默认需要审批，审批期间发的消息原本会被当成普通消息排到下一轮，导致插话「不生效」。
+
+`ConversationSessionManager.getSteerableFlow` 用 `combine` 同步维护同一判断，供界面显示提示。
+
+`ConversationInbox` 相应扩展：
+
+- `QueuedMessage.steer` 标记这条排队项是插话。
+- `takePendingParts()` 按放入顺序取走「通知 + 未在编辑的插话」，包成 `UIMessagePart.Steer`；不受队列暂停影响。
+- `hasPendingSteers()` 只看未在编辑的插话。
+- `takeNext()` 里，这一轮已经结束还留在队列里的插话按普通消息发出（`steer = false`）。
+
+### 28.6 界面
+
+- **输入框**（`ChatInput.kt`）：可插话时显示提示条「现在发送会插进当前回复」。
+- **消息气泡**（`ChatMessage.kt`）：`Steer` 按用户消息渲染，带「插话」标签，内容按普通用户消息的规则处理正则替换。
+- **队列面板**（`MessageQueuePanel.kt`）：插话用不同图标和颜色区分，标签为「插话」而非序号。
+- **Markdown 导出**（`ConversationExport.kt`）：插话以 `> **Interjection**` 开头导出，内容按用户内容处理。
+- 新增两条字符串：`chat_page_steer_label`、`chat_page_steer_hint`。
+
+### 28.7 日志诊断
+
+插话「有没有生效」从对话内部看不出来，所以加了一条诊断链。`AgentHooks` 新增四个钩子：
+
+| 钩子 | 时机 |
+|---|---|
+| `onModelRequestStarted(step)` | 请求发给 provider 之前 |
+| `onModelRequestCompleted(step, message)` | provider 返回且输出转换完成后 |
+| `onModelRequestFailed(step, error)` | 请求或输出处理失败 |
+| `onRunFinished(reason)` / `onRunFailed(error)` | 整轮结束或失败 |
+
+`StepRequest` 新增 `steerDiagnostics: Map<Uuid, Boolean>`，记录每条插话的 ID 和它的 user 消息是否在请求准备后仍然存活。`ChatRequestFactory` 用 `diagnosticId` 优先、`createdAt` 兜底在最终 `requestMessages` 里定位。
+
+日志标签 `Interjection`，事件序列：
+
+```
+queued → attached_to_agent_message → provider_request_started in_prompt=true → response_received → agent_run_finished
+```
+
+`LogPage.kt` 增加说明文案，`strings.xml` 新增 `log_page_interjection_diagnostics_desc`。
+
+同批给标题/建议生成加了 `ModelTask` 日志（`request_started` / `task_failed` / `request_failed`），记录模型、provider 和失败原因，便于定位「标题生成 402」这类和主对话无关的失败。
+
+**已知不足**：`in_prompt` 只验证「消息在请求里」，不校验文本里有没有前缀；请求体超过 64KB 时会被省略，看不到实际内容。
+
+### 28.8 日志导出凭据脱敏
+
+`RequestLoggingInterceptor.kt` 原本只对 `Proxy-Authorization` 请求头打码，URL 查询参数和请求体里的 key 会原样落进导出的日志文件。本批次补齐：
+
+| 位置 | 处理 |
+|---|---|
+| 请求头 | `isSensitiveLogHeader()` 匹配 authorization / apikey / token / secret / cookie，值替换为 `██` |
+| URL | `redactLogSecrets()` 清空 username / password，敏感查询参数（key、api_key、token、secret、password、signature 等）替换为 `██` |
+| 请求体 / 响应体 | 正则替换 JSON 里的敏感字段、`Bearer xxx`、以及 URL 形式的 `?key=` |
+| 响应体 | 只在状态码 ≥ 400 且是 text/json 时抓取，上限 4KB，超出标记 `[truncated]` |
+| 请求体 | 流式（`isOneShot`/`isDuplex`）直接省略；上限 64KB；长度未知也省略 |
+
+限制说明：正则只覆盖常见字段名，自定义鉴权头或非标准字段仍可能漏过。抓取响应体用的是 `peekBody`，不会消费原响应。
+
+### 28.9 测试与验证
+
+- `AgentLoopTest`：插话在步骤边界续轮、只有通知不续轮、工具执行期间入队的插话随下一次请求发出、思考链中途不打断。
+- `NoticesTest`：插话保留自己的 parts 且不标 synthetic、前缀确实加上、附件不被污染、`stripMidTurnSteerPrefix` 能还原。
+- `ConversationInboxTest`：插话与通知按顺序取走、编辑中的插话不被取走、轮次结束后残留的插话按普通消息发出、暂停不阻止取走插话、工具执行期间入队的插话随结果一起取走。
+- `RequestLoggingInterceptorTest`：URL、请求头、请求体、响应体的脱敏与截断。
+- `:ai:testDebugUnitTest` 全绿；`assembleGithubRelease` BUILD SUCCESSFUL，产出 3 个 APK。
+
+真机实测（`deepseek-v4.1-flash` 经第三方中转）：插话在 `sleep 5` 正常返回后 1 秒内随请求发出，`in_prompt=true`，模型正常回应。
+
+### 28.10 已知限制
+
+- **插话不会立刻生效**：只在请求边界注入，当前这段输出会完整写完。这是为保住思考签名和工具调用完整性做的取舍。
+- **前缀可能被模板包裹**：`extractSteers()` 在输入转换器之前加前缀，若助手配置了 Pebble 模板，前缀会被套在模板内部而非消息开头。彻底解决要把加前缀挪到所有输入转换器之后。
+- **空内容插话**：`takePendingParts()` 不重新校验内容，若入队时 `parts` 里有空白 `Text`，会生成一条「只有前缀、没有内容」的消息。
+- `stripMidTurnSteerPrefix()` 目前只有测试在用，生产代码没有调用点；会话里存的是原话，暂时不需要。
+- 未做 i18n：前缀是英文，`values-ar` 等语言目录未补新增文案。
